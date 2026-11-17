@@ -8,7 +8,7 @@ import { initAudio } from '../audio/index.ts';
 import { bus } from '../core/EventBus.ts';
 import { bookRewards, bookRunEnd, state } from '../core/GameState.ts';
 import { settings } from '../core/Settings.ts';
-import { applyCursor } from './Cursor.ts';
+import { AimCursor } from './Cursor.ts';
 import { NetClient } from '../net/NetClient.ts';
 import { Prediction } from '../net/Prediction.ts';
 import { SnapshotBuffer } from '../net/SnapshotBuffer.ts';
@@ -42,6 +42,7 @@ async function boot(): Promise<void> {
   const buffer = new SnapshotBuffer();
   const prediction = new Prediction();
   const input = new Input(canvas);
+  const cursor = new AimCursor(canvas);
   const params = new URLSearchParams(window.location.search);
   const autopilot = import.meta.env.DEV && params.has('autopilot') ? (await import('../dev/autopilot.ts')).createAutopilot() : null;
 
@@ -50,7 +51,7 @@ async function boot(): Promise<void> {
     view.setShake(settings.shake);
     view.setZoom(settings.zoom);
     view.setDamageNumbers(settings.damageNumbers);
-    applyCursor(canvas, settings.cursor, input.enabled);
+    cursor.setStyle(settings.cursor);
   };
   applySettings();
   bus.on('settings:changed', applySettings);
@@ -85,12 +86,13 @@ async function boot(): Promise<void> {
     const enabled = state.screen === 'game' && !state.overlayOpen;
     if (input.enabled && !enabled) input.release();
     input.enabled = enabled;
-    applyCursor(canvas, settings.cursor, enabled);
+    cursor.setAiming(enabled);
   };
 
   net.onSnapshot = (snap: Snapshot, receivedAt: number): void => {
     buffer.push(snap, receivedAt);
     lastSelf = snap.players.find((p) => p.slot === state.conn.slot) ?? null;
+    cursor.patch({ charged: lastSelf !== null && lastSelf.state === 'alive' && lastSelf.ult >= 1 });
     prediction.reconcile(snap.self, state.run?.room ?? null, lastSelf);
     state.players = snap.players;
     state.enemiesAlive = snap.enemies.length;
@@ -110,6 +112,7 @@ async function boot(): Promise<void> {
         if (match && (ELEMENT_IDS as readonly string[]).includes(match[1])) infusions[match[2] as AbilitySlot] = match[1] as ElementId;
       }
       view.setInfusions(p.slot, infusions);
+      if (p.slot === state.conn.slot) cursor.patch({ cls: p.cls, element: infusions.primary });
     }
   });
 
