@@ -9,6 +9,10 @@ if (import.meta.env.DEV && params.has('showcase')) {
   void import('./dev/showcase.ts');
 } else if (import.meta.env.DEV && params.has('uidemo')) {
   void import('./dev/uidemo.ts');
+} else if (import.meta.env.DEV && params.has('peek')) {
+  void import('./dev/peek.ts');
+} else if (import.meta.env.DEV && params.has('peekui')) {
+  void import('./dev/peekui.ts');
 } else {
   void import('./game/boot.ts');
 }

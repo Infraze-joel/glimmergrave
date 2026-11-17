@@ -1,0 +1,14 @@
+import puppeteer from 'puppeteer-core';
+const [url, out, waitFn, extraWait] = process.argv.slice(2);
+const browser = await puppeteer.launch({ executablePath: '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox','--disable-setuid-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader','--ignore-gpu-blocklist','--autoplay-policy=no-user-gesture-required','--window-size=1280,720'] });
+const page = await browser.newPage();
+await page.setViewport({ width: 1280, height: 720 });
+const errs = [];
+page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') errs.push(m.type() + ': ' + m.text().slice(0, 300)); });
+page.on('pageerror', (e) => errs.push('pageerror: ' + String(e).slice(0, 400)));
+await page.goto(url, { waitUntil: 'load', timeout: 60000 });
+if (waitFn && waitFn !== '-') await page.waitForFunction(waitFn, { timeout: 90000 }).catch((e) => errs.push('wait: ' + e.message));
+await new Promise((r) => setTimeout(r, Number(extraWait ?? 1500)));
+await page.screenshot({ path: out });
+console.log(errs.slice(0, 12).join('\n') || 'no console errors');
+await browser.close();

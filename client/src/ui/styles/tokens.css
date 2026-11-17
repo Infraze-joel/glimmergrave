@@ -1,0 +1,56 @@
+/* Glimmergrave UI design tokens. Everything visual in ui/ derives from these custom properties. */
+:root {
+  /* stone + shadow */
+  --gg-bg-0: #06070b;
+  --gg-bg-1: #0c0f16;
+  --gg-bg-2: #131823;
+  --gg-bg-3: #1b2130;
+  --gg-bg-4: #262e42;
+  --gg-line: #333b4f;
+  --gg-line-strong: #4b5570;
+
+  /* parchment text */
+  --gg-text: #efe8d8;
+  --gg-text-dim: #adb3c1;
+  --gg-text-faint: #747d90;
+
+  /* torch gold + glimmer (soul-light) */
+  --gg-gold: #e9c46a;
+  --gg-gold-hi: #ffe7ad;
+  --gg-gold-lo: #9a7230;
+  --gg-glimmer: #45e0c0;
+  --gg-glimmer-hi: #b4fff0;
+  --gg-glimmer-lo: #1c8a78;
+
+  /* elements */
+  --gg-ember: #ff7a2e;
+  --gg-rime: #58d8ff;
+  --gg-storm: #b07bff;
+
+  /* vitals + semantic */
+  --gg-danger: #ff4d5e;
+  --gg-health: #e2414f;
+  --gg-health-lo: #8a1b2a;
+  --gg-shield: #c4e6ff;
+  --gg-ok: #7ee08a;
+
+  /* rarity */
+  --gg-common: #c3bfb2;
+  --gg-rare: #45e0c0;
+  --gg-epic: #ffc94d;
+
+  /* classes */
+  --gg-knight: #7fa9e6;
+  --gg-barbarian: #e2584b;
+  --gg-mage: #e391d8;
+  --gg-rogue: #86d06c;
+
+  --gg-font-display: 'Cinzel', 'Trajan Pro', 'Palatino Linotype', Georgia, serif;
+  --gg-font-body: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  --gg-fast: 110ms;
+  --gg-med: 180ms;
+  --gg-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  --gg-shadow-text: 0 0 2px #000, 0 0 2px #000, 0 1px 3px rgba(0, 0, 0, 0.95), 0 0 0.6em rgba(0, 0, 0, 0.85);
+}

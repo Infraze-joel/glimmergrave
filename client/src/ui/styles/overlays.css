@@ -1,0 +1,654 @@
+/* Draft, scoreboard (Tab), settings / pause, how to play, shared stats table. */
+
+/* ---------------------------------------------------------------- boon draft */
+.gg-draft {
+  position: absolute;
+  inset: 0;
+  z-index: 1; /* below the HUD so health, party and chamber track stay visible */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1em;
+  padding: 6.8em 2em 6.4em;
+  background: radial-gradient(ellipse at 50% 45%, rgba(6, 7, 11, 0.74), rgba(6, 7, 11, 0.9));
+  pointer-events: auto;
+  animation: gg-fade-in var(--gg-med) linear both;
+}
+
+.gg-draft-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2em;
+  text-align: center;
+}
+
+.gg-draft-title {
+  font-family: var(--gg-font-display);
+  font-size: 2em;
+  font-weight: 900;
+  line-height: 1.15;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gg-gold-hi);
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.9), 0 0 0.9em rgba(233, 196, 106, 0.4);
+}
+
+.gg-draft-sub {
+  color: var(--gg-text-dim);
+}
+
+.gg-draft.is-cursed .gg-draft-sub {
+  color: #d9c2ff;
+}
+
+.gg-draft-timer {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  margin-top: 0.4em;
+  padding: 0.15em 0.9em;
+  border: 1px solid var(--gg-line-strong);
+  border-radius: 1em;
+  background: rgba(6, 7, 11, 0.8);
+  font-weight: 700;
+  color: var(--gg-text);
+}
+
+.gg-draft-timer .gg-icon {
+  width: 1em;
+  height: 1em;
+  color: var(--gg-gold);
+}
+
+.gg-draft-timer.is-urgent {
+  border-color: var(--gg-danger);
+  color: #ffb3bb;
+  animation: gg-pulse 0.5s linear infinite;
+}
+
+.gg-draft-timer.is-urgent .gg-icon {
+  color: var(--gg-danger);
+}
+
+.gg-draft-cards {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 1.1em;
+  width: 100%;
+}
+
+.gg-boon-card {
+  --cut: 1em;
+  --tint: var(--gg-text);
+  --edge: var(--rarity);
+  --fill: linear-gradient(180deg, color-mix(in srgb, var(--rarity) 16%, #171c29) 0%, #0e1119 58%);
+  display: flex;
+  flex: 0 1 17em;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5em;
+  min-width: 0;
+  min-height: 21.5em;
+  padding: 2.5em 1.1em 1em;
+  border: 0;
+  text-align: center;
+  cursor: pointer;
+  animation: gg-rise-in var(--gg-med) var(--gg-ease) both;
+  transition: transform var(--gg-fast) var(--gg-ease), filter var(--gg-fast) linear, opacity var(--gg-med) linear;
+}
+
+.gg-boon-card.gg-rarity-epic {
+  --fill:
+    radial-gradient(120% 60% at 50% 0%, rgba(255, 201, 77, 0.3), transparent 70%),
+    linear-gradient(180deg, #2a2414 0%, #0e1119 60%);
+}
+
+.gg-boon-card:hover:not(:disabled) {
+  transform: translateY(-0.5em);
+  filter: brightness(1.16);
+}
+
+.gg-boon-card:focus-visible {
+  --edge: #fff;
+  transform: translateY(-0.5em);
+  filter: brightness(1.16) drop-shadow(0 0 0.5em var(--rarity));
+}
+
+.gg-boon-card:disabled {
+  cursor: default;
+}
+
+.gg-boon-card.is-picked {
+  --edge: #fff;
+  transform: translateY(-0.7em) scale(1.03);
+  filter: brightness(1.25) drop-shadow(0 0 0.7em var(--rarity));
+}
+
+.gg-boon-card.is-rejected {
+  opacity: 0.3;
+  filter: grayscale(0.7);
+}
+
+.gg-boon-hotkey {
+  position: absolute;
+  top: 0.7em;
+  left: 0.9em;
+  font-size: 1.1em;
+}
+
+.gg-boon-rarity {
+  position: absolute;
+  top: 0.95em;
+  right: 1.1em;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  font-family: var(--gg-font-display);
+  font-size: 0.7em;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--rarity);
+}
+
+.gg-boon-rarity .gg-icon {
+  width: 1.2em;
+  height: 1.2em;
+}
+
+.gg-boon-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 4.4em;
+  height: 4.4em;
+  border: 1px solid color-mix(in srgb, var(--tint) 55%, transparent);
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--tint) 30%, transparent), rgba(6, 7, 11, 0.6) 72%);
+  color: var(--tint);
+  box-shadow: 0 0 1.2em color-mix(in srgb, var(--tint) 30%, transparent);
+}
+
+.gg-boon-icon .gg-icon {
+  width: 2.4em;
+  height: 2.4em;
+}
+
+.gg-boon-name {
+  margin-top: 0.3em;
+  font-family: var(--gg-font-display);
+  font-size: 1.22em;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.05em;
+  color: var(--gg-text);
+}
+
+.gg-boon-level {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6em;
+  font-size: 0.7em;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gg-text-dim);
+}
+
+.gg-boon-level.is-upgrade {
+  color: var(--gg-gold);
+}
+
+.gg-level-pips {
+  display: inline-flex;
+  gap: 0.3em;
+}
+
+.gg-level-pips i {
+  width: 0.55em;
+  height: 0.55em;
+  border: 1px solid var(--gg-line-strong);
+  background: rgba(6, 7, 11, 0.8);
+  transform: rotate(45deg);
+}
+
+.gg-level-pips i.is-on {
+  border-color: var(--gg-gold-hi);
+  background: var(--gg-gold);
+}
+
+.gg-boon-desc {
+  flex: 1;
+  font-size: 0.9em;
+  line-height: 1.45;
+  color: #c9cdd8;
+}
+
+.gg-boon-category {
+  width: 100%;
+  padding-top: 0.6em;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 0.7em;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--tint) 80%, var(--gg-text-dim));
+}
+
+.gg-draft-hint {
+  font-size: 0.82em;
+  color: var(--gg-text-faint);
+}
+
+.gg-draft-wait {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4em;
+  padding: 1.2em 2.4em;
+  border: 1px solid var(--gg-glimmer-lo);
+  background: rgba(9, 28, 27, 0.88);
+  text-align: center;
+  animation: gg-pop-in var(--gg-med) var(--gg-ease) both;
+}
+
+.gg-draft-wait-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  font-family: var(--gg-font-display);
+  font-size: 1.4em;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gg-glimmer-hi);
+}
+
+.gg-draft-wait-text {
+  color: var(--gg-text-dim);
+}
+
+/* ---------------------------------------------------------------- stats table (Tab + summary) */
+.gg-stats {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.gg-stats th,
+.gg-stats td {
+  padding: 0.42em 0.7em;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.gg-stats thead th {
+  border-bottom: 1px solid var(--gg-line);
+  font-family: var(--gg-font-display);
+  font-size: 0.68em;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gg-text-dim);
+}
+
+.gg-stats thead .gg-icon {
+  width: 1.3em;
+  height: 1.3em;
+  margin-right: 0.35em;
+  color: var(--gg-gold);
+}
+
+.gg-stats .gg-stats-hero {
+  width: 38%;
+  text-align: left;
+  font-weight: 400;
+}
+
+.gg-stats-hero-in {
+  display: flex;
+  align-items: center;
+  gap: 0.65em;
+}
+
+.gg-stats-emblem {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 2.2em;
+  height: 2.2em;
+  border: 1px solid var(--cls);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--cls) 18%, #0c0f16);
+  color: var(--cls);
+}
+
+.gg-stats-emblem .gg-icon {
+  width: 1.4em;
+  height: 1.4em;
+}
+
+.gg-stats-id {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.gg-stats-id b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gg-stats-id span {
+  font-size: 0.76em;
+  color: var(--cls);
+}
+
+.gg-stats tbody tr:not(.gg-stats-boons) td {
+  font-size: 1.05em;
+}
+
+.gg-stats tbody tr + tr:not(.gg-stats-boons) th,
+.gg-stats tbody tr + tr:not(.gg-stats-boons) td {
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.gg-stats tr.is-own th,
+.gg-stats tr.is-own td,
+.gg-stats tr.is-own + .gg-stats-boons td {
+  background: rgba(233, 196, 106, 0.07);
+}
+
+.gg-stats tr.is-off {
+  opacity: 0.55;
+}
+
+.gg-stats td.is-mvp {
+  font-weight: 700;
+  color: var(--gg-gold-hi);
+}
+
+.gg-mvp-star {
+  width: 1em;
+  height: 1em;
+  margin-right: 0.35em;
+  color: var(--gg-gold);
+}
+
+.gg-stats .gg-stats-boons td {
+  padding: 0 0.7em 0.5em 3.55em;
+  text-align: left;
+}
+
+.gg-boon-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em;
+}
+
+.gg-boon-chips-empty {
+  font-size: 0.78em;
+  color: var(--gg-text-faint);
+}
+
+.gg-boon-chip {
+  --tint: var(--gg-text);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  height: 1.7em;
+  padding: 0 0.5em 0 0.35em;
+  border: 1px solid color-mix(in srgb, var(--rarity) 70%, transparent);
+  border-radius: 0.25em;
+  background: rgba(6, 7, 11, 0.7);
+  color: var(--tint);
+}
+
+.gg-boon-chip .gg-icon {
+  width: 1.1em;
+  height: 1.1em;
+}
+
+.gg-boon-chip b {
+  font-family: var(--gg-font-display);
+  font-size: 0.72em;
+  color: var(--gg-text-dim);
+}
+
+/* ---------------------------------------------------------------- Tab overlay */
+.gg-tab {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.6em;
+  background: rgba(4, 5, 8, 0.5);
+  pointer-events: none;
+  animation: gg-fade-in var(--gg-fast) linear both;
+}
+
+.gg-tab-panel {
+  --cut: 1em;
+  --edge: var(--gg-line-strong);
+  --fill: rgba(12, 15, 22, 0.95);
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 60em);
+  max-height: 100%;
+  padding: 1.1em 1.5em 1.2em;
+}
+
+.gg-tab-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1em;
+  margin-bottom: 0.5em;
+}
+
+.gg-tab-meta {
+  display: flex;
+  gap: 1.4em;
+  font-size: 0.84em;
+  color: var(--gg-text-dim);
+}
+
+.gg-tab-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+}
+
+.gg-tab-meta .gg-icon {
+  width: 1.2em;
+  height: 1.2em;
+  color: var(--gg-gold);
+}
+
+.gg-tab-body {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.gg-own-boons-label {
+  margin: 0.9em 0 0.5em;
+  padding-top: 0.8em;
+  border-top: 1px solid var(--gg-line);
+}
+
+.gg-own-boons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45em 1.4em;
+}
+
+.gg-own-boons li {
+  --tint: var(--gg-text);
+  display: flex;
+  gap: 0.6em;
+  font-size: 0.84em;
+  line-height: 1.3;
+}
+
+.gg-own-boon-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 2.1em;
+  height: 2.1em;
+  border: 1px solid color-mix(in srgb, var(--rarity) 70%, transparent);
+  border-radius: 0.3em;
+  background: rgba(6, 7, 11, 0.7);
+  color: var(--tint);
+}
+
+.gg-own-boons b {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+}
+
+.gg-own-boons li > div > span {
+  color: var(--gg-text-dim);
+}
+
+/* ---------------------------------------------------------------- settings / pause */
+.gg-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 0 2.4em;
+}
+
+.gg-settings-col h3 {
+  margin: 1.1em 0 0.5em;
+  color: var(--gg-gold);
+}
+
+.gg-settings-col h3:first-child {
+  margin-top: 0;
+}
+
+.gg-set-row {
+  display: grid;
+  grid-template-columns: 10.5em minmax(0, 1fr) 3.4em;
+  align-items: center;
+  gap: 0.8em;
+  min-height: 2.25em;
+}
+
+.gg-set-row--inline {
+  grid-template-columns: 10.5em minmax(0, 1fr);
+  justify-items: start;
+}
+
+.gg-set-label {
+  color: var(--gg-text);
+  font-size: 0.92em;
+}
+
+.gg-set-value {
+  text-align: right;
+  font-size: 0.86em;
+  color: var(--gg-gold);
+}
+
+.gg-pause-hint {
+  margin-bottom: 1em;
+  font-size: 0.86em;
+  color: var(--gg-text-faint);
+}
+
+.gg-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.42em;
+}
+
+.gg-controls li {
+  display: grid;
+  grid-template-columns: 8.6em minmax(0, 1fr);
+  align-items: center;
+  gap: 0.8em;
+  font-size: 0.88em;
+  line-height: 1.3;
+  color: var(--gg-text);
+}
+
+.gg-controls-keys {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+}
+
+.gg-controls-mouse {
+  width: 1.7em;
+  height: 1.7em;
+  color: var(--gg-text);
+}
+
+.gg-modal-spacer {
+  flex: 1;
+}
+
+.gg-modal-text {
+  font-size: 1.02em;
+  line-height: 1.5;
+  color: var(--gg-text);
+}
+
+.gg-modal--error {
+  --edge: #8a3340;
+}
+
+.gg-modal--error .gg-modal-title {
+  color: #ffb3bb;
+}
+
+.gg-connecting {
+  display: flex;
+  align-items: center;
+  gap: 1.2em;
+  padding: 0.6em 0;
+}
+
+/* ---------------------------------------------------------------- how to play */
+.gg-howto {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75em;
+}
+
+.gg-howto li {
+  display: grid;
+  grid-template-columns: 6.2em minmax(0, 1fr);
+  align-items: center;
+  gap: 1em;
+  padding: 0.6em 1em;
+  border-left: 3px solid var(--gg-gold-lo);
+  background: rgba(27, 33, 48, 0.55);
+  color: var(--gg-text);
+  line-height: 1.45;
+}
+
+.gg-howto-icons {
+  display: flex;
+  justify-content: center;
+  gap: 0.35em;
+  color: var(--gg-gold);
+}
+
+.gg-howto-icons .gg-icon {
+  width: 1.8em;
+  height: 1.8em;
+}
+
+.gg-el-ember { color: var(--gg-ember); }
+.gg-el-rime { color: var(--gg-rime); }
+.gg-el-storm { color: var(--gg-storm); }
+.gg-el-resonance { color: var(--gg-glimmer); }
+.gg-el-revive { color: var(--gg-glimmer); }

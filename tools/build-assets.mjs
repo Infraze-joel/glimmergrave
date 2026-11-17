@@ -3,8 +3,8 @@
 // Sources (all CC0, Kay Lousberg): see docs/ASSETS.md
 import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { dedup, prune, resample, quantize, meshopt, mergeDocuments, unpartition } from '@gltf-transform/functions';
-import { MeshoptEncoder, MeshoptDecoder } from 'meshoptimizer';
+import { dedup, prune, resample, quantize, meshopt, mergeDocuments, unpartition, simplify, compactPrimitive, weld } from '@gltf-transform/functions';
+import { MeshoptEncoder, MeshoptDecoder, MeshoptSimplifier } from 'meshoptimizer';
 import { mkdirSync, statSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
@@ -12,6 +12,7 @@ const SRC = resolve(process.argv[2] ?? '../assets-src');
 const OUT = resolve('client/public/assets/models');
 mkdirSync(OUT, { recursive: true });
 await MeshoptEncoder.ready;
+await MeshoptSimplifier.ready;
 const io = new NodeIO()
   .registerExtensions(ALL_EXTENSIONS)
   .registerDependencies({ 'meshopt.encoder': MeshoptEncoder, 'meshopt.decoder': MeshoptDecoder });
@@ -65,9 +66,44 @@ async function finish(doc, name) {
   report.push([name, statSync(out).size]);
 }
 
-async function character(src, name) {
+// Up to 44 skeletons are on screen at once (and drawn a second time into the shadow map on 'high'), seen from
+// ~30 m away: they are decimated to stay inside the triangle budget. Heroes keep the full source detail.
+const ENEMY_LOD = { ratio: Number(process.env.ENEMY_LOD_RATIO ?? 0.4), error: Number(process.env.ENEMY_LOD_ERROR ?? 0.03) };
+// Every decimated mesh also gets a much coarser sibling node "<name>_shadow". The client appends it to the same
+// vertex/index buffers and switches the draw range while rendering the shadow map (render/assets.ts).
+const SHADOW_LOD = { ratio: 0.16, error: 0.25 };
+const SHADOW_SUFFIX = '_shadow';
+
+async function decimate(doc) {
+  await doc.transform(weld(), simplify({ simplifier: MeshoptSimplifier, ...ENEMY_LOD }));
+  const scene = doc.getRoot().listScenes()[0];
+  for (const node of doc.getRoot().listNodes()) {
+    const mesh = node.getMesh();
+    if (!mesh || node.getName().endsWith(SHADOW_SUFFIX)) continue;
+    const lod = doc.createMesh(mesh.getName() + SHADOW_SUFFIX);
+    for (const prim of mesh.listPrimitives()) {
+      const copy = prim.clone();
+      const src = new Uint32Array(copy.getIndices().getArray());
+      const target = Math.floor((src.length * SHADOW_LOD.ratio) / 3) * 3;
+      // 'Permissive' lets the simplifier collapse across the hard-edge seams of the low-poly kit; fine for a silhouette
+      const [dst] = MeshoptSimplifier.simplify(src, copy.getAttribute('POSITION').getArray(), 3, target, SHADOW_LOD.error, ['Permissive', 'Prune']);
+      if (dst.length < 3) continue;
+      copy.setIndices(doc.createAccessor().setType('SCALAR').setArray(new Uint32Array(dst)));
+      compactPrimitive(copy);
+      lod.addPrimitive(copy);
+    }
+    if (lod.listPrimitives().length === 0) { lod.dispose(); continue; }
+    const lodNode = doc.createNode(node.getName() + SHADOW_SUFFIX).setMesh(lod).setSkin(node.getSkin())
+      .setTranslation(node.getTranslation()).setRotation(node.getRotation()).setScale(node.getScale());
+    const parent = node.getParentNode();
+    if (parent) parent.addChild(lodNode); else scene.addChild(lodNode);
+  }
+}
+
+async function character(src, name, lod = false) {
   const doc = await io.read(src);
   for (const a of doc.getRoot().listAnimations()) dropAnimation(a);
+  if (lod) await decimate(doc);
   await finish(doc, name);
 }
 
@@ -90,10 +126,11 @@ async function animations(src, name, keep) {
   report.push([name, statSync(out).size]);
 }
 
-async function library(entries, name) {
+async function library(entries, name, lod = false) {
   let target = null;
   for (const [file, nodeName] of entries) {
     const doc = await io.read(file);
+    if (lod) await decimate(doc);
     const scene = doc.getRoot().listScenes()[0];
     // Wrap each source file in a single named root so the client can look pieces up by name.
     const wrapper = doc.createNode(nodeName);
@@ -109,7 +146,7 @@ async function library(entries, name) {
 }
 
 for (const h of ['Knight', 'Barbarian', 'Mage', 'Rogue']) await character(join(ADV, `Characters/gltf/${h}.glb`), `hero_${h.toLowerCase()}`);
-for (const s of ['Minion', 'Warrior', 'Rogue', 'Mage']) await character(join(SKE, `Characters/gltf/Skeleton_${s}.glb`), `skel_${s.toLowerCase()}`);
+for (const s of ['Minion', 'Warrior', 'Rogue', 'Mage']) await character(join(SKE, `Characters/gltf/Skeleton_${s}.glb`), `skel_${s.toLowerCase()}`, true);
 await animations(join(ADV, 'Characters/gltf/Knight.glb'), 'anims_hero', HERO_CLIPS);
 await animations(join(SKE, 'Characters/gltf/Skeleton_Warrior.glb'), 'anims_skel', SKEL_CLIPS);
 const dunFiles = new Set(readdirSync(DUN));
@@ -117,7 +154,7 @@ await library(DUNGEON.map((n) => {
   const f = dunFiles.has(`${n}.gltf.glb`) ? `${n}.gltf.glb` : `${n}.glb`;
   return [join(DUN, f), n];
 }), 'dungeon');
-await library(PROPS, 'props');
+await library(PROPS, 'props', true);
 
 let total = 0;
 for (const [n, s] of report) { total += s; console.log(n.padEnd(16), (s / 1024).toFixed(1).padStart(8), 'KB'); }

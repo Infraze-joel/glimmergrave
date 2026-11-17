@@ -1,0 +1,688 @@
+/* Base layer: reset inside #ui-root, typography, shared controls (buttons, fields, sliders, modals). */
+.gg-ui {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  color: var(--gg-text);
+  font-family: var(--gg-font-body);
+  /* One fluid unit for every menu: 13px at 1024x600 up to 21px at 2560x1440. */
+  font-size: clamp(13px, 0.5vw + 0.55vh + 3.2px, 21px);
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  cursor: default;
+}
+
+/* Zero-specificity reset so component classes always win. */
+:where(.gg-ui) :where(*) {
+  box-sizing: border-box;
+}
+
+.gg-ui *::before,
+.gg-ui *::after {
+  box-sizing: border-box;
+}
+
+:where(.gg-ui) :where(h1, h2, h3, p, ul, ol, table, li) {
+  margin: 0;
+  padding: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+:where(.gg-ui) :where(ul, ol) {
+  list-style: none;
+}
+
+:where(.gg-ui) :where(button, input) {
+  margin: 0;
+  font: inherit;
+  color: inherit;
+}
+
+.gg-ui [hidden] {
+  display: none !important;
+}
+
+.gg-display {
+  font-family: var(--gg-font-display);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.gg-dim {
+  color: var(--gg-text-dim);
+}
+
+.gg-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------- icons */
+.gg-icon {
+  display: inline-flex;
+  flex: none;
+  width: 1.25em;
+  height: 1.25em;
+  vertical-align: middle;
+}
+
+.gg-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+
+/* ---------------------------------------------------------------- cut-corner frame */
+.gg-cut {
+  --cut: 0.6em;
+  --edge: var(--gg-line);
+  --fill: var(--gg-bg-2);
+  position: relative;
+  isolation: isolate;
+  background: var(--edge);
+  clip-path: polygon(
+    var(--cut) 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% calc(100% - var(--cut)),
+    calc(100% - var(--cut)) 100%, var(--cut) 100%, 0 calc(100% - var(--cut)), 0 var(--cut)
+  );
+}
+
+.gg-cut::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  z-index: -1;
+  background: var(--fill);
+  clip-path: polygon(
+    var(--cut) 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% calc(100% - var(--cut)),
+    calc(100% - var(--cut)) 100%, var(--cut) 100%, 0 calc(100% - var(--cut)), 0 var(--cut)
+  );
+  transition: background var(--gg-fast) linear;
+}
+
+/* ---------------------------------------------------------------- buttons */
+.gg-btn {
+  --cut: 0.5em;
+  --edge: var(--gg-line-strong);
+  --fill: linear-gradient(180deg, #2c3449 0%, #1b2130 100%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55em;
+  min-height: 2.9em;
+  padding: 0 1.3em;
+  border: 0;
+  font-family: var(--gg-font-display);
+  font-weight: 700;
+  font-size: 0.92em;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--gg-text);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: filter var(--gg-fast) linear, transform var(--gg-fast) var(--gg-ease), background var(--gg-fast) linear;
+}
+
+.gg-btn:hover:not(:disabled) {
+  --edge: var(--gg-gold);
+  filter: brightness(1.18);
+}
+
+.gg-btn:active:not(:disabled) {
+  transform: translateY(1px) scale(0.985);
+  filter: brightness(0.92);
+}
+
+.gg-btn:focus-visible,
+.gg-ui button:focus-visible {
+  outline: none;
+}
+
+.gg-btn:focus-visible {
+  --edge: var(--gg-glimmer);
+  filter: brightness(1.2) drop-shadow(0 0 0.35em rgba(69, 224, 192, 0.55));
+}
+
+.gg-btn:disabled {
+  cursor: not-allowed;
+  color: var(--gg-text-faint);
+  --edge: var(--gg-line);
+  --fill: linear-gradient(180deg, #1a1f2b, #141822);
+}
+
+.gg-btn--primary {
+  --edge: var(--gg-gold-hi);
+  --fill: linear-gradient(180deg, #f3d589 0%, #d2a548 55%, #a87a2c 100%);
+  color: #20160a;
+  text-shadow: 0 1px 0 rgba(255, 240, 200, 0.45);
+}
+
+.gg-btn--primary:hover:not(:disabled) {
+  --edge: #fff6dc;
+}
+
+.gg-btn--glimmer {
+  --edge: var(--gg-glimmer-hi);
+  --fill: linear-gradient(180deg, #6ff0d4 0%, #2bb89d 60%, #1c8a78 100%);
+  color: #04221d;
+  text-shadow: 0 1px 0 rgba(220, 255, 247, 0.4);
+}
+
+.gg-btn--danger {
+  --edge: #8a3340;
+  --fill: linear-gradient(180deg, #3a1d25, #24121a);
+  color: #ffb3bb;
+}
+
+.gg-btn--danger:hover:not(:disabled) {
+  --edge: var(--gg-danger);
+}
+
+.gg-btn--ghost {
+  --edge: var(--gg-line);
+  --fill: rgba(19, 24, 35, 0.82);
+  color: var(--gg-text-dim);
+}
+
+.gg-btn--ghost:hover:not(:disabled) {
+  color: var(--gg-text);
+}
+
+.gg-btn--small {
+  min-height: 2.3em;
+  padding: 0 0.9em;
+  font-size: 0.78em;
+}
+
+.gg-btn--block {
+  display: flex;
+  width: 100%;
+}
+
+.gg-btn .gg-icon {
+  width: 1.2em;
+  height: 1.2em;
+}
+
+/* ---------------------------------------------------------------- key caps */
+.gg-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75em;
+  height: 1.75em;
+  padding: 0 0.42em;
+  border: 1px solid var(--gg-line-strong);
+  border-bottom-width: 3px;
+  border-radius: 0.3em;
+  background: linear-gradient(180deg, #2a3144, #181d29);
+  color: var(--gg-text);
+  font-family: var(--gg-font-body);
+  font-size: 0.74em;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  line-height: 1;
+  white-space: nowrap;
+  text-transform: none;
+  text-shadow: none;
+}
+
+.gg-key .gg-icon {
+  width: 1.15em;
+  height: 1.15em;
+}
+
+/* ---------------------------------------------------------------- text fields */
+.gg-label {
+  display: block;
+  margin-bottom: 0.4em;
+  font-family: var(--gg-font-display);
+  font-size: 0.72em;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--gg-text-dim);
+}
+
+.gg-input {
+  width: 100%;
+  height: 2.9em;
+  padding: 0 0.9em;
+  border: 1px solid var(--gg-line);
+  border-bottom: 2px solid var(--gg-gold-lo);
+  border-radius: 2px;
+  background: rgba(6, 7, 11, 0.78);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.6);
+  color: var(--gg-text);
+  font-size: 1em;
+  outline: none;
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  transition: border-color var(--gg-fast) linear, box-shadow var(--gg-fast) linear;
+}
+
+.gg-input::placeholder {
+  color: var(--gg-text-faint);
+}
+
+.gg-input:hover {
+  border-color: var(--gg-line-strong);
+  border-bottom-color: var(--gg-gold);
+}
+
+.gg-input:focus-visible {
+  border-color: var(--gg-glimmer-lo);
+  border-bottom-color: var(--gg-glimmer);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(69, 224, 192, 0.35), 0 0 0.9em rgba(69, 224, 192, 0.25);
+}
+
+.gg-input--code {
+  font-family: var(--gg-font-display);
+  font-weight: 700;
+  font-size: 1.1em;
+  height: 2.64em;
+  letter-spacing: 0.34em;
+  text-indent: 0.34em;
+  text-align: center;
+  text-transform: uppercase;
+  padding: 0 0.3em;
+}
+
+.gg-input--code::placeholder {
+  letter-spacing: 0.2em;
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------- slider */
+.gg-slider {
+  --val: 50%;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 1.5em;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+  outline: none;
+}
+
+.gg-slider::-webkit-slider-runnable-track {
+  height: 0.42em;
+  border: 1px solid var(--gg-line);
+  border-radius: 1em;
+  background: linear-gradient(90deg, var(--gg-gold-lo), var(--gg-gold)) 0 / var(--val) 100% no-repeat, #080a0f;
+}
+
+.gg-slider::-moz-range-track {
+  height: 0.42em;
+  border: 1px solid var(--gg-line);
+  border-radius: 1em;
+  background: #080a0f;
+}
+
+.gg-slider::-moz-range-progress {
+  height: 0.42em;
+  border-radius: 1em;
+  background: linear-gradient(90deg, var(--gg-gold-lo), var(--gg-gold));
+}
+
+.gg-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 0.95em;
+  height: 0.95em;
+  margin-top: -0.3em;
+  border: 1px solid #fff6dc;
+  border-radius: 1px;
+  background: linear-gradient(135deg, #ffe7ad, #c99a3e);
+  transform: rotate(45deg);
+  box-shadow: 0 0 0 2px rgba(6, 7, 11, 0.9);
+  transition: transform var(--gg-fast) var(--gg-ease);
+}
+
+.gg-slider::-moz-range-thumb {
+  width: 0.85em;
+  height: 0.85em;
+  border: 1px solid #fff6dc;
+  border-radius: 1px;
+  background: linear-gradient(135deg, #ffe7ad, #c99a3e);
+  transform: rotate(45deg);
+}
+
+.gg-slider:hover::-webkit-slider-thumb {
+  transform: rotate(45deg) scale(1.15);
+}
+
+.gg-slider:focus-visible::-webkit-slider-thumb {
+  border-color: var(--gg-glimmer-hi);
+  background: linear-gradient(135deg, var(--gg-glimmer-hi), var(--gg-glimmer));
+  box-shadow: 0 0 0 2px rgba(6, 7, 11, 0.9), 0 0 0.7em var(--gg-glimmer);
+}
+
+.gg-slider:focus-visible::-moz-range-thumb {
+  border-color: var(--gg-glimmer-hi);
+  background: var(--gg-glimmer);
+}
+
+/* ---------------------------------------------------------------- segmented control + switch */
+.gg-seg {
+  display: inline-flex;
+  border: 1px solid var(--gg-line);
+  border-radius: 2px;
+  background: rgba(6, 7, 11, 0.7);
+  padding: 2px;
+  gap: 2px;
+}
+
+.gg-seg button {
+  min-width: 3.4em;
+  height: 2em;
+  padding: 0 0.8em;
+  border: 0;
+  border-radius: 1px;
+  background: transparent;
+  color: var(--gg-text-dim);
+  font-family: var(--gg-font-display);
+  font-size: 0.76em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background var(--gg-fast) linear, color var(--gg-fast) linear;
+}
+
+.gg-seg button:hover {
+  color: var(--gg-text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.gg-seg button[aria-pressed='true'] {
+  color: #20160a;
+  background: linear-gradient(180deg, #f3d589, #c2943c);
+}
+
+.gg-seg button:focus-visible {
+  box-shadow: 0 0 0 2px var(--gg-glimmer);
+}
+
+.gg-switch {
+  position: relative;
+  width: 3.2em;
+  height: 1.7em;
+  padding: 0;
+  border: 1px solid var(--gg-line-strong);
+  border-radius: 1em;
+  background: #080a0f;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background var(--gg-fast) linear, border-color var(--gg-fast) linear;
+}
+
+.gg-switch::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0.22em;
+  width: 1.1em;
+  height: 1.1em;
+  border-radius: 50%;
+  background: var(--gg-text-faint);
+  transform: translateY(-50%);
+  transition: left var(--gg-fast) var(--gg-ease), background var(--gg-fast) linear;
+}
+
+.gg-switch[aria-checked='true'] {
+  border-color: var(--gg-gold);
+  background: rgba(233, 196, 106, 0.2);
+}
+
+.gg-switch[aria-checked='true']::after {
+  left: 1.78em;
+  background: var(--gg-gold);
+}
+
+.gg-switch:focus-visible {
+  box-shadow: 0 0 0 2px var(--gg-glimmer);
+}
+
+/* ---------------------------------------------------------------- layers */
+.gg-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.gg-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  pointer-events: auto;
+  animation: gg-fade-in var(--gg-med) var(--gg-ease) both;
+}
+
+.gg-backdrop {
+  background:
+    radial-gradient(120% 90% at 72% 30%, rgba(255, 138, 60, 0.1), transparent 55%),
+    radial-gradient(90% 80% at 12% 100%, rgba(69, 224, 192, 0.09), transparent 60%),
+    radial-gradient(140% 120% at 50% 40%, rgba(12, 15, 22, 0.8), rgba(6, 7, 11, 0.97) 75%);
+}
+
+/* drifting glimmer motes: pure CSS, a handful of elements */
+.gg-motes {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.gg-motes i {
+  position: absolute;
+  bottom: -2%;
+  width: 0.28em;
+  height: 0.28em;
+  border-radius: 50%;
+  background: var(--gg-glimmer);
+  box-shadow: 0 0 0.6em 0.12em rgba(69, 224, 192, 0.7);
+  opacity: 0;
+  animation: gg-mote 14s linear infinite;
+}
+
+.gg-motes i:nth-child(3n) {
+  background: var(--gg-gold);
+  box-shadow: 0 0 0.6em 0.12em rgba(233, 196, 106, 0.6);
+}
+
+@keyframes gg-mote {
+  0% { transform: translate3d(0, 0, 0) scale(0.6); opacity: 0; }
+  12% { opacity: 0.85; }
+  80% { opacity: 0.5; }
+  100% { transform: translate3d(3em, -105vh, 0) scale(1.1); opacity: 0; }
+}
+
+@keyframes gg-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes gg-rise-in {
+  from { opacity: 0; transform: translateY(0.6em); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes gg-pop-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes gg-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes gg-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+/* ---------------------------------------------------------------- modal */
+.gg-modal-host {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5em;
+  background: rgba(4, 5, 8, 0.72);
+  pointer-events: auto;
+  animation: gg-fade-in var(--gg-fast) linear both;
+}
+
+.gg-modal {
+  --cut: 1em;
+  --edge: var(--gg-line-strong);
+  --fill: linear-gradient(180deg, #171c29 0%, #0e1119 100%);
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 34em);
+  max-height: 100%;
+  padding: 1.6em 1.8em 1.5em;
+  animation: gg-pop-in var(--gg-med) var(--gg-ease) both;
+}
+
+.gg-modal--wide {
+  width: min(100%, 62em);
+}
+
+.gg-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  margin-bottom: 0.9em;
+  padding-bottom: 0.7em;
+  border-bottom: 1px solid var(--gg-line);
+  font-family: var(--gg-font-display);
+  font-size: 1.35em;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--gg-gold);
+}
+
+.gg-modal-title .gg-icon {
+  width: 1.1em;
+  height: 1.1em;
+}
+
+.gg-modal-body {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--gg-line-strong) transparent;
+  color: var(--gg-text-dim);
+}
+
+.gg-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.7em;
+  margin-top: 1.3em;
+}
+
+.gg-spinner {
+  width: 2.6em;
+  height: 2.6em;
+  border: 3px solid rgba(233, 196, 106, 0.18);
+  border-top-color: var(--gg-gold);
+  border-right-color: var(--gg-glimmer);
+  border-radius: 50%;
+  animation: gg-spin 0.9s linear infinite;
+}
+
+/* ---------------------------------------------------------------- toasts (errors, notices) */
+.gg-toasts {
+  position: absolute;
+  left: 50%;
+  bottom: 2.2em;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5em;
+  width: min(90%, 34em);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.gg-toast {
+  display: flex;
+  align-items: center;
+  gap: 0.7em;
+  max-width: 100%;
+  padding: 0.7em 1.1em;
+  border: 1px solid #8a3340;
+  border-left: 3px solid var(--gg-danger);
+  border-radius: 2px;
+  background: rgba(30, 12, 17, 0.95);
+  color: #ffd9dd;
+  font-size: 0.95em;
+  box-shadow: 0 0.4em 1.4em rgba(0, 0, 0, 0.6);
+  animation: gg-rise-in var(--gg-med) var(--gg-ease) both;
+  transition: opacity var(--gg-med) linear;
+}
+
+.gg-toast--info {
+  border-color: var(--gg-glimmer-lo);
+  border-left-color: var(--gg-glimmer);
+  background: rgba(9, 28, 27, 0.95);
+  color: #d5fff6;
+}
+
+.gg-toast.is-leaving {
+  opacity: 0;
+}
+
+.gg-toast .gg-icon {
+  color: var(--gg-danger);
+}
+
+.gg-toast--info .gg-icon {
+  color: var(--gg-glimmer);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gg-ui *,
+  .gg-ui *::before,
+  .gg-ui *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .gg-motes {
+    display: none;
+  }
+
+  .gg-spinner {
+    animation-duration: 1.6s !important;
+    animation-iteration-count: infinite !important;
+  }
+}
+
+/* In game the bottom centre belongs to the ability bar: notices move under the event feed. */
+body[data-screen='game'] .gg-toasts {
+  top: 12em;
+  right: 1.1em;
+  bottom: auto;
+  left: auto;
+  align-items: flex-end;
+  width: min(60%, 26em);
+  transform: none;
+}

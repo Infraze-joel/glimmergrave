@@ -263,6 +263,11 @@ export type GameEvent =
       x: number; z: number; rot: number; r: number; w: number;
       /** Seconds until the attack lands. */
       dur: number;
+      /**
+       * Id of the enemy that is winding up (additive, optional). If that enemy dies or is stunned / staggered
+       * before `dur` has passed, the attack is cancelled and the telegraph can be removed early.
+       */
+      src?: number;
     }
   | { e: 'cast'; who: TargetRef; ability: string; x: number; z: number; rot: number }
   | { e: 'aoe'; x: number; z: number; r: number; el: ElementId | null; hostile: boolean }

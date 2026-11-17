@@ -56,11 +56,11 @@ export const RUN = {
   DRAFT_TIMEOUT_SECONDS: 45,
   DRAFT_CHOICES: 3,
   /** Extra enemy health per additional player (multiplicative). */
-  HP_PER_EXTRA_PLAYER: 0.55,
+  HP_PER_EXTRA_PLAYER: 0.6,
   /** Extra enemy count per additional player (multiplicative). */
-  COUNT_PER_EXTRA_PLAYER: 0.35,
+  COUNT_PER_EXTRA_PLAYER: 0.4,
   /** Enemy health / damage growth per chamber index. */
-  HP_GROWTH_PER_CHAMBER: 0.14,
+  HP_GROWTH_PER_CHAMBER: 0.18,
   DAMAGE_GROWTH_PER_CHAMBER: 0.07,
   /** Oath (difficulty) levels 0..3: enemy hp, enemy damage, enemy speed multipliers. */
   OATH: [

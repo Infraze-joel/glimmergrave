@@ -1,0 +1,136 @@
+/**
+ * Original inline SVG icon set. One consistent style: 24x24 grid, round 1.7px strokes in currentColor,
+ * occasional soft fills (class "f") for weight. No external images.
+ */
+const wrap = (body: string): string =>
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+
+const SOFT = 'fill="currentColor" fill-opacity="0.22"';
+const SOLID = 'fill="currentColor" stroke="none"';
+
+const spokes = (count: number, d: string): string =>
+  Array.from({ length: count }, (_, i) => `<path transform="rotate(${(360 / count) * i} 12 12)" d="${d}"/>`).join('');
+
+const SWORD =
+  `<path ${SOFT} d="M20.5 3.5l-4 .7-8.9 8.9 3.3 3.3 8.9-8.9z"/><path d="M5.6 11.3l7.1 7.1"/><path d="M7.7 16.3l-3.4 3.4"/>`;
+const SHIELD = `<path ${SOFT} d="M12 3l7.5 2.6v5.9c0 4.6-3 8-7.5 9.5-4.5-1.5-7.5-4.9-7.5-9.5V5.6z"/>`;
+const SKULL =
+  `<path ${SOFT} d="M12 3.5c-4.4 0-7.5 3-7.5 7 0 2.3 1 4.1 2.5 5.3V19h10v-3.2c1.5-1.2 2.5-3 2.5-5.3 0-4-3.1-7-7.5-7z"/>` +
+  `<circle cx="9" cy="11" r="1.5"/><circle cx="15" cy="11" r="1.5"/><path d="M10 19v-2.2M12 19v-2.2M14 19v-2.2"/>`;
+const CROWN = `<path ${SOFT} d="M4 18.5L2.8 8.2l5 4L12 5l4.2 7.2 5-4L20 18.5z"/><path d="M4.5 21.2h15"/>`;
+const FLAME =
+  `<path ${SOFT} d="M12 2.5c.7 3.3 5.6 5.6 5.6 11a5.6 5.6 0 0 1-11.2 0c0-2.3 1.2-3.9 2.3-5 .3 1.6 1 2.5 1.9 2.9-.2-3.3 0-6.4 1.4-8.9z"/>` +
+  `<path d="M12 19.2a2.3 2.3 0 0 1-2.3-2.3c0-1.3 1.2-2 2.3-3.4 1.1 1.4 2.3 2.1 2.3 3.4a2.3 2.3 0 0 1-2.3 2.3z"/>`;
+const SNOW = spokes(6, 'M12 12V2.8M9.8 4.9L12 7.1l2.2-2.2');
+const BOLT = `<path ${SOFT} d="M13.6 2.5L5.5 13.6h5.1l-1.6 7.9 8.6-11.6h-5.2z"/>`;
+const RESONANCE =
+  `<circle cx="12" cy="12" r="3" ${SOFT}/><circle cx="12" cy="12" r="6.8" stroke-dasharray="2.6 2.6"/>` +
+  `<path d="M12 1.6v2.6M12 19.8v2.6M1.6 12h2.6M19.8 12h2.6"/>`;
+const HEART = `<path ${SOFT} d="M12 20.2S4.5 15.6 4.5 9.9A4.2 4.2 0 0 1 12 7.3a4.2 4.2 0 0 1 7.5 2.6c0 5.7-7.5 10.3-7.5 10.3z"/>`;
+const GEM = `<path ${SOFT} d="M7 4h10l4 5.5L12 21 3 9.5z"/><path d="M3 9.5h18M9.2 4L7.6 9.5 12 21l4.4-11.5L14.8 4"/>`;
+const BOOT = `<path ${SOFT} d="M8.5 3.5v9.2l-4 3v4.3h15.5v-2.4c0-2-1.6-3.2-4-3.5l-2.5-1.6v-9z"/><path d="M4.5 17.2H20"/>`;
+const MOUSE_BODY = '<path d="M7 9a5 5 0 0 1 10 0v6a5 5 0 0 1-10 0z"/><path d="M12 4v6M7 10h10"/>';
+
+export const ICONS = {
+  // ---- abilities
+  sword: wrap(SWORD),
+  bash: wrap(`<g transform="translate(3 0)">${SHIELD}</g><path d="M2 8.5h3M1.5 12h4M2 15.5h3"/>`),
+  axe: wrap(`<path d="M4.5 20.5L16 6"/><path ${SOFT} d="M13.2 4.4c2.6-.9 5.6.2 7.2 2.6-1.2 2.7-3.7 4.4-6.5 4.5l-2.8-3.6z"/>`),
+  whirl: wrap(
+    '<path d="M4.5 12a7.5 7.5 0 0 1 12.9-5.2"/><path d="M17.8 2.8v4.1h-4.1"/>' +
+    '<path d="M19.5 12a7.5 7.5 0 0 1-12.9 5.2"/><path d="M6.2 21.2v-4.1h4.1"/>' +
+    `<circle cx="12" cy="12" r="1.6" ${SOFT}/>`,
+  ),
+  arcBolt: wrap(`<circle cx="16" cy="8" r="3.6" ${SOFT}/><path d="M12.9 11.1L5 19M10.4 8.6l-5.2 5.2M15.4 13.6l-5.2 5.2"/>`),
+  nova: wrap(`<circle cx="12" cy="12" r="4.2" ${SOFT}/>${spokes(8, 'M12 2.4v2.8')}`),
+  crossbow: wrap('<path d="M4 10c4-5.5 12-5.5 16 0"/><path d="M4 10l8 4 8-4"/><path d="M12 3v18"/><path d="M9.8 5.2L12 3l2.2 2.2"/>'),
+  knives: wrap(
+    [-38, 0, 38].map((a) =>
+      `<g transform="rotate(${a} 12 21)"><path ${SOFT} d="M12 2.5l1.7 9h-3.4z"/><path d="M12 11.5v4.5"/></g>`).join(''),
+  ),
+  dash: wrap('<path d="M12.5 5l7 7-7 7"/><path d="M5.5 5l7 7-7 7"/>'),
+
+  // ---- elements
+  ember: wrap(FLAME),
+  rime: wrap(SNOW),
+  storm: wrap(BOLT),
+  resonance: wrap(RESONANCE),
+
+  // ---- class emblems
+  knight: wrap(`<path ${SOFT} d="M6 21V10.5C6 6.4 8.7 3.5 12 3.5s6 2.9 6 7V21h-4.4L12 17.8 10.4 21z"/><path d="M6 11.5h12M12 11.5v4"/>`),
+  barbarian: wrap(
+    `<path ${SOFT} d="M6.5 20.5v-6a5.5 5.5 0 0 1 11 0v6z"/><path d="M12 14.5v6"/>` +
+    '<path d="M6.9 12.3C4 11.8 2.8 9.4 3 6.4c1.4 1.8 3 2.6 4.9 2.9"/><path d="M17.1 12.3c2.9-.5 4.1-2.9 3.9-5.9-1.4 1.8-3 2.6-4.9 2.9"/>',
+  ),
+  mage: wrap(
+    `<path ${SOFT} d="M7.3 17.3L13 3.5l1.2 5 2.5 8.8"/>` +
+    '<path d="M3.5 18.6c2.5-1.2 5.4-1.8 8.5-1.8s6 .6 8.5 1.8c-2 1.6-5 2.4-8.5 2.4s-6.5-.8-8.5-2.4z"/><path d="M9.6 12.6h5.8"/>',
+  ),
+  rogue: wrap(
+    `<path ${SOFT} d="M12 3C7.5 4.8 5 8.7 5 13.5c0 3 1 5.5 2.5 7.5h9c1.5-2 2.5-4.5 2.5-7.5C19 8.7 16.5 4.8 12 3z"/>` +
+    '<path d="M8.6 14.2c0-2.6 1.5-4.6 3.4-4.6s3.4 2 3.4 4.6c0 1.5-.5 2.8-1.2 3.8h-4.4c-.7-1-1.2-2.3-1.2-3.8z"/>',
+  ),
+
+  // ---- doors + chambers
+  boon: wrap(GEM),
+  blessing: wrap(`<path ${SOFT} d="M7 4.5h10v3.8a5 5 0 0 1-10 0z"/><path d="M12 13.3v5.2M8 20.8h8"/><path d="M12 1.2v1.3"/>`),
+  cursed: wrap(
+    `<path ${SOFT} d="M2.5 12c2.5-4.5 5.8-6.8 9.5-6.8s7 2.3 9.5 6.8c-2.5 4.5-5.8 6.8-9.5 6.8S5 16.5 2.5 12z"/>` +
+    '<path d="M12 8.3c1.4 1.2 1.4 6.2 0 7.4-1.4-1.2-1.4-6.2 0-7.4z"/>',
+  ),
+  boss: wrap(CROWN),
+  combat: wrap('<path d="M5 4l11.5 11.5M19 4L7.5 15.5"/><path d="M13.8 17.2l3.4-3.4M10.2 17.2l-3.4-3.4"/><path d="M17 17l3 3M7 17l-3 3"/>'),
+  elite: wrap(SKULL),
+
+  // ---- boon categories + rarity
+  infusion: wrap(`<path ${SOFT} d="M12 3c3 4 6 7 6 10.6a6 6 0 0 1-12 0C6 10 9 7 12 3z"/><path d="M9.3 14.2a2.8 2.8 0 0 0 2.2 2.6"/>`),
+  offense: wrap(SWORD),
+  defense: wrap(`${SHIELD}<path d="M12 8v7M8.6 11.5h6.8"/>`),
+  mobility: wrap(BOOT),
+  element: wrap(
+    `<circle cx="12" cy="6.2" r="2.7" ${SOFT}/><circle cx="6" cy="16.8" r="2.7" ${SOFT}/><circle cx="18" cy="16.8" r="2.7" ${SOFT}/>` +
+    '<path d="M10.6 8.6l-3.2 5.8M13.4 8.6l3.2 5.8M8.8 16.8h6.4"/>',
+  ),
+  kinship: wrap(`<circle cx="8.8" cy="12" r="5.2" ${SOFT}/><circle cx="15.2" cy="12" r="5.2"/>`),
+  gem: wrap(`<path ${SOFT} d="M12 2.8l7 9.2-7 9.2-7-9.2z"/><path d="M5 12h14M12 2.8L9.2 12l2.8 9.2 2.8-9.2z"/>`),
+
+  // ---- stats
+  heart: wrap(HEART),
+  speed: wrap(BOOT),
+  skull: wrap(SKULL),
+  revive: wrap(`${HEART}<path d="M12 15.5v-5M9.8 12.4l2.2-2.2 2.2 2.2"/>`),
+  down: wrap('<path d="M12 4v14M6.5 12.5L12 18l5.5-5.5"/><path d="M5 21h14"/>'),
+  star: wrap(`<path ${SOFT} d="M12 3l2.7 5.8 6.3.8-4.6 4.4 1.2 6.3L12 17.3l-5.6 3 1.2-6.3L3 9.6l6.3-.8z"/>`),
+  hourglass: wrap(`<path d="M6.5 3h11M6.5 21h11"/><path ${SOFT} d="M7.5 3c0 4.5 4.5 5.5 4.5 9s-4.5 4.5-4.5 9h9c0-4.5-4.5-5.5-4.5-9s4.5-4.5 4.5-9z"/>`),
+  bell: wrap(`<path ${SOFT} d="M5.5 17c1.4-1.3 1.8-3.2 1.8-6.5a4.7 4.7 0 0 1 9.4 0c0 3.3.4 5.2 1.8 6.5z"/><path d="M10.3 20a1.8 1.8 0 0 0 3.4 0M12 5.8V3.6"/>`),
+  users: wrap(`<circle cx="9" cy="8.5" r="3.2" ${SOFT}/><path d="M3 20c.4-3.6 2.8-5.6 6-5.6s5.6 2 6 5.6"/><path d="M15.5 5.6a3.2 3.2 0 0 1 0 5.8M17.5 14.8c2 .7 3.2 2.5 3.5 5.2"/>`),
+
+  // ---- interface
+  check: wrap('<path d="M5 12.6l4.6 4.6L19 7.6"/>'),
+  close: wrap('<path d="M6 6l12 12M18 6L6 18"/>'),
+  copy: wrap(`<rect x="8.5" y="8.5" width="11" height="11" rx="1.5" ${SOFT}/><path d="M15.5 5.5v-1a1 1 0 0 0-1-1h-9a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h1"/>`),
+  link: wrap('<path d="M10 14a4.2 4.2 0 0 0 6 0l3-3a4.2 4.2 0 0 0-6-6l-1.2 1.2"/><path d="M14 10a4.2 4.2 0 0 0-6 0l-3 3a4.2 4.2 0 0 0 6 6l1.2-1.2"/>'),
+  unlink: wrap('<path d="M13.5 6.5L15 5a4.2 4.2 0 0 1 6 6l-1.5 1.5"/><path d="M10.5 17.5L9 19a4.2 4.2 0 0 1-6-6l1.5-1.5"/><path d="M4 4l16 16"/>'),
+  gear: wrap(`<circle cx="12" cy="12" r="3.2"/><circle cx="12" cy="12" r="6.6" ${SOFT}/>${spokes(8, 'M12 2.6v2.8')}`),
+  help: wrap(`<circle cx="12" cy="12" r="9" ${SOFT}/><path d="M9.3 9.4a2.8 2.8 0 1 1 4.2 2.4c-.9.6-1.5 1.2-1.5 2.4"/><path d="M12 17.3v.2"/>`),
+  exit: wrap('<path d="M14 4h5.5v16H14"/><path d="M10.5 8l-4 4 4 4M6.5 12h9"/>'),
+  lock: wrap(`<rect x="5.5" y="10.5" width="13" height="10" rx="1.5" ${SOFT}/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5M12 14.5v2.5"/>`),
+  warning: wrap(`<path ${SOFT} d="M12 3.5l9.5 16.5h-19z"/><path d="M12 10v4.5M12 17.3v.2"/>`),
+  move: wrap('<path d="M12 3v18M3 12h18"/><path d="M9.5 5.5L12 3l2.5 2.5M9.5 18.5L12 21l2.5-2.5M5.5 9.5L3 12l2.5 2.5M18.5 9.5L21 12l-2.5 2.5"/>'),
+  door: wrap(`<path ${SOFT} d="M6 21V8.5a6 6 0 0 1 12 0V21z"/><path d="M3.5 21h17M14.5 14v1.5"/>`),
+  mouseLeft: wrap(`${MOUSE_BODY}<path ${SOLID} d="M11.2 4.1A5 5 0 0 0 7 9v.2h4.2z"/>`),
+  mouseRight: wrap(`${MOUSE_BODY}<path ${SOLID} d="M12.8 4.1A5 5 0 0 1 17 9v.2h-4.2z"/>`),
+  mouse: wrap(MOUSE_BODY),
+  signal: wrap('<path class="b1" d="M5 20v-3"/><path class="b2" d="M10 20v-7"/><path class="b3" d="M15 20V9"/><path class="b4" d="M20 20V4"/>'),
+
+  // ---- emblem (logo): a grave arch holding a glimmer crystal
+  emblem:
+    '<svg viewBox="0 0 64 64" fill="none" stroke-linecap="round" stroke-linejoin="round">' +
+    '<path d="M12 58V27C12 15 20.5 6 32 6s20 9 20 21v31z" fill="#11151f" stroke="#e9c46a" stroke-width="2.6"/>' +
+    '<path d="M18 58V28c0-9 6-16 14-16s14 7 14 16v30" stroke="#9a7230" stroke-width="1.4"/>' +
+    '<path d="M32 19l9 13-9 15-9-15z" fill="#45e0c0" fill-opacity="0.9" stroke="#b4fff0" stroke-width="1.6"/>' +
+    '<path d="M23 32h18M32 19l-3.5 13L32 47l3.5-15z" stroke="#0f6a5c" stroke-width="1.2"/>' +
+    '<path d="M6 58h52" stroke="#e9c46a" stroke-width="2.6"/></svg>',
+} as const;
+
+export type IconName = keyof typeof ICONS;

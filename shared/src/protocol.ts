@@ -59,6 +59,7 @@ const isClass = (v: unknown): v is ClassId => typeof v === 'string' && (CLASS_ID
 /** Trims, collapses whitespace and strips control characters. Returns null if nothing printable is left. */
 export function sanitizeName(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
+  // eslint-disable-next-line no-control-regex -- stripping control characters is the point
   const name = raw.replace(/[\u0000-\u001f\u007f<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, NET.MAX_NAME_LENGTH);
   return name.length > 0 ? name : null;
 }
