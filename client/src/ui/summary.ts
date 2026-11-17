@@ -318,7 +318,8 @@ export function createSummary(openModal: (kind: ModalKind) => void, openPage: (p
             icon('crown'), h('div', null, h('span', null, t('summary.bosses')), h('b', { class: 'gg-num' }, String(cleared))))
           : null,
         chip('hourglass', t('summary.time'), formatTime(run.elapsed)),
-        chip('bell', t('summary.oath'), run.oath > 0 ? `${roman(run.oath)} · ${oathName(run.oath)}` : oathName(0)),
+        // Named Oaths show numeral and name; the numbered ones above are their own name.
+        chip('bell', t('summary.oath'), run.oath > 0 && run.oath < RUN.OATH.length ? `${roman(run.oath)} · ${oathName(run.oath)}` : oathName(run.oath)),
       ),
       unlocked !== null
         ? h('div', { class: 'gg-summary-unlock', role: 'status' },

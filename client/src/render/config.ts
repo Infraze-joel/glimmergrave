@@ -43,7 +43,7 @@ export const PALETTE = {
   /** Barbarian bloodrage: a hot amber, kept away from the hostile red. */
   rage: 0xff9a1f,
   /** Shade smoke and marks. */
-  shadow: 0x241a33,
+  shadow: 0x4a3f6b,
   mark: 0xd9b8ff,
   /** Endless descent: the abyss below and the bell light above. */
   abyss: 0x8a3dff,

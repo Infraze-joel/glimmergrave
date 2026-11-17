@@ -181,14 +181,14 @@ export const CLASSES: Record<ClassId, ClassDef> = {
   },
   // Two-handed zealot. Slow, wide, heavy swings; keeps the party standing.
   templar: {
-    id: 'templar', maxHp: 128, moveSpeed: 5.3, dashCharges: 1,
+    id: 'templar', maxHp: 122, moveSpeed: 5.3, dashCharges: 1,
     primary: [
-      { ...base, id: 'templar_swing1', shape: 'arc', anim: 'primary1', cooldown: 0.6, windup: 0.22, lock: 0.5, damage: 29, range: 3.4, arc: 150, moveMul: 0.4 },
-      { ...base, id: 'templar_swing2', shape: 'arc', anim: 'primary2', cooldown: 0.6, windup: 0.22, lock: 0.5, damage: 29, range: 3.4, arc: 150, moveMul: 0.4 },
-      { ...base, id: 'templar_swing3', shape: 'arc', anim: 'primary3', cooldown: 0.85, windup: 0.32, lock: 0.7, damage: 48, range: 3.7, arc: 200, moveMul: 0.3, knockback: 2.5, stun: 0.3 },
+      { ...base, id: 'templar_swing1', shape: 'arc', anim: 'primary1', cooldown: 0.6, windup: 0.22, lock: 0.5, damage: 27, range: 3.4, arc: 150, moveMul: 0.4 },
+      { ...base, id: 'templar_swing2', shape: 'arc', anim: 'primary2', cooldown: 0.6, windup: 0.22, lock: 0.5, damage: 27, range: 3.4, arc: 150, moveMul: 0.4 },
+      { ...base, id: 'templar_swing3', shape: 'arc', anim: 'primary3', cooldown: 0.85, windup: 0.32, lock: 0.7, damage: 45, range: 3.7, arc: 200, moveMul: 0.3, knockback: 2.5, stun: 0.3 },
     ],
     // Consecrate: hallowed ground around the templar hurts enemies and mends heroes.
-    secondary: { ...base, id: 'templar_consecrate', shape: 'zone', anim: 'secondary', cooldown: 9, windup: 0.3, lock: 0.5, moveMul: 0.3, damage: 7, heal: 1.5, range: 0, radius: 3.6, duration: 5, tick: 0.5 },
+    secondary: { ...base, id: 'templar_consecrate', shape: 'zone', anim: 'secondary', cooldown: 11, windup: 0.3, lock: 0.5, moveMul: 0.3, damage: 7, heal: 1.5, range: 0, radius: 3.6, duration: 5, tick: 0.5 },
     arts: [
       // Judgement: leap and smite.
       { ...base, id: 'templar_judgement', shape: 'leap', anim: 'art', cooldown: 8, windup: 0.45, lock: 0.7, moveMul: 0, damage: 42, range: 7, radius: 2.8, stun: 1 },

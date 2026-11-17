@@ -41,7 +41,7 @@ const TUNE = {
   TRAP_PLATE: 1.7,
   TRAP_SNAP: 0.55,
   STAR: 0xffc46a,
-  STAR_FROM: { x: 8, y: 27, z: -6 },
+  STAR_FROM: { x: 5, y: 17, z: -3 },
   STAR_TAIL: 9,
   RAIN_BOLTS: 14,
   RAIN_RATE: 2.4,
@@ -175,8 +175,8 @@ export class AbilityFx {
         break;
       case ZK.SANCTUARY:
         // the templar's ultimate: the whole circle lights up, then a column of light stands over it
-        vfx.flash(ev.x, 2.4, ev.z, PALETTE.holy, ev.r * 2.6, 0.5, 2.1);
-        vfx.flash(ev.x, 1.2, ev.z, PALETTE.white, ev.r * 1.3, 0.16, 1.8);
+        vfx.flash(ev.x, 2.4, ev.z, PALETTE.holy, ev.r * 1.5, 0.45, 1.5);
+        vfx.flash(ev.x, 1.2, ev.z, PALETTE.white, ev.r * 0.6, 0.14, 1.5);
         vfx.ring(ev.x, ev.z, 1, d * 1.1, 0.6, PALETTE.holy, 0.55, 2.3);
         vfx.ring(ev.x, ev.z, 1, d * 1.5, 0.95, PALETTE.holyDeep, 0.25, 1.7, 0.12);
         vfx.groundFlash(ev.x, ev.z, d * 1.25, 0.8, PALETTE.holy, 1.2);
@@ -307,7 +307,7 @@ export class AbilityFx {
       case ZK.SMOKE: {
         const s = rgb(PALETTE.shadow);
         const rim = rgb(tint !== 0 ? tint : PALETTE.umbra);
-        decals.push(DECAL.SMOKE, x, 0.04, z, time * 0.2, d * 1.1, d * 1.1, s[0], s[1], s[2], 0.8 * a, 0, 0.95, rim[0] * 0.45, rim[1] * 0.45, rim[2] * 0.45);
+        decals.push(DECAL.SMOKE, x, 0.04, z, time * 0.2, d * 1.1, d * 1.1, s[0], s[1], s[2], 0.9 * a, 0, 1, rim[0] * 0.3, rim[1] * 0.3, rim[2] * 0.3);
         decals.push(DECAL.SMOKE, x, 0.042, z, -time * 0.33 + 2, d * 0.72, d * 0.72, s[0] * 1.6, s[1] * 1.6, s[2] * 1.6, 0.5 * a, 0, 0.9);
         if (live) {
           zn.acc += dt * 6 * vfx.density;
@@ -369,7 +369,7 @@ export class AbilityFx {
         const mz = hz + cos * 0.9;
         vfx.flash(mx, 1.25, mz, color, 2.2, def.windup + 0.05, 1.3);
         vfx.rune(hx, hz, 2.2, def.windup + 0.1, color);
-        vfx.beam(mx, mz, rot, def.range, def.radius * 2, color, PALETTE.white, def.windup, 0.5);
+        vfx.beam(mx, mz, rot, def.range, def.radius * 3.2, color, PALETTE.white, def.windup, 0.65);
         this.later(def.windup, SK.LANCE, mx, mz, def.range, rot, color, slot);
         return true;
       }
@@ -768,7 +768,7 @@ export class AbilityFx {
       const w = rgb(PALETTE.arcane);
       const d = m.r * 2;
       // for allies: an iris in the caster's blue-white closing on the point of impact, lit warmer as the star nears
-      decals.push(DECAL.WARN, m.x, 0.047, m.z, 0, d, d, w[0] * 1.5, w[1] * 1.5, w[2] * 1.5, 0.95, 0.35, k);
+      decals.push(DECAL.WARN, m.x, 0.047, m.z, 0, d, d, w[0] * 1.5, w[1] * 1.5, w[2] * 1.5, 0.6, 0.35, k);
       decals.push(DECAL.DISC, m.x, 0.034, m.z, 0, d * (0.5 + 0.7 * k), d * (0.5 + 0.7 * k), c[0], c[1], c[2], 0.1 + 0.4 * k * k, 1, 0.1);
       const fall = k * k;
       const sx = m.x + TUNE.STAR_FROM.x * (1 - fall);

@@ -13,9 +13,11 @@ function endZone(w: World, zone: Zone, sprung: boolean): void {
   w.emit({ e: 'zoneEnd', id: zone.id, x: zone.x, z: zone.z, sprung });
 }
 
-/** Creates the zone of `def` for hero `h`. `arm` > 0 makes it a trap that waits that long before it can go off. */
+/**
+ * Creates the zone of `def` for hero `h`. The first pulse comes on its first tick, the following ones every `tick`
+ * seconds (duration / tick in all). `arm` > 0 makes it a trap that waits that long before it can go off. */
 export function spawnZone(w: World, h: Hero, def: AbilityDef, slot: AbilitySlot, x: number, z: number, arm: number): Zone {
-  const zone: Zone = { id: w.nextZoneId++, def, owner: h.slot, slot, x, z, r: def.radius, time: def.duration + arm, timer: 0, arm, dead: false };
+  const zone: Zone = { id: w.nextZoneId++, def, owner: h.slot, slot, x, z, r: def.radius, time: def.duration + arm, timer: TICK_DT, arm, dead: false };
   if (w.nextZoneId > 0xffff) w.nextZoneId = 1;
   if (def.shape === 'trap' && def.special === 'max3') {
     // Only TRAP.MAX_ACTIVE traps of one hero lie at once: the oldest gives way.

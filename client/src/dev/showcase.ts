@@ -257,7 +257,7 @@ class Showcase {
       this.looks = [{ ...DEFAULT_LOOK }, { color: 2, head: true, cape: true, style: 1 }, { color: 4, head: false, cape: true, style: 2 }, { color: 7, head: true, cape: false, style: 0 }];
     }
     if (params.get('marker') === '0') this.markerOn = false;
-    this.calm = params.has('calm');
+    this.calm = params.has('calm') || this.demo !== null;
     if (params.has('sx')) this.menuX = Number(params.get('sx'));
     const menu = params.get('menu') as ClassId | null;
     if (menu !== null) {
@@ -326,6 +326,8 @@ class Showcase {
 
   private reset(): void {
     this.room = sampleRoom(this.kind, this.biome);
+    // demo stages are bare: no hazards, only the corner pillars
+    if (this.demo) { this.room.hazards = []; this.room.obstacles = this.room.obstacles.filter((o) => o.kind === 'pillar'); }
     this.view.clearSession();
     this.view.setDepth(this.depth);
     this.demoDone = false;

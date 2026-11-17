@@ -3139,3 +3139,38 @@ button.gg-relic-slot {
   line-height: 1.35;
   text-align: center;
 }
+
+/* ---------------------------------------------------------------- review pass 2: summary */
+.gg-summary-box {
+  padding-top: 1em;
+  padding-bottom: 1em;
+}
+
+.gg-summary-rewards,
+.gg-summary-table {
+  width: min(100%, 76em);
+}
+
+.gg-summary-table .gg-stats .gg-stats-hero {
+  width: 22%;
+}
+
+.gg-summary-table .gg-stats th,
+.gg-summary-table .gg-stats td {
+  padding-top: 0.3em;
+  padding-bottom: 0.3em;
+}
+
+.gg-summary-feats {
+  font-size: 1.15em;
+  letter-spacing: 0.06em;
+}
+
+.gg-summary .gg-summary-title {
+  font-size: 2.9em;
+}
+
+.gg-summary .gg-summary-emblem {
+  width: 2.4em;
+  height: 2.4em;
+}
