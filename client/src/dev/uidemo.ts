@@ -179,6 +179,8 @@ function inGame(patch: Partial<RunState> = {}): void {
 }
 
 function baseline(): void {
+  // Leaving the game screen makes the HUD drop its transient state (combo, feed, banners, tips).
+  if (state.screen === 'game') setScreen('menu');
   resetSession();
   ui.modal = null;
   ui.pause = false;
@@ -253,7 +255,9 @@ function nextStep(): void {
 function bossFight(kind: (typeof BOSS_KINDS)[number], herald: boolean): void {
   inGame({
     chamber: herald ? 6 : 7, chamberKind: herald ? 'elite' : 'boss', entered: herald ? 'boon' : 'boss', wave: 1, waveCount: 1,
-    bossKind: kind, finalBoss: kind, bossId: 1, room: room('forge', false),
+    // The herald is always one of the bosses that is NOT waiting at the end of the run.
+    bossKind: kind, finalBoss: herald ? BOSS_KINDS[(BOSS_KINDS.indexOf(kind) + 1) % BOSS_KINDS.length] : kind, bossId: 1,
+    room: room('forge', false),
   });
   state.bossHp = herald ? 0.74 : 0.47;
   state.enemiesAlive = herald ? 3 : 5;
@@ -263,12 +267,18 @@ function bossFight(kind: (typeof BOSS_KINDS)[number], herald: boolean): void {
 function act(n: number): void {
   const biome = BIOME_IDS[n - 1] ?? 'crypt';
   if (n <= 1) { inGame({ chamber: 0, entered: 'boon', wave: 1, elapsed: 2, room: room(biome) }); return; }
+  // Acts begin with the elite chambers (3 and 6); the chamber before is still in the previous biome.
   const before = BIOME_IDS[n - 2] ?? 'crypt';
-  const chamber = n === 2 ? 3 : 6;
-  inGame({ chamber, chamberKind: 'elite', entered: 'boon', room: room(before, false), phase: 'doors' });
+  const chamber = n === 2 ? 2 : 5;
+  inGame({ chamber, chamberKind: 'combat', entered: 'boon', room: room(before, false), phase: 'doors' });
   window.setTimeout(() => {
-    setRun(run({ chamber: chamber + 1, chamberKind: n === 3 ? 'boss' : 'combat', entered: n === 3 ? 'boss' : 'boon', wave: 1, room: room(biome) }));
-    fire({ e: 'wave', wave: 1, waveCount: 3 });
+    setRun(run({
+      chamber: chamber + 1, chamberKind: 'elite', entered: 'boon', wave: 1, waveCount: 1, room: room(biome),
+      bossKind: n === 2 ? 'champion' : 'regent', bossId: 1,
+    }));
+    state.bossHp = 1;
+    bus.emit('state:hud');
+    fire({ e: 'wave', wave: 1, waveCount: 1 });
   }, 60);
 }
 
@@ -752,6 +762,8 @@ declare global {
       error(error: ConnError, fatal: boolean): void;
       audio: AudioDebug;
       nextStep(): void;
+      /** Forgets which tips were shown (all tips can appear again). */
+      resetTips(): void;
       /** Every `ui:*` intent emitted so far, as "name payload". */
       intents: string[];
       routes: string[];
@@ -782,6 +794,7 @@ function boot(): void {
     error: (error, fatal) => bus.emit('net:error', { error, fatal }),
     audio: () => audioDebug(),
     nextStep,
+    resetTips,
     intents: intentLog,
     routes: Object.keys(ROUTES),
     errors: CONN_ERRORS,

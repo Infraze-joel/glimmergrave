@@ -1090,6 +1090,11 @@
   grid-column: 1 / -1;
 }
 
+.gg-hazard-info p.gg-hazard-numbers {
+  font-size: 0.82em;
+  color: var(--hz);
+}
+
 .gg-hazard-phases {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
@@ -1112,7 +1117,7 @@
 }
 
 .gg-draw--hazard {
-  width: min(100%, 9.5em);
+  width: min(100%, 11.5em);
 }
 
 .gg-hazard-phase figcaption {

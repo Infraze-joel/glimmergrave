@@ -58,7 +58,7 @@ function abilityKey(slot: (typeof ABILITY_SLOTS)[number]): HTMLElement {
 }
 
 export interface MenuView extends View {
-  /** Enter on the menu: join when a full code is typed, otherwise host. */
+  /** Enter on the menu: join when a full code is typed, otherwise the highlighted action (training until it is done, then host). */
   primaryAction(): void;
   /** Transparent column whose centre is where the 3D hero preview should stand. */
   stage: HTMLElement;
@@ -88,7 +88,13 @@ export function createMenu(openModal: (kind: ModalKind) => void, openPage: (page
     if (!code || state.conn.status === 'connecting') return;
     bus.emit('ui:join', { code, name: currentName(), cls: state.profile.cls });
   };
-  guardTextField(nameInput, () => (normalizeRoomCode(ui.joinCode) ? join() : host()));
+  /** Enter: join with a typed code, otherwise whatever is highlighted (training for newcomers, then host). */
+  const primary = (): void => {
+    if (normalizeRoomCode(ui.joinCode)) join();
+    else if (!state.profile.tutorialDone) train();
+    else host();
+  };
+  guardTextField(nameInput, primary);
 
   const hostBtn = h('button', {
     class: 'gg-btn gg-cut gg-btn--primary gg-btn--block gg-menu-host', type: 'button', 'data-testid': 'menu-host',
@@ -284,7 +290,7 @@ export function createMenu(openModal: (kind: ModalKind) => void, openPage: (page
     if (document.activeElement !== codeInput && codeInput.value !== ui.joinCode) codeInput.value = ui.joinCode;
   };
 
-  return { el, sync, stage, primaryAction: () => (normalizeRoomCode(ui.joinCode) ? join() : host()) };
+  return { el, sync, stage, primaryAction: primary };
 }
 
 /** Reads `?join=CODE` once at startup. */

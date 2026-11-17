@@ -18,12 +18,19 @@
   color: var(--gg-text);
 }
 
-.gg-kw-mouse {
-  width: 1.55em;
-  height: 1.55em;
-  margin: 0 0.05em;
-  vertical-align: -0.38em;
-  color: var(--gg-text);
+.gg-kw-glue {
+  white-space: nowrap;
+}
+
+.gg-key--mouse {
+  gap: 0.25em;
+  padding: 0 0.5em 0 0.3em;
+}
+
+.gg-key--mouse .gg-icon {
+  width: 1.35em;
+  height: 1.35em;
+  filter: none;
 }
 
 :where(.gg-coach-body, .gg-tip-body, .gg-codex-body) .gg-key {
@@ -601,6 +608,11 @@
   width: min(52em, 64vw);
 }
 
+/* The track may use the wider column; the boss bar keeps its length so it never reaches the party frames. */
+.gg-boss-slot {
+  width: min(100%, 46em, 58vw);
+}
+
 /* ---------------------------------------------------------------- boss bar variants */
 .gg-boss-icon {
   display: inline-flex;
@@ -1112,9 +1124,7 @@
 .gg-set-tips {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.8em;
-  width: 100%;
+  gap: 1em;
 }
 
 .gg-set-tips .gg-btn.is-done {

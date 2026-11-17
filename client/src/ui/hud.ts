@@ -177,7 +177,9 @@ export function createHud(): HudView {
       const act = acts[i];
       const actStart = i === 0 || acts[i - 1] !== act;
       if (actStart) {
-        const biome = ui.biomes.get(i) ?? null;
+        // Any chamber of the act that was already visited tells its biome.
+        const seenAt = acts.findIndex((other, index) => other === act && ui.biomes.has(index));
+        const biome = seenAt >= 0 ? ui.biomes.get(seenAt) ?? null : null;
         list.append(h('li', {
           class: `gg-track-act${act === currentAct ? ' is-current' : act < currentAct ? ' is-done' : ''}`,
           'data-biome': biome ?? '', 'data-act': String(act + 1), title: actTitle(act, biome),

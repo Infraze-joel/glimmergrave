@@ -115,6 +115,7 @@ export function createTips(): TipsView {
   let current: Shown | null = null;
   let bossBusyUntil = 0;
   let nextAt = 0;
+  let retry = 0;
 
   const blocked = (): boolean => {
     const run = state.run;
@@ -163,17 +164,25 @@ export function createTips(): TipsView {
     else queue.push(content);
   };
 
-  const pump = (): void => {
+  function pump(): void {
     if (current) {
       if (!tipsEnabled()) close(true);
       else if (blocked()) close(performance.now() - current.since >= READ_MS);
       return;
     }
-    if (queue.length === 0 || blocked() || performance.now() < nextAt) return;
+    if (queue.length === 0) return;
+    const wait = Math.max(nextAt, bossBusyUntil) - performance.now();
+    if (wait > 0) {
+      // Pause between two tips / boss windup: come back by ourselves instead of relying on the next HUD update.
+      window.clearTimeout(retry);
+      retry = window.setTimeout(pump, wait + 1);
+      return;
+    }
+    if (blocked()) return;
     if (!tipsEnabled()) { queue.length = 0; return; }
     const next = queue.shift();
     if (next && !tipSeen(next.id)) open(next);
-  };
+  }
 
   const onEvent = (ev: GameEvent): void => {
     const own = state.conn.slot;
@@ -181,6 +190,7 @@ export function createTips(): TipsView {
       case 'hit': {
         if (ev.target.t !== 'e' || !ev.el || ev.by < 0) break;
         if (ev.by === own) { offer(`status.${ev.el}`); break; }
+        if (tipSeen('ally') || !tipsEnabled()) break; // hits are frequent: skip the look-up below once it is moot
         const mine = distinctElements(infusionsOf(selfRoster()?.boons ?? [])).find((el2) => el2 !== ev.el);
         if (mine) offer('ally', { name: nameOf(ev.by), a: ev.el, b: mine });
         break;
@@ -219,10 +229,12 @@ export function createTips(): TipsView {
     if (current) close(false);
     queue.length = 0;
     bossBusyUntil = 0;
+    nextAt = 0;
+    window.clearTimeout(retry);
   };
 
   return {
     el, sync: pump, onEvent, onRun, pump, dismiss, reset,
-    dispose: () => { if (current) window.clearTimeout(current.timer); },
+    dispose: () => { if (current) window.clearTimeout(current.timer); window.clearTimeout(retry); },
   };
 }

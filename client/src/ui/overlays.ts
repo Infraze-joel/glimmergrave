@@ -110,7 +110,7 @@ function settingsBody(): { el: HTMLElement; sync: SettingsSync } {
       h('div', { class: 'gg-set-row gg-set-row--inline' }, h('span', { class: 'gg-set-label' }, t('settings.damageNumbers')), numbers),
       lang.row,
       h('div', { class: 'gg-set-row gg-set-row--inline gg-set-row--tips' },
-        h('span', { class: 'gg-set-label' }, t('settings.tips')), h('span', { class: 'gg-set-tips' }, reset, tips)),
+        h('span', { class: 'gg-set-label' }, t('settings.tips')), h('span', { class: 'gg-set-tips' }, tips, reset)),
     ),
     h('div', { class: 'gg-settings-col' }, h('h3', { class: 'gg-label' }, t('settings.controls')), controlsReference()),
   );

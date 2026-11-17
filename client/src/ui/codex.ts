@@ -5,6 +5,7 @@
 import { RUN, WORLD } from '@shared/constants.ts';
 import { BOONS, type BoonCategory } from '@shared/data/boons.ts';
 import { DASH } from '@shared/data/classes.ts';
+import * as enemyData from '@shared/data/enemies.ts';
 import { ENEMY_TUNING } from '@shared/data/enemies.ts';
 import { REWARDS } from '@shared/data/meta.ts';
 import { HAZARD_TIMING } from '@shared/sim/hazards.ts';
@@ -30,6 +31,34 @@ const FOES: readonly EnemyKind[] = ['minion', 'warrior', 'archer', 'mage'];
 const ENEMY_ICON: Partial<Record<EnemyKind, IconName>> = { minion: 'skull', warrior: 'defense', archer: 'crossbow', mage: 'nova', ...BOSS_ICON };
 const CATEGORIES: readonly BoonCategory[] = ['infusion', 'offense', 'defense', 'mobility', 'element', 'resonance', 'kinship'];
 const pctMore = (mul: number): number => Math.round((mul - 1) * PERCENT);
+
+interface HazardNumbers {
+  damage: number;
+  tick: number;
+}
+
+const num = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+const record = (value: unknown): Record<string, unknown> | null =>
+  (typeof value === 'object' && value !== null ? value as Record<string, unknown> : null);
+/** Optional balance tables are looked up by name, so the codex keeps working while they are still being added. */
+const optionalTable = (owner: unknown, name: string): Record<string, unknown> | null => record(record(owner)?.[name]);
+
+/** Damage numbers of a hazard from the shared table (data/enemies.ts HAZARD), or null if it has no such row. */
+function hazardNumbers(kind: Hazard['kind']): HazardNumbers | null {
+  const row = optionalTable(optionalTable(enemyData, 'HAZARD'), kind.toUpperCase());
+  const damage = num(row?.DAMAGE);
+  const tick = num(row?.TICK);
+  return damage !== null && tick !== null ? { damage, tick } : null;
+}
+
+function hazardEnemyMul(): number | null {
+  return num(optionalTable(enemyData, 'HAZARD')?.ENEMY_DAMAGE_MUL);
+}
+
+function heraldHealthPercent(): number | null {
+  const fraction = num(optionalTable(ENEMY_TUNING, 'HERALD')?.HP_FRACTION);
+  return fraction !== null ? Math.round(fraction * PERCENT) : null;
+}
 
 /** Static, trusted drawing markup (same rule as icons.ts: never user data). */
 function drawing(markup: string, cls: string): HTMLElement {
@@ -177,6 +206,7 @@ function combatTab(): HTMLElement[] {
 }
 
 function hazardsTab(): HTMLElement[] {
+  const enemyMul = hazardEnemyMul();
   const rows = h('div', { class: 'gg-codex-hazards' });
   const phases: ['idle' | 'warn' | 'active', Params][] = [['idle', {}], ['warn', { t: HAZARD_TIMING.WARN }], ['active', {}]];
   for (const kind of HAZARD_KINDS) {
@@ -188,11 +218,13 @@ function hazardsTab(): HTMLElement[] {
         h('figcaption', null, h('b', null, t(`hazard.phase.${phase}`)), h('span', null, t(`hazard.phase.${phase}Desc`, params))),
       ));
     });
+    const numbers = hazardNumbers(kind);
     const row = h('article', { class: 'gg-hazard-row gg-cut', 'data-hazard': kind },
       h('div', { class: 'gg-hazard-info' },
         h('span', { class: 'gg-hazard-icon' }, icon(kind)),
         h('h4', null, t(`hazard.${kind}.name`)),
         richEl('p', '', t(`hazard.${kind}.desc`, { t: HAZARD_TIMING.ACTIVE[kind] })),
+        numbers ? h('p', { class: 'gg-hazard-numbers gg-num' }, t('codex.hazards.damage', { dmg: numbers.damage, tick: numbers.tick })) : null,
       ),
       strip,
     );
@@ -201,7 +233,9 @@ function hazardsTab(): HTMLElement[] {
   }
   return [
     richEl('p', 'gg-codex-intro', t('codex.hazards.intro')),
-    h('p', { class: 'gg-codex-note' }, t('codex.hazards.cycle', { warn: HAZARD_TIMING.WARN })),
+    h('p', { class: 'gg-codex-note' }, enemyMul !== null
+      ? t('codex.hazards.cycle', { warn: HAZARD_TIMING.WARN, mul: enemyMul })
+      : t('codex.hazards.cycleShort', { warn: HAZARD_TIMING.WARN })),
     rows,
   ];
 }
@@ -233,6 +267,8 @@ function enemyCard(kind: EnemyKind): HTMLElement {
 }
 
 function enemiesTab(): HTMLElement[] {
+  const heraldHp = heraldHealthPercent();
+  const heraldNote = heraldHp !== null ? [h('p', { class: 'gg-codex-note' }, t('enemy.herald.desc', { hp: heraldHp }))] : [];
   const foes = h('div', { class: 'gg-codex-enemies' });
   for (const kind of FOES) foes.append(enemyCard(kind));
   const bosses = h('div', { class: 'gg-codex-enemies' });
@@ -247,7 +283,7 @@ function enemiesTab(): HTMLElement[] {
     heading(t('codex.enemies.bosses'), 'boss'),
     h('p', { class: 'gg-codex-lead' }, t('codex.enemies.final')),
     bosses,
-    h('p', { class: 'gg-codex-note' }, t('enemy.herald.desc')),
+    ...heraldNote,
   ];
 }
 
@@ -285,8 +321,8 @@ function boonRow(iconName: IconName, tint: string, rarity: string, name: string,
   const row = h('li', { class: `gg-codex-boon gg-rarity-${rarity}` },
     h('span', { class: 'gg-codex-boon-icon' }, icon(iconName)),
     h('b', null, name),
+    h('em', null, `${t(`rarity.${rarity}` as I18nKey)} · ${t('codex.boons.levels', { n: levels })}`),
     text,
-    h('em', null, levels > 1 ? t('codex.boons.levels', { n: levels }) : t(`rarity.${rarity}` as I18nKey)),
   );
   row.style.setProperty('--tint', tint);
   return row;
