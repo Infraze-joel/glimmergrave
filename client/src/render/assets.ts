@@ -95,6 +95,8 @@ const FILES = [
 type FileName = (typeof FILES)[number];
 
 const CLOTH_PATTERN = /cape|cloak/i;
+/** Rigid attachments that count as cloth (the skeleton rogue's hood is one; the hero rogue's hood is a skinned head). */
+const RIGID_CLOTH_PATTERN = /cape|cloak|hood/i;
 const GLOW_MATERIAL = 'Glow';
 const IK_BONE_PATTERN = /IK|control-/;
 const TRACK_EPSILON = 1e-4;
@@ -303,7 +305,7 @@ function bakeCharacter(source: Object3D, map: Texture, spec: BakeSpec): Characte
     if (!bone) continue;
     if (moved) _m2.copy(bone.matrixWorld).invert().multiply(moved.matrix);
     else _m2.copy(bone.matrixWorld).invert().multiply(mesh.matrixWorld);
-    addRigid(mesh.geometry, bone, _m2.clone(), [0, CLOTH_PATTERN.test(mesh.name) ? 1 : 0, 0], WHITE, shadow);
+    addRigid(mesh.geometry, bone, _m2.clone(), [0, RIGID_CLOTH_PATTERN.test(mesh.name) ? 1 : 0, 0], WHITE, shadow);
   }
   for (const extra of spec.extras) {
     const bone = skeleton.bones.find((b) => b.name === extra.bone);
@@ -468,10 +470,10 @@ function panelGeometry(rows: readonly (readonly [number, number, number])[], not
 }
 
 const MATRON = {
-  ROBE: 0xd9d2e6, TRIM: 0x3a2a55, SHARDS: 9, HALO_R: 0.62, HALO_Y: 1.86, SHARD_GLOW: 2.6, ORB_GLOW: 3.2, STAFF_SCALE: 1.4,
+  ROBE: 0xd9d2e6, TRIM: 0x4a3470, SHARDS: 8, HALO_R: 0.7, HALO_Y: 2.0, SHARD_GLOW: 2.6, ORB_GLOW: 3.2, STAFF_SCALE: 1.4,
 } as const;
 
-/** The Hex Matron: floor-length robe, high collar, mantle and a halo of witchfire shards around the tall hat. */
+/** The Hex Matron: floor-length robe, high collar, mantle, a tall mitre and a wide halo of witchfire shards. */
 function matronParts(props: Object3D): ExtraPart[] {
   const robe = new Color(MATRON.ROBE);
   const trim = new Color(MATRON.TRIM);
@@ -498,15 +500,22 @@ function matronParts(props: Object3D): ExtraPart[] {
     parts.push(modelPart(new ConeGeometry(0.11, h, 4), 'chest',
       matrixOf(Math.sin(a) * 0.3, 1.34 + h * 0.4, -0.16 - Math.cos(a) * 0.1, -0.35, 0, -a * 0.7), [0, 0, 1], trim));
   }
-  // halo: shards orbiting the hat, alternating witchfire green and hex violet
+  // mitre: a slender horned crown instead of the common mage's floppy hat, so the skull and collar stay readable from above
+  parts.push(modelPart(new CylinderGeometry(0.3, 0.34, 0.14, 8), 'head', matrixOf(0, 1.93, 0), [0, 0, 1], trim));
+  parts.push(modelPart(new ConeGeometry(0.2, 0.95, 5), 'head', matrixOf(0, 2.45, -0.04, -0.12), [0, 1, 1], robe));
+  parts.push(modelPart(new OctahedronGeometry(0.1), 'head', matrixOf(0, 1.95, 0.33), [1, 0, 1], green));
+  for (const side of [-1, 1]) {
+    parts.push(modelPart(new ConeGeometry(0.09, 0.6, 4), 'head', matrixOf(side * 0.36, 2.2, -0.05, 0, 0, -side * 0.55), [0, 0, 1], trim));
+  }
+  // halo: shards orbiting the head, alternating witchfire green and hex violet
   for (let i = 0; i < MATRON.SHARDS; i++) {
     const a = (i / MATRON.SHARDS) * Math.PI * 2;
-    const long = i % 3 === 0 ? 1.5 : 1;
-    const shard = new OctahedronGeometry(0.075);
+    const long = i % 2 === 0 ? 1.6 : 1;
+    const shard = new OctahedronGeometry(0.1);
     shard.scale(0.7, 2.6 * long, 0.7);
     parts.push(modelPart(shard, 'head',
       matrixOf(Math.sin(a) * MATRON.HALO_R, MATRON.HALO_Y + (i % 2) * 0.07, Math.cos(a) * MATRON.HALO_R, Math.cos(a) * 0.9, 0, -Math.sin(a) * 0.9),
-      [1, 0, 1], i % 3 === 0 ? violet : green));
+      [1, 0, 1], i % 2 === 0 ? violet : green));
   }
   // staff with a burning orb at its head, witchfire in the off hand
   const staff = propPart(props, 'skel_staff', 'handslotr', matrixOf(0, 0, 0, 0, 0, 0, MATRON.STAFF_SCALE));
@@ -726,7 +735,7 @@ export async function loadAssets(onProgress: (loaded: number, total: number) => 
         ...crownParts(),
       ],
     },
-    matron: { keepRigid: () => true, extras: matronParts(props) },
+    matron: { keepRigid: () => false, extras: matronParts(props) },
     stalker: { keepRigid: () => true, extras: stalkerParts(props) },
   };
   const enemies = {} as Record<EnemyKind, CharacterTemplate>;

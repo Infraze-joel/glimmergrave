@@ -370,8 +370,8 @@ export class Vfx {
   word(x: number, y: number, z: number, hexA: number, hexB: number, scale = 1): void {
     const h = FX.WORD_HEIGHT * scale;
     const half = h * this.atlas.wordAspect * 0.5;
-    this.floater(x, y, z, this.atlas.wordHalves[0], half, h, -half * 0.5, hexA, FX.WORD_LIFE, 0.7, 1);
-    this.floater(x, y, z, this.atlas.wordHalves[1], half, h, half * 0.5, hexB, FX.WORD_LIFE, 0.7, 1);
+    this.floater(x, y, z, this.atlas.wordHalves[0], half, h, -half * 0.5, hexA, FX.WORD_LIFE, 0.7, 0.45);
+    this.floater(x, y, z, this.atlas.wordHalves[1], half, h, half * 0.5, hexB, FX.WORD_LIFE, 0.7, 0.45);
   }
 
   // ---------------------------------------------------------------- damage numbers
@@ -425,7 +425,7 @@ export class Vfx {
           if (k >= 1) { t.active = false; break; }
           const e = 1 - (1 - k) * (1 - k) * (1 - k);
           const size = t.s0 + (t.s1 - t.s0) * e;
-          decals.push(t.shape, t.x, t.y, t.z, t.age * 1.4, size, size, t.r, t.g, t.b, (1 - k) * (1 - k * 0.6), 1, t.p1 * (1 - k * 0.45), t.r2, t.g2, t.b2);
+          decals.push(t.shape, t.x, t.y, t.z, t.age * 1.4, size, size, t.r, t.g, t.b, (1 - k) * (1 - k * 0.6), 0.5, t.p1 * (1 - k * 0.45), t.r2, t.g2, t.b2);
           break;
         }
         case TIMED.BEAM: {

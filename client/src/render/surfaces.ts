@@ -50,8 +50,8 @@ void main() {
   // caustic lattice drifting over the bed
   float c1 = sin( p.x * 2.1 + sin( p.y * 1.7 + t * 0.9 ) * 1.3 );
   float c2 = sin( p.y * 2.4 + sin( p.x * 1.9 - t * 0.7 ) * 1.3 );
-  float caustic = smoothstep( 0.9, 1.0, 1.0 - abs( c1 * c2 ) ) * ( 1.0 - outside );
-  col += uGlint * caustic * 0.22;
+  float caustic = smoothstep( 0.93, 1.0, 1.0 - abs( c1 * c2 ) ) * ( 1.0 - outside );
+  col += uGlint * caustic * 0.03;
 
   // the north wall mirrored in the water in front of it, broken up by the ripples
   float wall = smoothstep( 4.2, 0.0, p.y + uRoom.y + n.y * 0.45 ) * ( 1.0 - outside ) * step( -uRoom.y, p.y );
@@ -63,11 +63,11 @@ void main() {
     vec3 L = uLightPos[ i ] - vWorld;
     float d = length( L );
     vec3 H = normalize( L / d + V );
-    spec += pow( max( dot( N, H ), 0.0 ), 140.0 ) * uLightPower[ i ] / ( 1.0 + d * d * 0.012 );
+    spec += pow( max( dot( N, H ), 0.0 ), 260.0 ) * uLightPower[ i ] / ( 1.0 + d * d * 0.02 );
   }
   col += uGlint * spec;
   col += uGlint * fres * 0.5;
-  float alpha = clamp( mix( 0.5, 0.93, outside ) + fres * 0.35 + wall * 0.25 + spec * 0.5, 0.0, 1.0 );
+  float alpha = clamp( mix( 0.4, 0.93, outside ) + fres * 0.35 + wall * 0.25 + spec * 0.5, 0.0, 1.0 );
   gl_FragColor = vec4( col, alpha );
   #include <tonemapping_fragment>
   #include <colorspace_fragment>

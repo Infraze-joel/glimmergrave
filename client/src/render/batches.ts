@@ -202,7 +202,7 @@ void main() {
     float lead = band( rm - fillR, 0.07, 0.08 ) * inside * step( vParam.x, 0.999 );
     float dash = step( 0.5, fract( ang / ( 2.0 * PI ) * 12.0 - uTime * 0.6 ) );
     float blink = 0.72 + 0.28 * sin( uTime * ( 8.0 + 24.0 * vParam.x ) );
-    a = inside * 0.1 + fill * 0.4 * blink + lead * 0.75 + outline * mix( 0.6, 1.0, dash );
+    a = inside * 0.05 + fill * 0.3 * blink + lead * 0.75 + outline * mix( 0.6, 1.0, dash );
     col = mix( col, vec3( 1.0 ), lead * 0.55 );
   } else if ( shape == 15 ) {       // GRATE
     float inside = 1.0 - smoothstep( 0.84, 0.88, r );
@@ -229,13 +229,13 @@ void main() {
     a = step( r, 1.0 ) * ( 1.0 - t ) * ( 1.0 - t ) + crest;
     float swirl = smoothstep( 0.32, 0.68, 0.5 + 0.5 * sin( ang * 3.0 + r * 8.0 - uTime * 9.0 ) );
     col = mix( vColor.rgb, vParam.yzw, swirl );
-    col += vec3( 1.0 ) * crest * 0.45;
+    col += vec3( 1.0 ) * crest * 0.15;
   } else {                          // MARKER
     float ring = band( edge - 0.09, 0.06, 0.03 );
     float dash = step( 0.3, fract( ang / ( 2.0 * PI ) * 10.0 + uTime * 0.18 ) );
     float pr = fract( uTime * 0.65 );
     float pulse = band( rm - vHalf.x * ( 1.0 - pr ) * 0.86, 0.05, 0.05 ) * ( 1.0 - pr );
-    a = ring * mix( 0.3, 1.0, dash ) + pulse * 0.9 + step( r, 1.0 ) * ( 0.07 + 0.05 * sin( uTime * 3.0 ) );
+    a = ring * mix( 0.3, 1.0, dash ) + pulse * 0.9 + step( r, 1.0 ) * ( 0.02 + 0.012 * sin( uTime * 3.0 ) );
     col = mix( vColor.rgb, vParam.yzw, clamp( pulse * 1.4, 0.0, 1.0 ) );
   }
   a = clamp( a, 0.0, 1.0 ) * vColor.a;
@@ -319,7 +319,7 @@ void main() {
   } else if ( mode == 6 ) {         // PIP
     a = 1.0 - smoothstep( 0.9, 1.0, r );
     float inner = 1.0 - smoothstep( 0.68, 0.78, r );
-    col = mix( vec3( 0.02, 0.02, 0.05 ), col * ( 0.5 + 0.2 * vQuad.y ), inner );
+    col = mix( vec3( 0.02, 0.02, 0.05 ), col * ( 0.78 + 0.2 * vQuad.y ), inner );
   } else {                          // ARC
     float y = vQuad.y * 0.5 + 0.5;
     float s = vMisc.z;

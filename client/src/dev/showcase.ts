@@ -153,6 +153,8 @@ class Showcase {
   private menuTimer = 0;
   private menuX = 0.7;
   private markerOn = true;
+  /** No random chip damage (clean close-ups). */
+  private calm = false;
   private quality: Quality = 'high';
   private stress = false;
   private doorsOn = true;
@@ -213,6 +215,7 @@ class Showcase {
       this.looks = [{ ...DEFAULT_LOOK }, { color: 2, head: true, cape: true, style: 1 }, { color: 4, head: false, cape: true, style: 2 }, { color: 7, head: true, cape: false, style: 0 }];
     }
     if (params.get('marker') === '0') this.markerOn = false;
+    this.calm = params.has('calm');
     if (params.has('sx')) this.menuX = Number(params.get('sx'));
     const menu = params.get('menu') as ClassId | null;
     if (menu !== null) {
@@ -653,7 +656,7 @@ class Showcase {
     }
     if (step.anim !== 'spawn' && step.anim !== 'death') {
       // constant chip damage so health bars and numbers show
-      if (Math.random() < dt * 0.9) {
+      if (!this.calm && Math.random() < dt * 0.9) {
         const el = Math.random() < 0.5 ? ELEMENT_IDS[Math.floor(Math.random() * 3)] : null;
         const crit = Math.random() < 0.2;
         s.hp = Math.max(0.12, s.hp - 0.07);
@@ -808,7 +811,7 @@ class Showcase {
       if (t.reso <= 0) {
         t.reso = 1.5;
         const [a, b] = ELEMENT_PAIRS[c.reso++ % ELEMENT_PAIRS.length];
-        this.emit({ e: 'resonance', x: -hw + 6 + (c.reso % 3) * 2.2, z: 2.5, r: STATUS.RESONANCE.RADIUS, a, b, by: 0 });
+        this.emit({ e: 'resonance', x: -hw + 4 + (c.reso % 3) * 2.2, z: hd - 2.4, r: STATUS.RESONANCE.RADIUS, a, b, by: 0 });
       }
       t.shot -= dt;
       if (t.shot <= 0) {
@@ -888,11 +891,11 @@ class Showcase {
     else if (name === 'telegraphs') this.view.debugFocus({ x: this.room.w / 2 - 7.5, z: 4, zoom: 0.5 });
     else if (name === 'doors') this.view.debugFocus({ x: 0, z: -this.room.d / 2 + 2.5, zoom: 0.62 });
     else if (name === 'throne') this.view.debugFocus({ x: 0, z: -this.room.d / 2 - 1, zoom: 0.6 });
-    else if (name === 'resonance') this.view.debugFocus({ x: -this.room.w / 2 + 8, z: 2.5, zoom: 0.45 });
+    else if (name === 'resonance') this.view.debugFocus({ x: -this.room.w / 2 + 6.2, z: this.room.d / 2 - 3, zoom: 0.45 });
     else if (name === 'room') this.view.debugFocus({ x: 0, z: -1, zoom: 1.45 });
     else if (name === 'boss') {
       const e = this.enemies.find((x) => BOSS_KINDS.includes(x.snap.kind as BossKind));
-      if (e) this.view.debugFocus({ x: e.snap.x, z: e.snap.z - 1, zoom: 0.4 });
+      if (e) this.view.debugFocus({ x: e.snap.x, z: e.snap.z - 1.2, zoom: 0.46 });
     } else if (name === 'bossfight') {
       const e = this.enemies.find((x) => BOSS_KINDS.includes(x.snap.kind as BossKind));
       if (e) this.view.debugFocus({ x: e.homeX - 2.5, z: e.homeZ + 3, zoom: 0.68 });

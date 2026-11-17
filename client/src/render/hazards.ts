@@ -23,6 +23,7 @@ import type { Vfx } from './vfx.ts';
 const CFG = {
   Y: 0.036,
   WARN_Y: 0.058,
+  WARN_SCALE: 1.22,
   SPIKE_HEIGHT: 1.05,
   SPIKE_RADIUS: 0.13,
   SPIKE_IDLE: 0.07,
@@ -115,7 +116,8 @@ export class Hazards {
       const warn = phase === PHASE.warn ? t : 0;
 
       if (phase === PHASE.warn) {
-        decals.push(DECAL.WARN, h.x, CFG.WARN_Y, h.z, 0, d, d, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, Math.min(1, t * 8 + 0.35), 0.3, t);
+        // slightly wider than the fixture, so the closing iris is read against the floor as well
+        decals.push(DECAL.WARN, h.x, CFG.WARN_Y, h.z, 0, d * CFG.WARN_SCALE, d * CFG.WARN_SCALE, c[0] * 1.6, c[1] * 1.6, c[2] * 1.6, Math.min(1, t * 8 + 0.35), 0.3, t);
         fx.push(SPRITE.GLOW, h.x, 0.3, h.z, d * 1.1, d * 0.7, c[0], c[1], c[2], 0.1 + 0.2 * t, 1, 0);
       }
 
@@ -167,11 +169,11 @@ export class Hazards {
             const flick = 0.85 + 0.3 * Math.sin(time * (13 + k * 3) + i + k);
             const w = h.r * (1.7 - k * 0.2) * flick * on;
             const hh = (CFG.FIRE_HEIGHT * 0.52 + k * 0.12) * flick * on;
-            fx.push(SPRITE.FLAME, h.x + Math.sin(a) * off, lift + hh * 0.42, h.z + Math.cos(a) * off, w, hh, c[0] * 2, c[1] * 1.9, c[2] * 1.6, 0.95, 0.85, seeded(i, k + 5) + k * 0.31);
+            fx.push(SPRITE.FLAME, h.x + Math.sin(a) * off, lift + hh * 0.42, h.z + Math.cos(a) * off, w, hh, c[0] * 1.35, c[1] * 1.15, c[2] * 0.9, 0.95, 0.6, seeded(i, k + 5) + k * 0.31);
           }
-          fx.push(SPRITE.GLOW, h.x, 1.2, h.z, h.r * 6.5, h.r * 6.5, c[0], c[1] * 0.9, c[2] * 0.7, 0.32 * on, 1, 0.3);
-          fx.push(SPRITE.GLOW, h.x, 0.5, h.z, h.r * 2.2, h.r * 2.2, 1.9, 1.5, 0.8, 0.7 * on, 1, 1.2);
-          decals.push(DECAL.DISC, h.x, CFG.WARN_Y, h.z, 0, d * 3.4, d * 3.4, c[0], c[1] * 0.85, c[2] * 0.6, 0.42 * on * (0.9 + 0.1 * Math.sin(time * 17 + i)), 1, 0);
+          fx.push(SPRITE.GLOW, h.x, 1.2, h.z, h.r * 6.5, h.r * 6.5, c[0], c[1] * 0.8, c[2] * 0.6, 0.16 * on, 1, 0);
+          fx.push(SPRITE.GLOW, h.x, 0.4, h.z, h.r * 1.6, h.r * 1.6, 1.5, 1.0, 0.4, 0.3 * on, 1, 0.4);
+          decals.push(DECAL.DISC, h.x, CFG.WARN_Y, h.z, 0, d * 3.4, d * 3.4, c[0], c[1] * 0.85, c[2] * 0.6, 0.26 * on * (0.9 + 0.1 * Math.sin(time * 17 + i)), 1, 0);
           decals.push(DECAL.RING, h.x, CFG.WARN_Y, h.z, 0, d, d, c[0] * 2, c[1] * 2, c[2] * 2, 0.9 * on, 0.8, 1);
         }
         while (this.acc[i] >= 1 && phase !== PHASE.idle) {

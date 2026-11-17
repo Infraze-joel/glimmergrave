@@ -504,13 +504,13 @@ export class WorldView implements FollowSource {
         const a = ELEMENT_COLOR[ev.a];
         const b = ELEMENT_COLOR[ev.b];
         const d = ev.r * 2;
-        vfx.flash(ev.x, 1.1, ev.z, PALETTE.white, ev.r * 1.5, 0.1, 2.4);
-        vfx.duoRing(ev.x, ev.z, d * 0.15, d * 1.06, 0.5, a, b, 0.6, 2.4);
-        vfx.duoRing(ev.x, ev.z, d * 0.1, d * 1.32, 0.85, b, a, 0.2, 1.7, 0.1);
-        vfx.groundFlash(ev.x, ev.z, d * 1.2, 0.55, a, 1.1);
-        vfx.groundFlash(ev.x, ev.z, d * 0.75, 0.75, b, 1.5, 0.06);
-        vfx.flash(ev.x, 1.0, ev.z, a, ev.r * 2.5, 0.3, 1.7);
-        vfx.flash(ev.x, 1.7, ev.z, b, ev.r * 1.7, 0.45, 1.9);
+        vfx.flash(ev.x, 1.1, ev.z, PALETTE.white, ev.r * 0.8, 0.09, 1.5);
+        vfx.duoRing(ev.x, ev.z, d * 0.15, d * 1.06, 0.55, a, b, 0.7, 1.9);
+        vfx.duoRing(ev.x, ev.z, d * 0.1, d * 1.32, 0.9, b, a, 0.25, 1.6, 0.1);
+        vfx.groundFlash(ev.x, ev.z, d * 1.2, 0.55, a, 0.45);
+        vfx.groundFlash(ev.x, ev.z, d * 0.75, 0.75, b, 0.55, 0.06);
+        vfx.flash(ev.x, 1.0, ev.z, a, ev.r * 1.5, 0.3, 0.9);
+        vfx.flash(ev.x, 1.7, ev.z, b, ev.r * 1.0, 0.45, 1.0);
         vfx.sparks(ev.x, 1, ev.z, a, 16, 12);
         vfx.sparks(ev.x, 1.2, ev.z, b, 16, 14);
         this.elementBurst(ev.a, ev.x, 0.4, ev.z, ev.r * 0.55, 1);
@@ -800,10 +800,10 @@ export class WorldView implements FollowSource {
     const d = m.r * 2;
     const bob = Math.sin(time * 2.6) * 0.18;
     this.decals.push(DECAL.MARKER, m.x, 0.05, m.z, 0, d, d, t[0] * 1.5, t[1] * 1.5, t[2] * 1.5, 0.95, 0.35, 0, g[0] * 1.6, g[1] * 1.6, g[2] * 1.6);
-    this.decals.push(DECAL.DISC, m.x, 0.04, m.z, 0, d * 1.5, d * 1.5, t[0], t[1], t[2], 0.16, 1, 0);
+    this.decals.push(DECAL.DISC, m.x, 0.04, m.z, 0, d * 1.5, d * 1.5, t[0], t[1], t[2], 0.07, 1, 0);
     this.fx.push(SPRITE.GLOW, m.x, 1.4, m.z, 1.4, 3.4, t[0], t[1], t[2], 0.16, 1, 0);
     const uv = this.atlas.icons.marker;
-    this.ui.push(SPRITE.GLOW, m.x, 2.75 + bob, m.z, 1.7, 1.7, t[0] * 0.5, t[1] * 0.5, t[2] * 0.5, 0.5, 1, 0);
+    this.ui.push(SPRITE.GLOW, m.x, 2.75 + bob, m.z, 1.5, 1.5, t[0] * 0.3, t[1] * 0.3, t[2] * 0.3, 0.4, 1, 0);
     this.ui.push(SPRITE.ATLAS, m.x, 2.75 + bob, m.z, 1.05, 1.05, g[0] * 1.2, g[1] * 1.2, g[2] * 1.2, 1, 0, 0, 0, 0, 0, uv[0], uv[1], uv[2], uv[3]);
   }
 
@@ -868,7 +868,7 @@ export class WorldView implements FollowSource {
         this.mistAcc -= 1;
         const drift = 0.25 + Math.random() * 0.4;
         vfx.particle(cx + (Math.random() - 0.5) * 34, 0.25 + Math.random() * 0.7, cz + (Math.random() - 0.55) * 24, drift, 0.02, (Math.random() - 0.5) * 0.2,
-          5 + Math.random() * 3, 2.4 + Math.random() * 1.6, 4.4, 0.5, 0.78, 0.8, 0.085, SPRITE.GLOW, 0.35);
+          5 + Math.random() * 3, 2.4 + Math.random() * 1.6, 4.4, 0.4, 0.7, 0.72, 0.035, SPRITE.GLOW, 0.3);
       }
     } else if (biome === 'forge') {
       // embers climbing out of the channels and off the floor, and slow heat haze above the southern lava

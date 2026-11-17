@@ -131,7 +131,7 @@ const SPECIALS: Record<'sweep' | 'charge' | 'volley' | 'summon' | 'slam', Specia
   },
 };
 
-interface EnemyLook { cloth: number; clothAmount: number; emissive: number; walk: boolean; bar: boolean; glide?: boolean }
+interface EnemyLook { cloth: number; clothAmount: number; emissive: number; walk: boolean; bar: boolean; glide?: boolean; clothBoost?: number }
 
 const ENEMY_LOOK: Record<EnemyKind, EnemyLook> = {
   minion: { cloth: 0, clothAmount: 0, emissive: 0x000000, walk: false, bar: true },
@@ -141,7 +141,7 @@ const ENEMY_LOOK: Record<EnemyKind, EnemyLook> = {
   champion: { cloth: 0xff5a1f, clothAmount: 0.9, emissive: 0x1c0600, walk: true, bar: false },
   regent: { cloth: 0x7a2cff, clothAmount: 0.95, emissive: 0x12041c, walk: true, bar: false },
   matron: { cloth: 0x6a2fd0, clothAmount: 0.96, emissive: 0x0a0416, walk: true, bar: false, glide: true },
-  stalker: { cloth: 0x8f8a3c, clothAmount: 0.92, emissive: 0x0c0b02, walk: false, bar: false },
+  stalker: { cloth: 0xb9ad45, clothAmount: 0.94, emissive: 0x0c0b02, walk: false, bar: false, clothBoost: 2.4 },
 };
 
 /**
@@ -797,7 +797,7 @@ export class Enemies {
     const view = new EnemyView(this.assets.enemies[kind], this.assets.skelClips, kind);
     const look = ENEMY_LOOK[kind];
     view.mat.uniforms.uCloth.value.set(0, 0, 0, look.clothAmount);
-    _color.setHex(look.cloth);
+    _color.setHex(look.cloth).multiplyScalar(look.clothBoost ?? 1);
     view.mat.uniforms.uCloth.value.x = _color.r;
     view.mat.uniforms.uCloth.value.y = _color.g;
     view.mat.uniforms.uCloth.value.z = _color.b;

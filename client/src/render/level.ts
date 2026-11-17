@@ -220,7 +220,7 @@ export class LevelView {
     this.miscMaterial = createLevelMaterial(assets.dungeonMap);
     this.miscMaterial.vertexColors = true;
     this.crystalMaterial = new MeshBasicMaterial({ vertexColors: true });
-    this.detailMaterial = new MeshBasicMaterial({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+    this.detailMaterial = new MeshBasicMaterial({ vertexColors: true, side: DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
     this.skirtMaterial = new MeshBasicMaterial({ vertexColors: true, fog: false, side: DoubleSide });
 
     const shard = new ConeGeometry(0.17, 1, 5).toNonIndexed();
@@ -301,7 +301,7 @@ export class LevelView {
       this.water.material.uniforms.uTime.value = time;
       for (let i = 0; i < this.torchLights.length; i++) {
         const l = this.torchLights[i];
-        this.water.setLight(i, l.position.x, l.position.y, l.position.z, l.visible ? l.intensity * 0.05 : 0);
+        this.water.setLight(i, l.position.x, l.position.y, l.position.z, l.visible ? l.intensity * 0.02 : 0);
       }
     }
     if (this.lava) this.lava.material.uniforms.uTime.value = time;
@@ -665,7 +665,7 @@ export class LevelView {
         light.position.set(side * hw * 0.55, 0.9, hd + 2.2);
         light.color.setHex(lavaHot);
         light.distance = CFG.LIGHT_DISTANCE * 1.5;
-        this.torchBase[2 + k] = mood.torchIntensity * 1.5;
+        this.torchBase[2 + k] = mood.torchIntensity * 0.95;
       });
     }
 
@@ -760,18 +760,18 @@ export class LevelView {
       let x = rng.range(-hw + 1, hw - 1);
       let z = rng.range(-hd + 1, hd - 1);
       let a = rng.range(0, Math.PI * 2);
-      const heat = rng.range(0.9, 1.7);
+      const heat = rng.range(1.1, 2.0);
       const segs = 3 + rng.int(4);
       for (let k = 0; k < segs; k++) {
         a += rng.range(-0.9, 0.9);
-        const len = rng.range(0.35, 0.95);
+        const len = rng.range(0.6, 1.5);
         const ex = Math.max(-hw + 0.3, Math.min(hw - 0.3, x + Math.sin(a) * len));
         const ez = Math.max(-hd + 0.3, Math.min(hd - 0.3, z + Math.cos(a) * len));
         const fade = heat * (1 - (k / segs) * 0.55);
-        this.strip(b, x, z, ex, ez, rng.range(0.05, 0.11) * (1 - (k / segs) * 0.4), hot.r * fade, hot.g * fade, hot.b * fade);
+        this.strip(b, x, z, ex, ez, rng.range(0.07, 0.14) * (1 - (k / segs) * 0.4), hot.r * fade, hot.g * fade, hot.b * fade);
         if (k === 1 && rng.chance(0.5)) {
           const ba = a + rng.pick([-1, 1]) * rng.range(0.7, 1.2);
-          this.strip(b, x, z, x + Math.sin(ba) * len * 0.7, z + Math.cos(ba) * len * 0.7, 0.05, hot.r * fade * 0.8, hot.g * fade * 0.8, hot.b * fade * 0.8);
+          this.strip(b, x, z, x + Math.sin(ba) * len * 0.7, z + Math.cos(ba) * len * 0.7, 0.09, hot.r * fade * 0.8, hot.g * fade * 0.8, hot.b * fade * 0.8);
         }
         x = ex; z = ez;
       }
@@ -787,7 +787,7 @@ export class LevelView {
       const x = rng.range(-hw + 0.8, hw - 0.8);
       const z = rng.range(-hd + 0.8, hd - 0.8);
       const r = rng.range(0.35, 1.0);
-      const shade = rng.range(0.16, 0.32);
+      const shade = rng.range(0.06, 0.13);
       const n = 6;
       const first = r * rng.range(0.6, 1.1);
       let px = x;
@@ -1095,8 +1095,7 @@ export class LevelView {
 
     for (let ix = -3; ix <= 3; ix++) {
       for (let iz = -1; iz <= 1; iz++) {
-        const piece = (ix + iz) % 3 === 0 ? 'floor_tile_large_rocks' : 'floor_tile_large';
-        put(piece, ix * 4, CFG.FLOOR_Y, iz * 4 + 0.6, 0, 1, 1, 1, floorTint, rng.range(0.88, 1.06));
+        put('floor_tile_large', ix * 4, CFG.FLOOR_Y, iz * 4 + 0.6, 0, 1, 1, 1, floorTint, rng.range(0.88, 1.06));
       }
     }
     // back wall: arch behind the hero flanked by banners, pillars and torches
