@@ -232,7 +232,7 @@ export function createOverlays(actions: OverlayActions): OverlayView {
     if (k === 'leave') {
       return frame(t('lobby.leaveTitle'), 'exit', false, h('p', { class: 'gg-modal-text' }, t('lobby.leaveBody')), [
         h('button', { class: 'gg-btn gg-cut gg-btn--ghost', type: 'button', onClick: actions.closeModal }, t('common.cancel')),
-        h('button', { class: 'gg-btn gg-cut gg-btn--danger', type: 'button', onClick: leave }, icon('exit'), t('common.leave')),
+        h('button', { class: 'gg-btn gg-cut gg-btn--danger', type: 'button', 'data-testid': 'leave-confirm', onClick: leave }, icon('exit'), t('common.leave')),
       ]);
     }
     if (k === 'howto') {

@@ -233,9 +233,10 @@ test('reloading the page rejoins the same slot in the running game', async () =>
 test('the game stays playable with 150 ms of added latency', async () => {
   proxy.lag.oneWayMs = 75;
   proxy.lag.jitterMs = 20;
-  await sleep(11000);
+  // The displayed ping is smoothed over several 2 s samples, so give it time to climb.
+  const lagged = await eventually(async () => (await gameText(a.page)).conn.pingMs > 120, 30000, 1000);
   const ping = (await gameText(a.page)).conn.pingMs;
-  assert.ok(ping > 120, `ping should reflect the added latency (was ${ping.toFixed(0)} ms)`);
+  assert.ok(lagged, `ping should reflect the added latency (was ${ping.toFixed(0)} ms)`);
   let worst = 0;
   for (const key of ['KeyD', 'KeyS', 'KeyA', 'KeyW']) {
     await a.page.keyboard.down(key);
@@ -269,19 +270,29 @@ test('a disconnecting client is flagged for the others and the run goes on', asy
 });
 
 test('leaving the session returns to the main menu', async () => {
-  if (await screen(a.page) === 'game') {
-    await a.page.keyboard.press('Escape');
-    await a.page.waitForSelector(tid('pause-leave'), { timeout: 20000 });
-    await a.page.click(tid('pause-leave'));
-    await a.page.waitForSelector(tid('pause-leave-confirm'), { timeout: 20000 });
-    await a.page.click(tid('pause-leave-confirm'));
-  } else {
-    // The run already ended (the idle test heroes were overrun): leave from the summary instead.
-    await a.page.click(tid('summary-leave'));
-    await a.page.waitForSelector(tid('pause-leave-confirm'), { timeout: 20000 });
-    await a.page.click(tid('pause-leave-confirm'));
+  // Through the pause menu while the run is on, or from the summary if the run has ended meanwhile
+  // (the idle test heroes can be overrun). A screen change in between simply leads to another attempt.
+  for (let attempt = 0; attempt < 4 && (await screen(a.page)) !== 'menu'; attempt++) {
+    try {
+      if (await screen(a.page) === 'game') {
+        if (!(await a.page.$(tid('pause-leave')))) await a.page.keyboard.press('Escape');
+        await a.page.waitForSelector(tid('pause-leave'), { timeout: 8000 });
+        await a.page.click(tid('pause-leave'));
+      } else {
+        await a.page.click(tid('summary-leave'));
+      }
+      // The pause menu and the summary / lobby use two different confirmation dialogs.
+      const confirm = `${tid('pause-leave-confirm')}, ${tid('leave-confirm')}`;
+      await a.page.waitForSelector(confirm, { timeout: 8000 });
+      await a.page.click(confirm);
+      await sleep(500);
+    } catch { /* screen changed under us: try again */ }
   }
-  await waitScreen(a.page, 'menu');
+  if (await screen(a.page) !== 'menu') {
+    await a.page.screenshot({ path: '/tmp/e2e-leave-fail.png' });
+    const ids = await a.page.evaluate(() => [...document.querySelectorAll('[data-testid]')].map((e) => e.dataset.testid).join(' '));
+    assert.fail(`still on screen ${await screen(a.page)}; visible test ids: ${ids}; problems: ${a.problems.slice(-3).join(' | ')}`);
+  }
   assert.equal((await gameText(a.page)).conn.status, 'offline');
   const fatal = a.problems.filter((p) => !/WebSocket connection|ERR_CONNECTION/.test(p));
   assert.deepEqual(fatal, [], 'no console errors during the whole session');
