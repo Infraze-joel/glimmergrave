@@ -1,0 +1,41 @@
+{
+  "name": "glimmergrave",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Glimmergrave — a 3D co-op action roguelike for the browser",
+  "license": "MIT",
+  "workspaces": [
+    "shared",
+    "server",
+    "client"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:client": "npm run dev -w client",
+    "dev:server": "npm run dev -w server",
+    "build": "npm run build -w client && npm run build -w server",
+    "build:client": "npm run build -w client",
+    "build:server": "npm run build -w server",
+    "start": "npm run start -w server",
+    "typecheck": "tsc -p shared --noEmit && tsc -p server --noEmit && tsc -p client --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:e2e": "node --test --test-concurrency=1 tests/e2e/*.spec.mjs",
+    "assets": "node tools/build-assets.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
+    "@gltf-transform/functions": "^4.5.1",
+    "eslint": "^10.15.0",
+    "meshoptimizer": "^1.3.0",
+    "puppeteer-core": "^25.17.0",
+    "typescript-eslint": "^8.73.0",
+    "vitest": "^5.1.0"
+  }
+}
