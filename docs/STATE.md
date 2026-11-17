@@ -1,6 +1,7 @@
 # State
 
-- Phase: release candidate. All milestones in `docs/milestones/README.md` are done; quality gate passed locally.
+- Phase: release candidate for update 2 (meta upgrades, wardrobe, three bosses, biomes + hazards, training,
+  codex, sample-based audio). All milestones in `docs/milestones/README.md` are done; quality gate passed locally.
 - Last session: integrated backend, render kit, UI/audio; added browser e2e suite, QA start-chamber option,
   perf probe; wrote README.
 - Hosting changed to single-origin Netlify Server (ADR 0002); verified with Netlify's bundler and local

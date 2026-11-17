@@ -77,7 +77,7 @@ const VIEW = {
 
 /** Wardrobe diorama camera: the hero fills HERO_FRACTION of the screen height. */
 const STAGE = {
-  HERO_FRACTION: 0.55,
+  HERO_FRACTION: 0.5,
   PITCH_DEG: 7,
   LOOK_Y: 1.42,
   INTRO_TIME: 1.5,

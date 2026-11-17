@@ -200,9 +200,14 @@ Bibliotheken: MIT (three, ws, vite, …), Cinzel: SIL Open Font License.
 - **Keine echte FPS-Messung.** Die Testumgebung hat keine GPU (Software-Rendering). Gemessen sind
   Rechenzeit pro Frame, Draw Calls, Dreiecke, Speicher und Netzlast, nicht die Bildrate auf echter Hardware.
 - **Nur Chrome getestet** (headless). Firefox und Edge sind ungetestet.
-- **Audio wurde nie angehört**, nur technisch geprüft (keine Fehler, Pegel per Offline-Rendering).
-- **Sieg im Browser nicht durchgespielt.** Bots gewinnen Runs in den Server-Tests; die Browser-Sitzungen
-  endeten mit Niederlagen (Kammer 6 und Boss). Die Sieg-Auswertung ist nur mit Beispieldaten geprüft.
+- **Audio wurde nie angehört**, nur technisch geprüft (alle 146 Dateien dekodierbar, keine Fehler, Pegel per
+  Offline-Rendering). Die Sounds sind nach Dateiname und Messwerten ausgewählt, nicht nach Gehör. Zum Anhören:
+  `npm run dev`, dann `http://localhost:5173/?audiodemo` (jeder Sound und jede Musikstimmung auf Knöpfen).
+- **Update 2 ist nur von Bots und Tests gespielt.** Die neuen Bosse, Biome, Fallen, das Training und die
+  Upgrade-Balance hat noch kein Mensch gespielt. Aus der Spielkamera sind die neuen Bosse vor allem an
+  Kopfschmuck und Waffe zu erkennen.
+- **Sieg im Browser von mir nicht durchgespielt.** Bots gewinnen Runs in den Server-Tests; meine
+  Browser-Sitzungen endeten mit Niederlagen. Die Sieg-Auswertung ist nur mit Beispieldaten geprüft.
 - **Balance** ist ausschließlich mit Bots abgestimmt, nicht mit menschlichen Spielern.
 - **Eine Server-Instanz.** Räume liegen im Arbeitsspeicher; ein Neustart (auf Netlify spätestens alle
   8 Stunden und bei jedem Deploy) beendet laufende Sitzungen, mehrere Instanzen bräuchten Routing pro Raumcode.
@@ -218,11 +223,13 @@ Bibliotheken: MIT (three, ws, vite, …), Cinzel: SIL Open Font License.
 | Prüfung | Ergebnis |
 |---|---|
 | Frische Installation (`npm ci` in neuem Klon), Typprüfung, Lint | fehlerfrei |
-| Unit- und Integrationstests (`npm test`) | 185 Tests in 14 Dateien bestanden (auch unter Node 24) |
+| Unit- und Integrationstests (`npm test`) | 311 Tests in 19 Dateien bestanden |
 | – Protokoll, Bewegung, Fähigkeiten, Status/Resonance, Boons, Draft, Gegner, Telegraph-Fairness, Director, Determinismus | enthalten |
 | – Server mit echten WebSocket-Clients: Erstellen/Beitreten/Wiederbeitritt, ungültiger Code, voller Raum, falsche Version, kaputte/zu große Nachrichten, Ratenlimit, Host-Wechsel, Abbruch im Run, Ablauf der Frist, Rückkehr zur Lobby | enthalten |
 | – Zwei Bots spielen einen ganzen Run, auch mit 150 ± 50 ms Latenz | bestanden |
-| Browser-Tests gegen den Produktions-Build (`npm run test:e2e`), Seite und WebSocket auf derselben Adresse | 12 Tests bestanden |
+| Browser-Tests gegen den Produktions-Build (`npm run test:e2e`), Seite und WebSocket auf derselben Adresse | 14 Tests bestanden |
+| – Update 2: Training startet aus dem Menü und rückt nach dem ersten Schritt vor; Upgrade-Kauf übersteht ein Neuladen; gewähltes Aussehen kommt beim anderen Client an | enthalten |
+| – Update 2 im Server: alle drei Bosse und Herolde mit Bots, Telegraph-Fairness, Biom- und Fallen-Regeln, jedes Upgrade, Belohnungen, Neuwürfe, Tutorial (auch mit passivem Spieler) | in den 311 Tests enthalten |
 | – Start ohne Konsolenfehler mit Netlify-Headern (CSP), `/ws/health`, 404-Seite führt zurück und erhält `?join=` | enthalten |
 | – Zwei unabhängige Browser-Clients: Host/Join, Bereit-Status, nur der Host kann starten | enthalten |
 | – Bewegung und Kampf synchron zwischen den Clients, 150 ms Latenz, Neuladen → Wiederbeitritt, Verbindungsabbruch, Verlassen | enthalten |
@@ -238,20 +245,28 @@ nachgestellt (liest `netlify.toml`), nicht auf Netlify selbst.
 
 ## 14. Performance-Ergebnisse
 
-Gemessen in einem 4-Spieler-Kampf in Kammer 6 über 90 s (Chrome headless, 2 CPU-Kerne, ohne GPU):
+Chrome headless, 2 CPU-Kerne, ohne GPU. Die erste Zeile stammt aus einem 4-Spieler-Kampf vor Update 2 und
+wurde danach nicht neu gemessen; die übrigen Werte sind von Update 2.
 
 | Größe | Wert |
 |---|---|
-| Rechenzeit Hauptthread pro Frame (Logik, Animation, Effekte; ohne GPU-Zeichnen) | Ø 1,75 ms, max. 4,3 ms (Budget bei 60 FPS: 16,6 ms) |
-| Gegner gleichzeitig | Ø 27, max. 47 |
-| Draw Calls / Dreiecke bei 47 Gegnern | 137 / 245 000 |
-| JS-Heap | 34 MB → 38 MB nach 90 s, Spitze 45 MB |
-| Netzwerk pro Client | 10,4 kB/s empfangen, 0,4 kB/s gesendet |
-| Server: `World.step` (4 Helden, 47 Gegner, 61 Projektile) | Ø 0,12 ms |
-| Download | Spielcode 82 kB + three.js 172 kB + CSS 11 kB (gzip); Modelle 4,2 MB (ca. 2,1 MB gzip) |
+| Rechenzeit Hauptthread pro Frame (ohne GPU-Zeichnen), vor Update 2 | Ø 1,75 ms, max. 4,3 ms (Budget bei 60 FPS: 16,6 ms) |
+| Draw Calls / Dreiecke im Stresstest (44 Gegner, 55 Projektile, 8 Fallen) | Gruft 133 / 245 000, Katakomben 137 / 261 000, Schmiede 142 / 247 000 |
+| Server: `World.step` (4 Helden, 47 Gegner, 61 Projektile, 8 Fallen) | Ø 0,14–0,23 ms |
+| Snapshot bei 47 Gegnern | 1243 Byte (15 pro Sekunde) |
+| Download (gzip) | Spielcode ca. 150 kB + three.js 172 kB; Modelle 4,9 MB; Sounds 0,6 MB, werden erst nach der ersten Eingabe nachgeladen |
 
-Bots, Balance bei Oath 0: Solo-Sieg 57 % (40 Runs), 4er-Gruppe 71 % (24 Runs), Sieg nach Ø 9,8 bzw. 10,7
-Spielminuten, Bosskampf Ø 76–121 s.
+Bots, Balance bei Oath 0 (8 Seeds pro Solo-Klasse, 5 pro Gruppe, je Endboss):
+
+| | Sieg | Ø Dauer Sieg | Bosskampf Ø |
+|---|---|---|---|
+| Solo ohne Upgrades | 34 % | 11,3 min | 127 s |
+| 4er-Gruppe ohne Upgrades | 62 % | 12,2 min | 107 s |
+| Solo mit allen Upgrades | 79 % | 9,2 min | 94 s |
+| 4er-Gruppe mit allen Upgrades | 100 % | 9,6 min | 81 s |
+
+Die Werte schwanken je nach Seeds um etwa ±6 Prozentpunkte. Eine voll ausgebaute 4er-Gruppe aus Bots verliert
+nie; für sie sind die höheren Oath-Stufen gedacht.
 
 ## 15. Verifikation mit zwei echten Clients
 

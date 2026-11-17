@@ -15,4 +15,6 @@ evidence that exists. Feel and audio items that only a human can judge are marke
 | 8 | Release: Netlify config, Dockerfile, docs | production build has no local URLs; headers and 404 page work | build scan, `scripts/serve-dist.mjs` emulation | done; real deployment open |
 | 9 | Single-origin hosting on Netlify Server (ADR 0002) | page and WebSocket on one address | Netlify bundler + `@netlify/dev` emulator probe, e2e over `/ws` | done; real deployment open |
 
-`npm test` runs 185 tests in total. Regression suite before any change is called done: `npm run typecheck && npm run lint && npm test && npm run test:e2e`.
+| 10 | Update 2: permanent upgrades, wardrobe, three bosses + heralds, three biomes with hazards, training, codex, sample-based audio | a new player completes training; a run pays Glimmer that buys an upgrade | 311 unit/integration tests, 14 browser tests, showcase/uidemo/audiodemo harnesses | done; human playtest and listening pass open |
+
+`npm test` runs 311 tests in total. Regression suite before any change is called done: `npm run typecheck && npm run lint && npm test && npm run test:e2e`.
