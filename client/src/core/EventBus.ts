@@ -26,6 +26,12 @@ export interface EventMap {
   'ui:leave': undefined;
   /** The pause / settings overlay opened or closed (the online game keeps running). */
   'ui:overlay': { open: boolean };
+  /**
+   * Ask the 3D view to present a hero of this class (with the profile's look for it) while no chamber is
+   * shown — used by the wardrobe / class picker. `screenX` is the horizontal screen position (0..1) the hero
+   * should be centred on, so the UI can keep that area free. null hides the showcase.
+   */
+  'ui:showcase': { cls: ClassId; screenX: number } | null;
   /** First user gesture happened — audio may start. */
   'ui:gesture': undefined;
 
