@@ -18,8 +18,8 @@ export interface MetaUpgradeDef {
 
 /** Order is part of the wire format (Loadout.meta is aligned with it). Append only. */
 export const META_UPGRADES: MetaUpgradeDef[] = [
-  { id: 'vitality', costs: [40, 70, 110, 160, 220], values: [8, 16, 24, 32, 40], summary: '+{v} maximum health.' },
-  { id: 'might', costs: [50, 90, 140, 200, 270], values: [0.04, 0.08, 0.12, 0.16, 0.2], summary: '+{v}% damage with everything.' },
+  { id: 'vitality', costs: [40, 70, 110, 160, 220], values: [5, 10, 15, 20, 25], summary: '+{v} maximum health.' },
+  { id: 'might', costs: [50, 90, 140, 200, 270], values: [0.03, 0.06, 0.09, 0.12, 0.15], summary: '+{v}% damage with everything.' },
   { id: 'swiftness', costs: [60, 120, 200], values: [0.03, 0.06, 0.09], summary: '+{v}% movement speed.' },
   { id: 'celerity', costs: [60, 120, 200], values: [0.06, 0.12, 0.18], summary: 'Secondary ability recharges {v}% faster.' },
   { id: 'footwork', costs: [60, 120, 200], values: [0.08, 0.16, 0.24], summary: 'Dash recharges {v}% faster.' },

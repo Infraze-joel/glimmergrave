@@ -57,7 +57,7 @@ const BOT = {
   /** Soul wisps: ranged bots shoot them inside this range; everyone strikes them when they are in reach. */
   WISP_SHOOT_RANGE: 8, WISP_PRIORITY_RANGE: 4.5,
   /** Tutorial script. */
-  TUTORIAL_DASH_LEAD_SECONDS: 0.2, TUTORIAL_STAND: { x: 0, z: 1.5 }, TUTORIAL_HAZARD_STANDOFF: 1.8, TUTORIAL_STORM_DASH_RANGE: 3.6,
+  TUTORIAL_DASH_LEAD_SECONDS: 0.2, TUTORIAL_STAND: { x: 0, z: 1.5 }, TUTORIAL_HAZARD_STANDOFF: 1.8, TUTORIAL_STORM_DASH_RANGE: 3.6, TUTORIAL_CLOSE_RANGE: 3,
 } as const;
 
 interface Tele {
@@ -628,9 +628,9 @@ export class BotBrain {
         cmd.aim = Math.atan2(-rx, -rz);
         break;
       }
+      case 'secondary':
       case 'storm': {
         this.combat(view, me, room, cmd);
-        // Dash straight through the nearest foe so the infused dash marks it.
         let foe: EnemySnap | null = null;
         let foeD = Infinity;
         for (const e of view.enemies) {
@@ -638,9 +638,19 @@ export class BotBrain {
           const d = Math.hypot(e.x - me.x, e.z - me.z);
           if (d < foeD) { foeD = d; foe = e; }
         }
-        if (foe && foeD <= BOT.TUTORIAL_STORM_DASH_RANGE && foeD > 0.5 && me.dashCharges >= 1 && (foe.flags & EF.SHOCK) === 0) {
-          cmd.moveX = (foe.x - me.x) / foeD;
-          cmd.moveZ = (foe.z - me.z) / foeD;
+        if (!foe || foeD <= 0.5) break;
+        const dirX = (foe.x - me.x) / foeD;
+        const dirZ = (foe.z - me.z) / foeD;
+        // The targets stand still: walk up to them (ranged classes would otherwise keep their distance).
+        if (foeD > BOT.TUTORIAL_CLOSE_RANGE) { cmd.moveX = dirX; cmd.moveZ = dirZ; }
+        if (tut.step === 'secondary') {
+          cmd.aim = Math.atan2(dirX, dirZ);
+          cmd.aimDist = foeD;
+          if (foeD <= BOT.TUTORIAL_STORM_DASH_RANGE && me.cdSecondary <= 0 && (this.lastButtons & BTN.SECONDARY) === 0) cmd.buttons |= BTN.SECONDARY;
+        } else if (foeD <= BOT.TUTORIAL_STORM_DASH_RANGE && me.dashCharges >= 1 && (foe.flags & EF.SHOCK) === 0) {
+          // Dash straight through the foe so the infused dash marks it.
+          cmd.moveX = dirX;
+          cmd.moveZ = dirZ;
           if ((this.lastButtons & BTN.DASH) === 0) cmd.buttons |= BTN.DASH;
         }
         break;

@@ -195,6 +195,7 @@ export function generateRoom(rng: Rng, kind: 'combat' | 'elite' | 'boss', biome:
   /** Adds a hazard if it keeps every clearance. Hazards of the same `group` (a frost cluster) may overlap. */
   const groups: number[] = [];
   const addHazard = (h: Hazard, group: number): boolean => {
+    if (room.hazards.length >= BIOME.MAX_HAZARDS) return false;
     if (Math.abs(h.x) + h.r > w / 2 - BIOME.HAZARD_WALL_GAP || Math.abs(h.z) + h.r > d / 2 - BIOME.HAZARD_WALL_GAP) return false;
     for (const s of spawns) if (Math.hypot(s.x - h.x, s.z - h.z) < h.r + BIOME.HAZARD_SPAWN_CLEARANCE) return false;
     for (const p of doors) if (Math.hypot(p.x - h.x, p.z - h.z) < h.r + WORLD.DOOR_RADIUS + BIOME.HAZARD_DOOR_CLEARANCE) return false;
@@ -242,15 +243,22 @@ export function generateRoom(rng: Rng, kind: 'combat' | 'elite' | 'boss', biome:
     const step = snap(rng.range(F.ROW_STEP_MIN, F.ROW_STEP_MAX));
     const first = snap(-d / 2 + DIRECTOR.WALL_CLEARANCE + 1 + rng.range(0, step / 2));
     for (const x of rowX) {
+      const skipped: Obstacle[] = [];
+      let placed = 0;
+      const put = (a: Obstacle): void => {
+        if (!fits(a)) return;
+        if (x === 0) { room.obstacles.push(a); placed++; return; }
+        const b: Obstacle = { ...a, x: -x };
+        if (fits(b)) { room.obstacles.push(a, b); placed++; }
+      };
       for (let z = first; z < d / 2; z += step) {
         const type = rng.pick(kinds);
-        if (rng.chance(F.ROW_SKIP_CHANCE)) continue;
         const a: Obstacle = { x, z, r: type.r, kind: type.kind };
-        if (!fits(a)) continue;
-        if (x === 0) { room.obstacles.push(a); continue; }
-        const b: Obstacle = { ...a, x: -x };
-        if (fits(b)) room.obstacles.push(a, b);
+        if (rng.chance(F.ROW_SKIP_CHANCE)) skipped.push(a);
+        else put(a);
       }
+      // A row that came out too thin gets its skipped slots back.
+      for (const a of skipped) if (placed < F.ROW_MIN) put(a);
     }
     // Vents sit in the middle of the lanes.
     const lanes = rows === 1 ? [-w / 4, w / 4] : [0, -w / 3, w / 3];
@@ -284,7 +292,7 @@ export function generateRoom(rng: Rng, kind: 'combat' | 'elite' | 'boss', biome:
     // Patches of freezing mist: overlapping circles that share one rhythm.
     const F = BIOME.flooded;
     const clusters = rng.int(F.CLUSTERS_MIN, F.CLUSTERS_MAX);
-    for (let c = 0, attempt = 0; c < clusters && attempt < BIOME.HAZARD_ATTEMPTS; attempt++) {
+    for (let c = 0, attempt = 0; c < clusters && attempt < BIOME.HAZARD_ATTEMPTS && room.hazards.length < BIOME.MAX_HAZARDS; attempt++) {
       const period = round1(rng.range(F.PERIOD_MIN, F.PERIOD_MAX));
       const phase = round2(rng.next());
       const cx = rng.range(-w / 2, w / 2);

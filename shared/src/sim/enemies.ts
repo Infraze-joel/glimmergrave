@@ -3,7 +3,7 @@
  * Fairness rule: every damaging attack emits a `telegraph` when its windup starts and only hurts heroes that are
  * still inside the announced shape when the windup ends (projectiles: on contact, along the announced line).
  */
-import { TICK_DT, WORLD } from '../constants.ts';
+import { RUN, TICK_DT, WORLD } from '../constants.ts';
 import { ENEMIES, ENEMY_TUNING, STATUS } from '../data/enemies.ts';
 import type { EnemyAnim, EnemyKind, Hazard } from '../types.ts';
 import { chillSlow, clearStatus, damageHero, enemyDamage, isBoss, rawDamageEnemy } from './combat.ts';
@@ -54,7 +54,10 @@ export function spawnEnemy(w: World, kind: EnemyKind, x: number, z: number, opts
   const elite = opts.elite === true;
   const eliteHp = elite && !boss ? ENEMY_TUNING.ELITE_HP_MUL : 1;
   const eliteDamage = elite && !boss ? ENEMY_TUNING.ELITE_DAMAGE_MUL : 1;
-  const maxHp = def.hp * w.hpMul * eliteHp * (herald ? ENEMY_TUNING.HERALD.HP_FRACTION : 1);
+  // Bosses swap the party health scaling of the rank and file for their own, steeper one.
+  const party = w.partySize - 1;
+  const bossParty = boss ? (1 + ENEMY_TUNING.BOSS_HP_PER_EXTRA_PLAYER * party) / (1 + RUN.HP_PER_EXTRA_PLAYER * party) : 1;
+  const maxHp = def.hp * w.hpMul * eliteHp * bossParty * (herald ? ENEMY_TUNING.HERALD.HP_FRACTION : 1);
   const e: Enemy = {
     id: w.nextEnemyId++, kind, def, x, z, rot: 0, hp: maxHp, maxHp, radius: def.radius, elite,
     damageMul: w.damageMul * eliteDamage, speedMul: w.speedMul, anim: 'spawn', animSeq: 0, dead: false, corpseTime: 0,

@@ -7,13 +7,14 @@ import { TICK_DT } from '../constants.ts';
 import { HAZARD } from '../data/enemies.ts';
 import type { ElementId, Hazard } from '../types.ts';
 import { damageHero, isTargetable, rawDamageEnemy, setStatus } from './combat.ts';
-import { hazardState, type HazardState } from './hazards.ts';
+import { HAZARD_TIMING, hazardState, type HazardState } from './hazards.ts';
 import type { World } from './world.ts';
 
 /** Codes stored in World.hazardPhase. */
 export const HAZARD_PHASE = { IDLE: 0, WARN: 1, ACTIVE: 2 } as const;
 
 const scratch: HazardState = { phase: 'idle', t: 0 };
+const STRIKE_EPS = 1e-9;
 
 function strike(w: World, hz: Hazard): void {
   const r2 = hz.r * hz.r;
@@ -77,7 +78,10 @@ export function stepHazards(w: World): void {
     const ticks = w.hazardTicks[i] as number;
     w.hazardTicks[i] = ticks + 1;
     const tick = hz.kind === 'spikes' ? HAZARD.SPIKES.TICK : hz.kind === 'vent' ? HAZARD.VENT.TICK : HAZARD.FROST.TICK;
-    if (combat && ticks % Math.max(1, Math.round(tick / TICK_DT)) === 0) strike(w, hz);
+    const every = Math.max(1, Math.round(tick / TICK_DT));
+    // A fixed number of strikes per activation, whatever the rounding of the cycle against the tick grid.
+    const strikes = Math.ceil(HAZARD_TIMING.ACTIVE[hz.kind] / tick - STRIKE_EPS);
+    if (combat && ticks % every === 0 && ticks / every < strikes) strike(w, hz);
   }
   w.hazardsLive = live;
 }

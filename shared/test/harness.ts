@@ -129,6 +129,9 @@ export interface BalanceRow {
   meanDamageTaken: number;
   maxChamberSeconds: number;
   meanBossSeconds: number;
+  minBossSeconds: number;
+  maxBossSeconds: number;
+  meanHeraldSeconds: number;
   meanDowns: number;
   meanResonances: number;
 }
@@ -143,15 +146,18 @@ export function summarize(label: string, results: RunResult[]): BalanceRow {
     meanDamageTaken: mean(results.map((r) => r.damageTaken)),
     maxChamberSeconds: Math.max(0, ...results.flatMap((r) => r.chamberSeconds)),
     meanBossSeconds: mean(wins.map((r) => r.bossSeconds)),
+    minBossSeconds: wins.length ? Math.min(...wins.map((r) => r.bossSeconds)) : 0,
+    maxBossSeconds: Math.max(0, ...wins.map((r) => r.bossSeconds)),
+    meanHeraldSeconds: mean(results.filter((r) => r.chamber > 6).map((r) => r.heraldSeconds)),
     meanDowns: mean(results.map((r) => r.downs)),
     meanResonances: mean(results.map((r) => r.resonances)),
   };
 }
 
 export function formatTable(rows: BalanceRow[]): string {
-  const head = 'party                 runs  win%  winMin  chamber  dmgTaken  maxChamberS  bossS  downs  reson';
+  const head = 'party                      runs  win%  winMin  chamber  dmgTaken  maxChamberS  bossS (min-max)  heraldS  downs  reson';
   const lines = rows.map((r) =>
-    `${r.label.padEnd(20)} ${String(r.runs).padStart(5)} ${(r.winRate * 100).toFixed(0).padStart(5)} ${r.meanWinMinutes.toFixed(1).padStart(7)} ${r.meanChamber.toFixed(1).padStart(8)} ${r.meanDamageTaken.toFixed(0).padStart(9)} ${r.maxChamberSeconds.toFixed(0).padStart(12)} ${r.meanBossSeconds.toFixed(0).padStart(6)} ${r.meanDowns.toFixed(1).padStart(6)} ${r.meanResonances.toFixed(0).padStart(6)}`);
+    `${r.label.padEnd(25)} ${String(r.runs).padStart(5)} ${(r.winRate * 100).toFixed(0).padStart(5)} ${r.meanWinMinutes.toFixed(1).padStart(7)} ${r.meanChamber.toFixed(1).padStart(8)} ${r.meanDamageTaken.toFixed(0).padStart(9)} ${r.maxChamberSeconds.toFixed(0).padStart(12)} ${r.meanBossSeconds.toFixed(0).padStart(6)} ${`(${r.minBossSeconds.toFixed(0)}-${r.maxBossSeconds.toFixed(0)})`.padStart(9)} ${r.meanHeraldSeconds.toFixed(0).padStart(8)} ${r.meanDowns.toFixed(1).padStart(6)} ${r.meanResonances.toFixed(0).padStart(6)}`);
   return [head, ...lines].join('\n');
 }
 

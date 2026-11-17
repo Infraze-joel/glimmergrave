@@ -124,7 +124,19 @@ function choose(w: World, e: Enemy, b: BossState, target: Hero): void {
     beginAttack(w, e, cast('summon', A.SUMMON_CAST), null, 'summon');
     return;
   }
-  if ((b.cd[MATRON_CD.BEAM] as number) <= 0) {
+  // Of the patterns that are ready, the one that has been waiting longest goes first, so all of them come round.
+  const wisps = Math.min(MT.WISP_COUNT[p] as number, MT.WISP_MAX - wispCount(w));
+  let pick = -1;
+  let waited = 0;
+  for (let i = 0; i < b.cd.length; i++) {
+    const cd = b.cd[i] as number;
+    if (cd > waited || (cd === waited && pick >= 0)) continue;
+    if (i === MATRON_CD.SPIRAL && b.phase < 2) continue;
+    if (i === MATRON_CD.WISP && wisps <= 0) continue;
+    pick = i;
+    waited = cd;
+  }
+  if (pick === MATRON_CD.BEAM) {
     b.cd[MATRON_CD.BEAM] = A.BEAM_COOLDOWN;
     const steps = MT.BEAM_STEPS[p] as number;
     beginAttack(w, e, cast('beam', (steps - 1) * MT.BEAM_INTERVAL + MT.BEAM_WINDUP), null, 'beam');
@@ -137,7 +149,7 @@ function choose(w: World, e: Enemy, b: BossState, target: Hero): void {
     addBeams(w, e, b, target.slot);
     return;
   }
-  if ((b.cd[MATRON_CD.BLAST] as number) <= 0) {
+  if (pick === MATRON_CD.BLAST) {
     b.cd[MATRON_CD.BLAST] = A.BLAST_COOLDOWN;
     const waves = MT.BLAST_WAVES[p] as number;
     beginAttack(w, e, cast('blasts', (waves - 1) * MT.BLAST_WAVE_INTERVAL + MT.BLAST_WINDUP), null, 'cast');
@@ -153,13 +165,12 @@ function choose(w: World, e: Enemy, b: BossState, target: Hero): void {
     addBlasts(w, e, b, target.body.x, target.body.z, b.seqAngle, b.phase >= 2 ? GRID : CROSS, ring, target.slot);
     return;
   }
-  const wisps = Math.min(MT.WISP_COUNT[p] as number, MT.WISP_MAX - wispCount(w));
-  if ((b.cd[MATRON_CD.WISP] as number) <= 0 && wisps > 0) {
+  if (pick === MATRON_CD.WISP) {
     b.cd[MATRON_CD.WISP] = A.WISP_COOLDOWN;
     beginAttack(w, e, cast('wisp', MT.WISP_WINDUP), null, 'cast');
     return;
   }
-  if (b.phase >= 2 && (b.cd[MATRON_CD.SPIRAL] as number) <= 0) {
+  if (pick === MATRON_CD.SPIRAL) {
     b.cd[MATRON_CD.SPIRAL] = A.SPIRAL_COOLDOWN;
     beginAttack(w, e, { ...cast('spiral', MT.SPIRAL_WINDUP), r: A.RING_TELEGRAPH_RADIUS }, 'circle', 'volley');
     return;

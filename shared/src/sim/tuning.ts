@@ -139,9 +139,9 @@ export const BIOME = {
     HAZARD_R_MIN: 1.7, HAZARD_R_MAX: 2.3, PERIOD_MIN: 7, PERIOD_MAX: 9,
   },
   forge: {
-    W_MIN: 24, W_MAX: 30, D_MIN: 30, D_MAX: 36, ROWS_MIN: 1, ROWS_MAX: 2, ROW_STEP_MIN: 5, ROW_STEP_MAX: 6.5,
-    /** Chance that a slot in a row stays empty (a wider gap between lanes). */
-    ROW_SKIP_CHANCE: 0.25,
+    W_MIN: 24, W_MAX: 28, D_MIN: 30, D_MAX: 36, ROWS_MIN: 1, ROWS_MAX: 2, ROW_STEP_MIN: 5, ROW_STEP_MAX: 6.5,
+    /** Chance that a slot in a row stays empty (a wider gap between lanes); a row never ends up with fewer than ROW_MIN obstacles if it can help it. */
+    ROW_SKIP_CHANCE: 0.25, ROW_MIN: 3,
     HAZARDS_MIN: 3, HAZARDS_MAX: 5, HAZARD_R_MIN: 1.5, HAZARD_R_MAX: 1.9, PERIOD_MIN: 5.5, PERIOD_MAX: 7.5,
   },
   /** Boss arenas: hazards of the biome's kind near the walls. */
@@ -149,12 +149,14 @@ export const BIOME = {
   /** Minimum distance of a hazard's edge to spawn points, to the edge of a door zone, to obstacles, walls and other hazards. */
   HAZARD_SPAWN_CLEARANCE: 4, HAZARD_DOOR_CLEARANCE: 2, HAZARD_OBSTACLE_GAP: 0.4, HAZARD_WALL_GAP: 1.2, HAZARD_GAP: 2.4,
   HAZARD_ATTEMPTS: 200,
+  /** No room ever has more hazards than this. */
+  MAX_HAZARDS: 8,
   /** Grid step of the walkability check that guarantees a hazard-free route from the spawns to every door. */
   PATH_GRID: 0.5,
   /** Wave composition: weight multipliers per biome (the cost budget is unchanged). */
   KIND_BIAS: {
     crypt: { minion: 1, warrior: 1, archer: 1, mage: 1 },
-    flooded: { minion: 0.85, warrior: 0.7, archer: 1.5, mage: 1.6 },
+    flooded: { minion: 0.9, warrior: 0.75, archer: 1.4, mage: 1.35 },
     forge: { minion: 1, warrior: 1.9, archer: 0.8, mage: 0.8 },
   },
   /** Chamber index at which act 2 and act 3 begin (act 1 is always the crypt). */
@@ -168,8 +170,8 @@ export const TUTORIAL = {
   MOVE_MARKER: { x: 0, z: 1.5, r: 1.6 },
   DUMMY_RESPAWN_SECONDS: 1.2,
   ATTACK_DUMMIES: [{ x: -3, z: -2.5 }, { x: 0, z: -4 }, { x: 3, z: -2.5 }], ATTACK_DUMMY_HP: 45,
-  /** The training warrior and its slow lane attack. */
-  DASH_ATTACKER: { x: 0, z: -6.5 }, DASH_WINDUP: 1.5, DASH_EVERY: 3, DASH_FIRST: 1.2, DASH_WIDTH: 3.2, DASH_DAMAGE: 8,
+  /** The training warrior and its slow lane attack (DASH_EVERY = pause between two attacks). */
+  DASH_ATTACKER: { x: 0, z: -6.5 }, DASH_WINDUP: 1.5, DASH_EVERY: 2, DASH_FIRST: 1.2, DASH_WIDTH: 3.2, DASH_DAMAGE: 8,
   /** After this many attacks any avoided attack counts, with or without a dash. */
   DASH_FALLBACK_ATTEMPTS: 5,
   GROUP_DUMMIES: [{ x: -1.1, z: -3.6 }, { x: 1.1, z: -3.6 }, { x: 0, z: -5.2 }, { x: 0, z: -2.2 }], GROUP_DUMMY_HP: 320, SECONDARY_HITS: 2,
@@ -204,14 +206,14 @@ export const DIRECTOR = {
   NEXT_WAVE_ALIVE: 2,
   WAVE_TIMEOUT: 28,
   /** Wave budget = (BASE + PER_CHAMBER * chamber) * party scaling. */
-  BUDGET_BASE: 12, BUDGET_PER_CHAMBER: 2.0,
+  BUDGET_BASE: 15, BUDGET_PER_CHAMBER: 2.1,
   WAVES_EARLY: 3, WAVES_LATE: 4, WAVES_LATE_FROM_CHAMBER: 2,
   ELITE_WAVES: 2, ELITE_ESCORT_BUDGET: 0.45, ELITE_REINFORCE_BUDGET: 0.6,
   KIND_WEIGHT: { minion: 5, warrior: 2.2, archer: 2.2, mage: 1.4 },
   /** Caps on simultaneously spawned ranged enemies per wave: base + per hero. */
   ARCHER_CAP_BASE: 2, ARCHER_CAP_PER_HERO: 1, MAGE_CAP_BASE: 1, MAGE_CAP_PER_HERO: 0.5,
   /** Extra enemy damage per additional hero (parties share the pressure and can revive each other). */
-  DAMAGE_PER_EXTRA_PLAYER: 0.05,
+  DAMAGE_PER_EXTRA_PLAYER: 0,
   CLEAR_DELAY: 0.8,
   /** Room generation details. */
   OBSTACLE_GRID: 0.25, CENTRED_OBSTACLE_CHANCE: 0.2, BOSS_PILLAR_INSET: 3, BOSS_PILLAR_RADIUS: 0.9,

@@ -39,15 +39,15 @@ export interface EnemyDef {
  *  stalker  – mobile ranged boss (sim/stalker.ts), 3 phases: arrow fans, piercing bone spear, leap, traps, frenzy
  */
 export const ENEMIES: Record<EnemyKind, EnemyDef> = {
-  minion: { kind: 'minion', hp: 36, speed: 4.4, radius: 0.4, scale: 0.85, damage: 9, attackRange: 1.5, windup: 0.42, cooldown: 1.1, spawnTime: 0.9, cost: 1, minChamber: 0, poise: 1 },
-  warrior: { kind: 'warrior', hp: 115, speed: 3.0, radius: 0.5, scale: 1.05, damage: 18, attackRange: 2.2, windup: 0.65, cooldown: 1.8, spawnTime: 1.1, cost: 3, minChamber: 1, poise: 30 },
-  archer: { kind: 'archer', hp: 52, speed: 3.4, radius: 0.42, scale: 0.95, damage: 12, attackRange: 13, windup: 0.75, cooldown: 2.3, spawnTime: 0.9, cost: 2, minChamber: 0, poise: 1 },
-  mage: { kind: 'mage', hp: 74, speed: 2.8, radius: 0.42, scale: 1.0, damage: 20, attackRange: 12, windup: 1.1, cooldown: 3.2, spawnTime: 1.0, cost: 3, minChamber: 2, poise: 15 },
+  minion: { kind: 'minion', hp: 40, speed: 4.4, radius: 0.4, scale: 0.85, damage: 9, attackRange: 1.5, windup: 0.42, cooldown: 1.1, spawnTime: 0.9, cost: 1, minChamber: 0, poise: 1 },
+  warrior: { kind: 'warrior', hp: 126, speed: 3.0, radius: 0.5, scale: 1.05, damage: 18, attackRange: 2.2, windup: 0.65, cooldown: 1.8, spawnTime: 1.1, cost: 3, minChamber: 1, poise: 30 },
+  archer: { kind: 'archer', hp: 57, speed: 3.4, radius: 0.42, scale: 0.95, damage: 12, attackRange: 13, windup: 0.75, cooldown: 2.3, spawnTime: 0.9, cost: 2, minChamber: 0, poise: 1 },
+  mage: { kind: 'mage', hp: 81, speed: 2.8, radius: 0.42, scale: 1.0, damage: 20, attackRange: 12, windup: 1.1, cooldown: 3.2, spawnTime: 1.0, cost: 3, minChamber: 2, poise: 15 },
   champion: { kind: 'champion', hp: 900, speed: 3.6, radius: 0.8, scale: 1.55, damage: 28, attackRange: 3.4, windup: 0.8, cooldown: 1.6, spawnTime: 1.6, cost: 0, minChamber: 0, poise: 0 },
-  regent: { kind: 'regent', hp: 2700, speed: 3.3, radius: 1.1, scale: 2.2, damage: 34, attackRange: 4.4, windup: 0.9, cooldown: 1.5, spawnTime: 2.4, cost: 0, minChamber: 0, poise: 0 },
+  regent: { kind: 'regent', hp: 2300, speed: 3.3, radius: 1.1, scale: 2.2, damage: 31, attackRange: 4.4, windup: 0.9, cooldown: 1.5, spawnTime: 2.4, cost: 0, minChamber: 0, poise: 0 },
   // attackRange of the two ranged bosses = the distance they try to keep; damage = their basic projectile.
-  matron: { kind: 'matron', hp: 2300, speed: 2.7, radius: 0.9, scale: 1.9, damage: 14, attackRange: 9, windup: 0.9, cooldown: 1.5, spawnTime: 2.4, cost: 0, minChamber: 0, poise: 0 },
-  stalker: { kind: 'stalker', hp: 2250, speed: 3.9, radius: 0.85, scale: 1.8, damage: 15, attackRange: 10, windup: 0.85, cooldown: 1.4, spawnTime: 2.2, cost: 0, minChamber: 0, poise: 0 },
+  matron: { kind: 'matron', hp: 2200, speed: 2.7, radius: 0.9, scale: 1.9, damage: 14, attackRange: 9, windup: 0.9, cooldown: 1.5, spawnTime: 2.4, cost: 0, minChamber: 0, poise: 0 },
+  stalker: { kind: 'stalker', hp: 2500, speed: 3.9, radius: 0.85, scale: 1.8, damage: 15, attackRange: 10, windup: 0.85, cooldown: 1.4, spawnTime: 2.2, cost: 0, minChamber: 0, poise: 0 },
 };
 
 export const ENEMY_TUNING = {
@@ -67,10 +67,10 @@ export const ENEMY_TUNING = {
   REGENT: {
     PHASE_THRESHOLDS: [0.66, 0.33],
     SWEEP_ARC_DEG: 180, SWEEP_REACH: 4.8,
-    CHARGE_LENGTH: 14, CHARGE_WIDTH: 2.8, CHARGE_WINDUP: 1.0, CHARGE_SPEED: 24, CHARGE_DAMAGE: 38,
+    CHARGE_LENGTH: 14, CHARGE_WIDTH: 2.8, CHARGE_WINDUP: 1.0, CHARGE_SPEED: 24, CHARGE_DAMAGE: 35,
     VOLLEY_ORBS: 16, VOLLEY_WAVES: 2, VOLLEY_SPEED: 9, VOLLEY_DAMAGE: 16, VOLLEY_WINDUP: 0.9,
     SUMMON_COUNT: 4, SUMMON_COOLDOWN: 16,
-    SLAM_RADIUS: 2.8, SLAM_WINDUP: 1.0, SLAM_REPEATS: 3, SLAM_INTERVAL: 0.6, SLAM_DAMAGE: 28,
+    SLAM_RADIUS: 2.8, SLAM_WINDUP: 1.0, SLAM_REPEATS: 3, SLAM_INTERVAL: 0.6, SLAM_DAMAGE: 26,
   },
   /**
    * The Hex Matron. Arrays with three entries are indexed by phase - 1.
@@ -83,11 +83,11 @@ export const ENEMY_TUNING = {
   MATRON: {
     PHASE_THRESHOLDS: [0.66, 0.33],
     BLINK_DISTANCE: 9, BLINK_COOLDOWN: 7, BLINK_TRIGGER: 3.6,
-    RING_ORBS: 12, RING_WAVES: [1, 2, 2], RING_SPEED: 8, RING_WINDUP: 0.9, RING_DAMAGE: 14,
-    SPIRAL_ARMS: 3, SPIRAL_STEPS: 12, SPIRAL_INTERVAL: 0.15, SPIRAL_TURN_DEG: 14, SPIRAL_SPEED: 7.5, SPIRAL_WINDUP: 0.8, SPIRAL_DAMAGE: 12,
-    BEAM_RAYS: [2, 3, 4], BEAM_STEPS: [2, 3, 4], BEAM_WINDUP: 1.0, BEAM_INTERVAL: 0.75, BEAM_TURN_DEG: 22, BEAM_WIDTH: 1.6, BEAM_LENGTH: 30, BEAM_DAMAGE: 26,
-    BLAST_RADIUS: 2.3, BLAST_SPACING: 6.2, BLAST_WINDUP: 1.15, BLAST_DAMAGE: 24, BLAST_WAVES: [1, 1, 2], BLAST_WAVE_INTERVAL: 0.8,
-    WISP_COUNT: [1, 2, 3], WISP_MAX: 5, WISP_SPEED: 4.1, WISP_TURN_DEG: 110, WISP_LIFETIME: 9, WISP_RADIUS: 0.45, WISP_WINDUP: 0.8, WISP_DAMAGE: 20,
+    RING_ORBS: 12, RING_WAVES: [1, 2, 2], RING_SPEED: 8, RING_WINDUP: 0.9, RING_DAMAGE: 16,
+    SPIRAL_ARMS: 3, SPIRAL_STEPS: 12, SPIRAL_INTERVAL: 0.15, SPIRAL_TURN_DEG: 14, SPIRAL_SPEED: 7.5, SPIRAL_WINDUP: 0.8, SPIRAL_DAMAGE: 14,
+    BEAM_RAYS: [2, 3, 4], BEAM_STEPS: [2, 3, 4], BEAM_WINDUP: 1.0, BEAM_INTERVAL: 0.75, BEAM_TURN_DEG: 22, BEAM_WIDTH: 1.6, BEAM_LENGTH: 30, BEAM_DAMAGE: 30,
+    BLAST_RADIUS: 2.3, BLAST_SPACING: 6.2, BLAST_WINDUP: 1.15, BLAST_DAMAGE: 28, BLAST_WAVES: [1, 1, 2], BLAST_WAVE_INTERVAL: 0.8,
+    WISP_COUNT: [1, 2, 3], WISP_MAX: 5, WISP_SPEED: 4.1, WISP_TURN_DEG: 110, WISP_LIFETIME: 9, WISP_RADIUS: 0.45, WISP_WINDUP: 0.8, WISP_DAMAGE: 24,
     SUMMON_MAGES: 1, SUMMON_MINIONS: 2, SUMMON_COOLDOWN: 18,
   },
   /**
@@ -100,26 +100,32 @@ export const ENEMY_TUNING = {
    */
   STALKER: {
     PHASE_THRESHOLDS: [0.66, 0.33],
-    FAN_ARROWS: [3, 5, 7], FAN_SPREAD_DEG: [26, 44, 60], FAN_WINDUP: 0.85, FAN_SPEED: 16, FAN_DAMAGE: 15,
-    SPEAR_WINDUP: 1.1, SPEAR_SPEED: 30, SPEAR_WIDTH: 1.3, SPEAR_RADIUS: 0.55, SPEAR_DAMAGE: 34,
-    LEAP_AIR_TIME: 0.95, LEAP_RADIUS: 3, LEAP_DAMAGE: 28, LEAP_DISTANCE: 10, LEAP_TRIGGER: 3.6,
-    TRAP_COUNT: [2, 3, 4], TRAP_RADIUS: 1.8, TRAP_ARM: 1.0, TRAP_PULSES: 4, TRAP_INTERVAL: 0.8, TRAP_DAMAGE: 14,
-    FRENZY_SHOTS: 6, FRENZY_INTERVAL: 0.45, FRENZY_WINDUP: 0.55, FRENZY_DAMAGE: 13,
+    FAN_ARROWS: [3, 5, 7], FAN_SPREAD_DEG: [26, 44, 60], FAN_WINDUP: 0.85, FAN_SPEED: 16, FAN_DAMAGE: 18,
+    SPEAR_WINDUP: 1.1, SPEAR_SPEED: 30, SPEAR_WIDTH: 1.3, SPEAR_RADIUS: 0.55, SPEAR_DAMAGE: 40,
+    LEAP_AIR_TIME: 0.95, LEAP_RADIUS: 3, LEAP_DAMAGE: 32, LEAP_DISTANCE: 10, LEAP_TRIGGER: 3.6,
+    TRAP_COUNT: [2, 3, 4], TRAP_RADIUS: 1.8, TRAP_ARM: 1.0, TRAP_PULSES: 4, TRAP_INTERVAL: 0.8, TRAP_DAMAGE: 16,
+    FRENZY_SHOTS: 6, FRENZY_INTERVAL: 0.45, FRENZY_WINDUP: 0.55, FRENZY_DAMAGE: 15,
   },
   /** The herald (second elite chamber): a boss that is not this run's final boss, locked to phase 1. */
   HERALD: { HP_FRACTION: 0.45 },
+  /**
+   * Bosses and the champion gain this much health per additional hero instead of RUN.HP_PER_EXTRA_PLAYER
+   * (a party focuses all its damage on them, so they need more than the rank and file to last as long).
+   */
+  BOSS_HP_PER_EXTRA_PLAYER: 1.0,
 } as const;
 
 /**
  * Floor hazards (see Hazard in types.ts; timing in sim/hazards.ts). While a hazard is active it strikes everything
- * standing on it every TICK seconds, starting the moment it turns active. Heroes take DAMAGE (dash and other
+ * standing on it every TICK seconds (keep TICK a multiple of the simulation tick), starting the moment it turns
+ * active: ceil(active time / TICK) strikes per activation. Heroes take DAMAGE (dash and other
  * i-frames avoid it); enemies take DAMAGE * ENEMY_DAMAGE_MUL * the chamber's health scaling, so luring stays
  * worthwhile in late chambers. Bosses and champions are immune.
  *  vent  – also sets heroes ablaze (BURN_DPS for BURN_SECONDS) and applies Burn to enemies
  *  frost – also slows heroes by SLOW for CHILL_SECONDS and applies Chill to enemies
  */
 export const HAZARD = {
-  SPIKES: { DAMAGE: 14, TICK: 0.45 },
+  SPIKES: { DAMAGE: 14, TICK: 0.5 },
   VENT: { DAMAGE: 9, TICK: 0.4, BURN_DPS: 4, BURN_SECONDS: 2, BURN_TICK: 0.5 },
   FROST: { DAMAGE: 3, TICK: 0.6, SLOW: 0.35, CHILL_SECONDS: 1.5 },
   ENEMY_DAMAGE_MUL: 1.6,
