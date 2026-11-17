@@ -223,13 +223,14 @@ Bibliotheken: MIT (three, ws, vite, …), Cinzel: SIL Open Font License.
 | Prüfung | Ergebnis |
 |---|---|
 | Frische Installation (`npm ci` in neuem Klon), Typprüfung, Lint | fehlerfrei |
-| Unit- und Integrationstests (`npm test`) | 311 Tests in 19 Dateien bestanden |
+| Unit- und Integrationstests (`npm test`) | 315 Tests in 20 Dateien bestanden |
 | – Protokoll, Bewegung, Fähigkeiten, Status/Resonance, Boons, Draft, Gegner, Telegraph-Fairness, Director, Determinismus | enthalten |
 | – Server mit echten WebSocket-Clients: Erstellen/Beitreten/Wiederbeitritt, ungültiger Code, voller Raum, falsche Version, kaputte/zu große Nachrichten, Ratenlimit, Host-Wechsel, Abbruch im Run, Ablauf der Frist, Rückkehr zur Lobby | enthalten |
 | – Zwei Bots spielen einen ganzen Run, auch mit 150 ± 50 ms Latenz | bestanden |
-| Browser-Tests gegen den Produktions-Build (`npm run test:e2e`), Seite und WebSocket auf derselben Adresse | 14 Tests bestanden |
+| Browser-Tests gegen den Produktions-Build (`npm run test:e2e`), Seite und WebSocket auf derselben Adresse | 16 Tests bestanden |
+| – Modelle und Sounds werden nur mit Inhaltsversion (`?v=…`) geladen; ein Browser mit einer älteren Modelldatei im Cache lädt die neue Version trotzdem (Fehler `missing prop skel_quiver` nach dem ersten Deploy von Update 2, lokal nachgestellt) | enthalten |
 | – Update 2: Training startet aus dem Menü und rückt nach dem ersten Schritt vor; Upgrade-Kauf übersteht ein Neuladen; gewähltes Aussehen kommt beim anderen Client an | enthalten |
-| – Update 2 im Server: alle drei Bosse und Herolde mit Bots, Telegraph-Fairness, Biom- und Fallen-Regeln, jedes Upgrade, Belohnungen, Neuwürfe, Tutorial (auch mit passivem Spieler) | in den 311 Tests enthalten |
+| – Update 2 im Server: alle drei Bosse und Herolde mit Bots, Telegraph-Fairness, Biom- und Fallen-Regeln, jedes Upgrade, Belohnungen, Neuwürfe, Tutorial (auch mit passivem Spieler) | in den Unit- und Integrationstests enthalten |
 | – Start ohne Konsolenfehler mit Netlify-Headern (CSP), `/ws/health`, 404-Seite führt zurück und erhält `?join=` | enthalten |
 | – Zwei unabhängige Browser-Clients: Host/Join, Bereit-Status, nur der Host kann starten | enthalten |
 | – Bewegung und Kampf synchron zwischen den Clients, 150 ms Latenz, Neuladen → Wiederbeitritt, Verbindungsabbruch, Verlassen | enthalten |

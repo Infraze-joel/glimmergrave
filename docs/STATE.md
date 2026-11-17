@@ -9,8 +9,21 @@
 - Not done (needs credentials / hardware): deploy to Netlify, check `/ws/health`, then repeat README section 15
   with two machines over the internet; measure FPS on real GPUs; listen to the audio;
   test Firefox and Edge.
-- Next concrete step: connect the repo to Netlify, deploy, run the two-client check.
+- Next concrete step: deploy the cache fix (branch `update-2`), reload the Netlify preview, run the two-client check.
 - Deferred ideas live in `docs/backlog.md`.
+
+## Fix after the first deploy of update 2: stale model cache
+
+- Symptom on the deployed game: loading screen stops with `missing prop skel_quiver`.
+- Cause: update 2 changed `props.glb`, `dungeon.glb` and `anims_skel.glb` under unchanged names while
+  `netlify.toml` let browsers reuse `/assets/*` for a day without asking. A browser that had loaded release 1
+  on the same address within that day combined the new code with the old `props.glb` (which has no quiver).
+- Fix: every model and sound URL carries a content version (`?v=<hash>`), see rule 9 in `docs/tech.md`.
+  New contract file `client/src/core/assetVersion.ts` (`ASSET_VERSION`, `assetUrl()`); consumers are
+  `render/assets.ts` and `audio/samples.ts`. `/assets/*` is now `immutable`.
+- Verified locally only: unit tests for the hash, an e2e test that every asset request is versioned, and an e2e
+  test that primes a browser cache with a wrong `props.glb` under the old URL (fails without the fix, passes
+  with it). Not yet confirmed on the Netlify deployment.
 
 ## Backend notes
 

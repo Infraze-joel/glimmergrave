@@ -18,6 +18,7 @@ import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import { CLASS_IDS, ENEMY_KINDS } from '@shared/types.ts';
 import type { ClassId, EnemyKind, Look } from '@shared/types.ts';
 import { ENEMY_MODEL, HERO_OUTFIT, MODEL_BASE, PALETTE, lookKey } from './config.ts';
+import { assetUrl } from '../core/assetVersion.ts';
 
 export const BODY_MESH_NAME = 'gg_body';
 /** Suffix of the coarse shadow-pass LOD meshes produced by tools/build-assets.mjs. */
@@ -653,7 +654,7 @@ export async function loadAssets(onProgress: (loaded: number, total: number) => 
   let loaded = 0;
   onProgress(0, FILES.length);
   const entries = await Promise.all(FILES.map(async (name) => {
-    const gltf = await loader.loadAsync(`${MODEL_BASE}${name}.glb`);
+    const gltf = await loader.loadAsync(assetUrl(`${MODEL_BASE}${name}.glb`));
     loaded++;
     onProgress(loaded, FILES.length);
     return [name, gltf] as const;

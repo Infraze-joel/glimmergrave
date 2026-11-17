@@ -2,11 +2,14 @@
 // Run with `npm run test:e2e` (builds first; set E2E_SKIP_BUILD=1 to reuse existing builds).
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { createServer, request } from 'node:http';
+import { readFileSync } from 'node:fs';
+import { join as joinPath } from 'node:path';
 import {
   BASE, aimAt, build, eventually, gameText, host, join, launch, newClient, open, screen, sleep, startBackend, startBots, startLagProxy, tid, waitScreen,
 } from './helpers.mjs';
 import { startStatic } from '../../scripts/serve-dist.mjs';
-import { PROXY_PORT, SERVER_PORT, STATIC_PORT } from './helpers.mjs';
+import { PROXY_PORT, ROOT, SERVER_PORT, STATIC_PORT } from './helpers.mjs';
 
 let backend, proxy, web, browser;
 /** Clients shared by the session tests below (they build on each other, in order). */
@@ -39,6 +42,76 @@ test('boots to the menu without errors and with the Netlify security headers', a
   assert.equal(await screen(c.page), 'menu');
   assert.deepEqual(c.problems, []);
   await c.close();
+});
+
+test('models and sounds are requested by content version, so a release never mixes with older cached files', async () => {
+  const c = await newClient(browser);
+  // A click unlocks audio, which starts the sample downloads.
+  await c.page.mouse.click(5, 5);
+  const assetUrls = () => c.page.evaluate(() => performance.getEntriesByType('resource').map((e) => e.name).filter((n) => n.includes('/assets/')));
+  const requested = (list, folder) => list.some((u) => u.includes(folder));
+  await eventually(async () => {
+    const list = await assetUrls();
+    return requested(list, '/assets/models/') && requested(list, '/assets/audio/');
+  }, 30000);
+  const urls = await assetUrls();
+  assert.ok(requested(urls, '/assets/models/'), 'no model was requested');
+  assert.ok(requested(urls, '/assets/audio/'), 'no sound was requested');
+  const versions = new Set();
+  for (const url of urls) {
+    const version = new URL(url).searchParams.get('v');
+    assert.match(version ?? '', /^[0-9a-f]{10}$/, `unversioned asset request: ${url}`);
+    versions.add(version);
+  }
+  assert.equal(versions.size, 1);
+  // Versioned URLs may be cached for good; that header would be a bug on an unversioned URL.
+  const res = await fetch(urls.find((u) => u.endsWith(`props.glb?v=${[...versions][0]}`)));
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('cache-control') ?? '', /immutable/);
+  await c.close();
+});
+
+test('a browser that still holds an older model file in its cache loads the new release', async () => {
+  // Regression: release 2 shipped a changed props.glb under its old name while browsers kept the old file for
+  // a day, so the new code failed with "missing prop skel_quiver". This front server reproduces that browser
+  // state: the unversioned URL answers with a different model and the old one-day cache header.
+  const STALE_URL = '/assets/models/props.glb';
+  const wrongModel = readFileSync(joinPath(ROOT, 'client/dist/assets/models/hero_knight.glb'));
+  let unversionedHits = 0;
+  const front = createServer((req, res) => {
+    if (req.url === STALE_URL) {
+      unversionedHits++;
+      res.writeHead(200, { 'Content-Type': 'model/gltf-binary', 'Cache-Control': 'public, max-age=86400, must-revalidate' }).end(wrongModel);
+      return;
+    }
+    const up = request({ host: '127.0.0.1', port: STATIC_PORT, path: req.url, method: req.method, headers: req.headers }, (r) => {
+      res.writeHead(r.statusCode ?? 502, r.headers);
+      r.pipe(res);
+    });
+    up.on('error', () => res.writeHead(502).end());
+    req.pipe(up);
+  });
+  await new Promise((ok) => front.listen(0, '127.0.0.1', ok));
+  const origin = `http://127.0.0.1:${front.address().port}`;
+  const context = await browser.createBrowserContext();
+  try {
+    const page = await context.newPage();
+    const problems = [];
+    page.on('console', (m) => { if (m.type() === 'error') problems.push(m.text()); });
+    page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
+    await page.goto(`${origin}/404.html`);
+    const sizeOf = () => page.evaluate(async (url) => (await (await fetch(url)).arrayBuffer()).byteLength, STALE_URL);
+    assert.equal(await sizeOf(), wrongModel.length);
+    await page.goto(`${origin}/`);
+    await waitScreen(page, 'menu', 120000);
+    assert.deepEqual(problems, []);
+    // The cache really is poisoned: the old URL is answered from it without asking the server again.
+    assert.equal(await sizeOf(), wrongModel.length);
+    assert.equal(unversionedHits, 1);
+  } finally {
+    await context.close();
+    await new Promise((ok) => { front.closeAllConnections(); front.close(ok); });
+  }
 });
 
 test('the backend is reachable on the same origin under /ws', async () => {

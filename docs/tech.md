@@ -46,3 +46,8 @@ tools/            asset pipeline          tests/e2e   browser tests
 7. **Restart-safe.** Leaving a session disposes all Three.js resources created for it and resets GameState.
 8. **Test hooks.** `window.render_game_to_text()` returns a JSON string of the visible game state;
    `window.__game` exposes debug handles in dev/e2e builds.
+9. **Versioned asset URLs.** Files under `client/public/assets` keep their names between releases, so they are
+   only ever requested through `assetUrl()` (`client/src/core/assetVersion.ts`), which appends `?v=<hash>`. The
+   hash covers names and contents of the whole folder (`scripts/asset-version.mjs`, injected by `vite.config.ts`
+   as `__ASSET_VERSION__`). `netlify.toml` marks `/assets/*` immutable, which is only correct for versioned
+   URLs: an unversioned request would stay in browser caches. An e2e test fails on any unversioned request.

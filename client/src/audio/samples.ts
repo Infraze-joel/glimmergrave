@@ -11,6 +11,7 @@
  */
 import { panned, type AudioGraph, type BusName } from './engine.ts';
 import { AUDIO_BASE, AUDIO_TIERS, AUDIO_TOTAL_BYTES, SAMPLES, type SampleGroup, type SampleInfo } from './manifest.ts';
+import { assetUrl } from '../core/assetVersion.ts';
 
 const LOAD = {
   CONCURRENCY: 6,
@@ -95,7 +96,7 @@ export function createBank(ctx: BaseAudioContext) {
 
   const loadOne = async (info: SampleInfo, base: string): Promise<void> => {
     try {
-      const response = await fetch(base + info.file);
+      const response = await fetch(assetUrl(base + info.file));
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.arrayBuffer();
       stats.bytes += data.byteLength;

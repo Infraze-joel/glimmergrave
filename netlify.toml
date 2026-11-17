@@ -28,8 +28,10 @@
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
 
-# Models keep their file names between releases: cache for a day, then revalidate.
+# Models and sounds keep their file names, but the game requests them as `<file>?v=<content version>`
+# (client/src/core/assetVersion.ts), so each URL always means the same bytes and may be cached for good.
+# Never load anything from /assets/ without that version: an unversioned URL would be stuck in browser caches.
 [[headers]]
   for = "/assets/*"
   [headers.values]
-    Cache-Control = "public, max-age=86400, must-revalidate"
+    Cache-Control = "public, max-age=31536000, immutable"
