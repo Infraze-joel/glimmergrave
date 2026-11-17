@@ -41,6 +41,8 @@ async function boot(): Promise<void> {
   const buffer = new SnapshotBuffer();
   const prediction = new Prediction();
   const input = new Input(canvas);
+  const params = new URLSearchParams(window.location.search);
+  const autopilot = import.meta.env.DEV && params.has('autopilot') ? (await import('../dev/autopilot.ts')).createAutopilot() : null;
 
   const applySettings = (): void => {
     view.setQuality(settings.quality);
@@ -126,6 +128,9 @@ async function boot(): Promise<void> {
     const me = lastSelf;
     const own = state.roster.find((p) => p.slot === state.conn.slot);
     input.sample(prediction.renderX(1), prediction.renderZ(1), toGround, sample);
+    const latest = autopilot ? buffer.latest() : null;
+    const piloted = autopilot && latest && input.enabled ? autopilot.think(latest) : null;
+    if (piloted) Object.assign(sample, { moveX: piloted.moveX, moveZ: piloted.moveZ, aim: piloted.aim, aimDist: piloted.aimDist, buttons: piloted.buttons });
     const cmd: InputCmd = { seq: ++seq, moveX: sample.moveX, moveZ: sample.moveZ, aim: sample.aim, aimDist: sample.aimDist, buttons: sample.buttons };
     net.sendInput(cmd);
     const action = prediction.step(cmd, room, me, own?.cls ?? 'knight');
@@ -136,9 +141,18 @@ async function boot(): Promise<void> {
   };
 
   let last = performance.now();
+  let frameIndex = 0;
+  let fpsFrames = 0;
+  let fpsSince = last;
   const frame = (now: number): void => {
     const dt = Math.min(MAX_FRAME_SECONDS, (now - last) / 1000);
     last = now;
+    fpsFrames++;
+    if (now - fpsSince >= 1000) {
+      debug.fps = Math.round((fpsFrames * 1000) / (now - fpsSince));
+      fpsFrames = 0;
+      fpsSince = now;
+    }
     const playing = state.screen === 'game' || state.screen === 'summary';
 
     if (playing) {
@@ -169,7 +183,8 @@ async function boot(): Promise<void> {
       view.syncProjectiles(interpolated.projectiles);
       if (state.run?.phase === 'doors') view.setDoors(state.run.doors, state.run.doorProgress);
     }
-    view.update(dt);
+    // Tests on machines without a GPU may draw only every n-th frame so the game logic keeps real-time pace.
+    view.update(dt, frameIndex++ % debug.renderEvery === 0);
     requestAnimationFrame(frame);
   };
 
@@ -177,7 +192,10 @@ async function boot(): Promise<void> {
   const debug = {
     state, bus, net, view, input, prediction,
     seq: () => seq,
+    latestSnapshot: () => buffer.latest(),
     interpDelayMs: NET.INTERP_DELAY_MS,
+    renderEvery: 1,
+    fps: 0,
   };
   Object.assign(window, {
     __game: debug,

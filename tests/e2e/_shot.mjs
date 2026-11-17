@@ -1,6 +1,6 @@
 import puppeteer from 'puppeteer-core';
 const [url, out, waitFn, extraWait] = process.argv.slice(2);
-const browser = await puppeteer.launch({ executablePath: '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox','--disable-setuid-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader','--ignore-gpu-blocklist','--autoplay-policy=no-user-gesture-required','--window-size=1280,720'] });
+const browser = await puppeteer.launch({ executablePath: '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox','--disable-setuid-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader','--ignore-gpu-blocklist','--autoplay-policy=no-user-gesture-required','--window-size=1280,720', '--disable-background-networking', '--disable-component-update', '--no-first-run'] });
 const page = await browser.newPage();
 await page.setViewport({ width: 1280, height: 720 });
 const errs = [];
