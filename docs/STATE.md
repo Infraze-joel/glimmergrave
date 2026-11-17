@@ -3,10 +3,12 @@
 - Phase: release candidate. All milestones in `docs/milestones/README.md` are done; quality gate passed locally.
 - Last session: integrated backend, render kit, UI/audio; added browser e2e suite, QA start-chamber option,
   perf probe; wrote README.
-- Not done (needs credentials / hardware): deploy frontend to Netlify and backend to a container host, then
-  repeat README section 15 with two machines over the internet; measure FPS on real GPUs; listen to the audio;
+- Hosting changed to single-origin Netlify Server (ADR 0002); verified with Netlify's bundler and local
+  emulator only.
+- Not done (needs credentials / hardware): deploy to Netlify, check `/ws/health`, then repeat README section 15
+  with two machines over the internet; measure FPS on real GPUs; listen to the audio;
   test Firefox and Edge.
-- Next concrete step: deploy the backend, set `VITE_SERVER_URL` on Netlify, deploy, run the two-client check.
+- Next concrete step: connect the repo to Netlify, deploy, run the two-client check.
 - Deferred ideas live in `docs/backlog.md`.
 
 ## Backend notes

@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Glimmergrave — a 3D co-op action roguelike for the browser",
+  "description": "Glimmergrave \u2014 a 3D co-op action roguelike for the browser",
   "license": "MIT",
   "workspaces": [
     "shared",
@@ -25,7 +25,9 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:e2e": "node --test --test-concurrency=1 tests/e2e/*.spec.mjs",
-    "assets": "node tools/build-assets.mjs"
+    "assets": "node tools/build-assets.mjs",
+    "build:netlify-server": "npm run build:netlify -w server",
+    "build:netlify": "npm run build:client && npm run build:netlify-server"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

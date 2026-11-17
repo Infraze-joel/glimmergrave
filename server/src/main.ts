@@ -12,7 +12,7 @@ function envInt(name: string, fallback: number): number {
   return Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   const server = await startServer({
     port: envInt('PORT', SERVER.DEFAULT_PORT),
     allowedOrigins: parseOrigins(process.env.ALLOWED_ORIGINS),
@@ -32,10 +32,13 @@ async function main(): Promise<void> {
   process.on('SIGINT', () => stop('SIGINT'));
 }
 
-const entry = process.argv[1];
-if (entry !== undefined && import.meta.url === pathToFileURL(entry).href) {
+export function run(): void {
   main().catch((err: unknown) => {
     consoleLogger('error', 'fatal', { error: err instanceof Error ? err.message : 'unknown' });
     process.exit(1);
   });
 }
+
+// Start only when executed directly (`node dist/server.js`), not when imported by tests or other entries.
+const entry = process.argv[1];
+if (entry !== undefined && import.meta.url === pathToFileURL(entry).href) run();

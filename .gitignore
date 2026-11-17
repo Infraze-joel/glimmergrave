@@ -5,3 +5,5 @@ dist
 *.log
 tests/e2e/output
 .DS_Store
+netlify/server/game-server.generated.mjs
+.netlify

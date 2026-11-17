@@ -22,5 +22,7 @@ export const SERVER = {
   CLOSE_GOING_AWAY: 1001,
   CLOSE_POLICY: 1008,
   CLOSE_NORMAL: 1000,
-  WS_PATHS: ['/', '/ws'],
+  /** Health endpoint; '/ws/health' is the one reachable when hosted under the '/ws/*' prefix (Netlify Server). */
+  HEALTH_PATHS: ['/health', '/ws/health'],
+  WS_PATHS: ['/', '/ws', '/ws/game'],
 } as const;

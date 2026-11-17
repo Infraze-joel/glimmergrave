@@ -5,7 +5,7 @@ import { normalizeRoomCode, sanitizeName } from '@shared/protocol.ts';
 import { CLASS_IDS, type ClassId } from '@shared/types.ts';
 import { bus } from '../core/EventBus.ts';
 import { saveProfile, state } from '../core/GameState.ts';
-import { guardTextField, h, icon, key, setText, show, toggle } from './dom.ts';
+import { guardTextField, h, icon, key, setText, toggle } from './dom.ts';
 import { roman, t } from './i18n.ts';
 import { ABILITY_ICON, ABILITY_SLOTS, classStat } from './model.ts';
 import { ui, UI_CONFIG, type ModalKind } from './store.ts';
@@ -71,12 +71,12 @@ export function createMenu(openModal: (kind: ModalKind) => void): MenuView {
 
   // ---- host / join
   const host = (): void => {
-    if (!ui.serverConfigured || state.conn.status === 'connecting') return;
+    if (state.conn.status === 'connecting') return;
     bus.emit('ui:create', { name: currentName(), cls: state.profile.cls });
   };
   const join = (): void => {
     const code = normalizeRoomCode(ui.joinCode);
-    if (!code || !ui.serverConfigured || state.conn.status === 'connecting') return;
+    if (!code || state.conn.status === 'connecting') return;
     bus.emit('ui:join', { code, name: currentName(), cls: state.profile.cls });
   };
   guardTextField(nameInput, () => (normalizeRoomCode(ui.joinCode) ? join() : host()));
@@ -109,10 +109,6 @@ export function createMenu(openModal: (kind: ModalKind) => void): MenuView {
   });
   guardTextField(codeInput, join);
 
-  const notice = h('div', { class: 'gg-menu-notice', role: 'status' },
-    icon('warning'),
-    h('div', null, h('b', null, t('menu.notConfigured.title')), h('p', null, t('menu.notConfigured.body'))),
-  );
 
   // ---- profile record
   const stat = (label: string): { box: HTMLElement; value: HTMLElement } => {
@@ -137,7 +133,6 @@ export function createMenu(openModal: (kind: ModalKind) => void): MenuView {
         h('label', { class: 'gg-label', for: 'gg-code' }, t('menu.joinLabel')),
         h('div', { class: 'gg-menu-join' }, codeInput, joinBtn),
       ),
-      notice,
       h('div', { class: 'gg-menu-links' },
         h('button', { class: 'gg-btn gg-cut gg-btn--ghost gg-btn--small', type: 'button', onClick: () => openModal('howto') },
           icon('help'), t('menu.howto')),
@@ -204,10 +199,8 @@ export function createMenu(openModal: (kind: ModalKind) => void): MenuView {
 
   function syncButtons(): void {
     const busy = state.conn.status === 'connecting';
-    hostBtn.disabled = !ui.serverConfigured || busy;
-    joinBtn.disabled = !ui.serverConfigured || busy || normalizeRoomCode(ui.joinCode) === null;
-    codeInput.disabled = !ui.serverConfigured;
-    show(notice, !ui.serverConfigured);
+    hostBtn.disabled = busy;
+    joinBtn.disabled = busy || normalizeRoomCode(ui.joinCode) === null;
   }
 
   const sync = (): void => {

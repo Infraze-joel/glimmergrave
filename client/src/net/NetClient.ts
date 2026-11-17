@@ -5,7 +5,7 @@
 import { NET } from '@shared/constants.ts';
 import { BIN, decodeSnapshot, encodeInput, type ClientMsg, type ServerMsg } from '@shared/protocol.ts';
 import type { ClassId, InputCmd, RunPhase, Snapshot } from '@shared/types.ts';
-import { SERVER_CONFIGURED, SERVER_URL } from '../core/config.ts';
+import { SERVER_URL } from '../core/config.ts';
 import { bus, type ConnError } from '../core/EventBus.ts';
 import { resetSession, state, type Screen } from '../core/GameState.ts';
 
@@ -66,7 +66,7 @@ export class NetClient {
   /** Resumes a session stored by this tab (page reload). Returns true if a rejoin was started. */
   resume(): boolean {
     const stored = readSession();
-    if (!stored || !SERVER_CONFIGURED) return false;
+    if (!stored) return false;
     this.session = stored;
     state.conn.code = stored.code;
     this.startReconnect();
@@ -84,10 +84,6 @@ export class NetClient {
   // ------------------------------------------------------------------ connection lifecycle
 
   private begin(intent: Intent): void {
-    if (!SERVER_CONFIGURED) {
-      this.fail('not_configured');
-      return;
-    }
     if (state.conn.status !== 'offline') return;
     this.intent = intent;
     this.setStatus('connecting');

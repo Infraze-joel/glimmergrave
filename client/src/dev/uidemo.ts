@@ -4,7 +4,7 @@
  * Plays the role of the integrator with fake data: writes GameState, emits the bus events and reacts to
  * `ui:*` intents (which are logged to the console). No network, no Three.js.
  *
- *   Hash routes   #loading #loading-error #menu #menu-noserver #connecting #howto #settings #lobby #lobby-guest
+ *   Hash routes   #loading #loading-error #menu #connecting #howto #settings #lobby #lobby-guest
  *                 #game #elite #boss #downed #solo #doors #draft #draft-cursed #draft-wait #tab #pause
  *                 #summary-win #summary-loss #error #reconnecting #toasts
  *   Query params  lang=en|de   bg=noisy (busy backdrop for contrast checks)   panel=0 (hide the dev panel)
@@ -28,7 +28,7 @@ const RUN_TICK_MS = 250;
 const CONNECT_MS = 700;
 const OWN_SLOT = 0;
 const GUEST_SLOT = 1;
-const CONN_ERRORS: ConnError[] = [...ERROR_CODES, 'unreachable', 'connection_lost', 'not_configured'];
+const CONN_ERRORS: ConnError[] = [...ERROR_CODES, 'unreachable', 'connection_lost'];
 
 const params = new URLSearchParams(window.location.search);
 
@@ -140,7 +140,6 @@ function baseline(): void {
   ui.tab = false;
   ui.fatal = null;
   ui.assetError = null;
-  ui.serverConfigured = true;
   ui.picked = -1;
   Object.assign(state.profile, { runs: 23, wins: 6, bestChamber: 8, oathUnlocked: 2 });
 }
@@ -152,7 +151,6 @@ const ROUTES: Record<string, () => void> = {
     bus.emit('assets:error', { message: 'GET /assets/models/knight.glb 404 (Not Found)' });
   },
   menu: () => { setScreen('menu'); emitAll(); },
-  'menu-noserver': () => { ui.serverConfigured = false; setScreen('menu'); emitAll(); },
   connecting: () => { state.conn.status = 'connecting'; setScreen('menu'); emitAll(); },
   howto: () => { setScreen('menu'); ui.modal = 'howto'; emitAll(); },
   settings: () => { setScreen('menu'); ui.modal = 'settings'; emitAll(); },

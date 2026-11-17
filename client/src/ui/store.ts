@@ -1,5 +1,4 @@
 /** UI-local view state (not part of the GameState contract). */
-import { SERVER_CONFIGURED } from '../core/config.ts';
 import type { ConnError } from '../core/EventBus.ts';
 
 export type ModalKind = 'howto' | 'settings' | 'leave';
@@ -23,7 +22,6 @@ export const ui = {
   /** profile.oathUnlocked as it was while the run was still going (for the "new oath" notice). */
   oathBaseline: null as number | null,
   /** Overridable by the dev harness to preview the "server not configured" state. */
-  serverConfigured: SERVER_CONFIGURED,
 };
 
 /** Purely visual tuning of the UI layer. */

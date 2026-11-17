@@ -1,11 +1,12 @@
 # Glimmergrave
 
-Ein kooperatives 3D-Action-Roguelike für 1–4 Spieler im Browser. Frontend: statische Seite (Netlify).
-Multiplayer: eigener autoritativer WebSocket-Server (separat gehostet).
+Ein kooperatives 3D-Action-Roguelike für 1–4 Spieler im Browser. Frontend und Multiplayer-Backend laufen
+zusammen auf Netlify: die statische Seite plus ein autoritativer WebSocket-Server als **Netlify Server**
+(dieselbe Adresse, Pfad `/ws`). Alternativ läuft das Backend als Docker-Container auf einem anderen Host.
 
 > Stand: lokal gebaut und getestet (Details unter [Tests](#13-durchgeführte-tests) und
-> [Bekannte Einschränkungen](#12-bekannte-einschränkungen)). Noch **nicht** auf Netlify oder einem Backend-Host
-> veröffentlicht – dafür werden Zugangsdaten benötigt, die Schritte stehen unten.
+> [Bekannte Einschränkungen](#12-bekannte-einschränkungen)). Der Betrieb auf Netlify ist mit Netlifys eigenem
+> Bundler und lokalem Emulator geprüft, aber noch **nicht** auf Netlify selbst.
 
 ## 1. Spielkonzept
 
@@ -50,6 +51,7 @@ shared/   reines TypeScript für Client UND Server: Typen, Protokoll, Balance-Ta
 server/   Node 22 + ws: Räume, Sitzungen, Validierung, 30-Hz-Tick (nutzt shared/sim)
 client/   Vite + Three.js: net/ (Verbindung, Prediction, Interpolation), render/ (3D), game/ (Loop, Eingabe),
           ui/ (DOM-Oberflächen, EN/DE), audio/ (prozedural), core/ (EventBus, GameState, Settings)
+netlify/  server/index.mjs: Startdatei für Netlify Server (Region, Größe, Instanzen, Pfad)
 tools/    Asset-Pipeline       tests/e2e/  Browser-Tests       docs/  Konzept, Technik, Entscheidungen
 ```
 
@@ -74,12 +76,14 @@ liegen in `shared/src/data/*` und `shared/src/constants.ts`. Mehr: [`docs/tech.m
 - **Schutz:** strikte Validierung jeder Nachricht, Größen- und Ratenlimit, Versionsprüfung, Origin-Prüfung,
   Heartbeat/Timeouts, Raumlimit.
 
-Netlify kann keine dauerhaften WebSocket-Verbindungen halten, deshalb sind Frontend und Backend getrennt und
-nur über `VITE_SERVER_URL` verbunden.
+**Hosting:** Der Client verbindet sich standardmäßig mit `wss://<eigene Adresse>/ws/game`. Dort läuft der
+Spielserver als Netlify Server (seit November 2026, Early Access): ein dauerhaft laufender Node-Prozess, der
+mit der Seite zusammen deployt wird. Mit `VITE_SERVER_URL` zeigt der Client stattdessen auf ein externes
+Backend. Begründung: [`docs/architectural-decisions/0002-netlify-server.md`](docs/architectural-decisions/0002-netlify-server.md).
 
 ## 6. Lokale Installation und Start
 
-Voraussetzung: Node.js ≥ 22.
+Voraussetzung: Node.js ≥ 22 (Netlify Server verlangt Node 24; damit sind Build und Tests ebenfalls geprüft).
 
 ```bash
 npm ci
@@ -92,47 +96,58 @@ Weitere Befehle: `npm run typecheck`, `npm run lint`, `npm test` (Unit + Integra
 Im Dev-Modus gibt es `?autopilot` (ein Skript spielt den eigenen Helden), `?showcase` (3D-Schaukasten) und
 `?uidemo` (alle Oberflächen mit Beispieldaten).
 
-## 7. Netlify-Deployment (Frontend)
+## 7. Netlify-Deployment (Frontend und Backend zusammen)
 
-`netlify.toml` ist fertig konfiguriert (Build-Befehl, Publish-Verzeichnis `client/dist`, SPA-Fallback,
-Sicherheits- und Cache-Header).
+`netlify.toml` und `netlify/server/index.mjs` sind fertig konfiguriert.
 
-1. Repository bei Netlify als neue Site verbinden (Basisverzeichnis: Repo-Wurzel).
-2. Unter *Site configuration → Environment variables* `VITE_SERVER_URL` auf die Backend-Adresse setzen,
-   z. B. `wss://glimmergrave-server.example.com`. Es muss `wss://` sein.
-3. Deploy auslösen. Ohne die Variable startet die Seite, zeigt aber „Server nicht konfiguriert".
+1. Repository bei Netlify als neue Site verbinden (Basisverzeichnis: Repo-Wurzel). Mehr ist nicht einzustellen:
+   keine Umgebungsvariablen, kein zweiter Dienst.
+2. Deploy auslösen. Netlify führt `npm run build:netlify` aus (Client-Build plus Server-Bundle) und startet den
+   Spielserver als Netlify Server in Frankfurt (`fra`), mit höchstens einer Instanz.
+3. Kontrolle: `https://<site>/ws/health` liefert `{"ok":true,…}`. Danach im Spiel **Host game**.
 
-Alternativ per CLI: `VITE_SERVER_URL=wss://… npm run build:client && netlify deploy --prod --dir client/dist`.
+Was Netlify Server für das Spiel bedeutet (Stand Early Access, laut Netlify-Dokumentation):
 
-## 8. Backend-Deployment
+- Verbindungen werden nach 30 Minuten getrennt (2 Stunden ab Pro). Der Client tritt automatisch wieder bei;
+  das ist als kurzer Hänger spürbar.
+- Eine Instanz wird nach 8 Stunden ersetzt, auch wenn gerade gespielt wird. Laufende Runs gehen dabei verloren.
+- Ohne Verbindungen schaltet die Instanz nach 5 Minuten ab; der erste Spieler danach wartet auf den Kaltstart.
+- Jeder Deploy ersetzt auch das Backend und beendet laufende Sitzungen.
+- Kostenlos während Early Access; Preise danach sind noch nicht bekannt.
+- Einstellungen (Region, Größe, Instanzen, Pfad) stehen in `netlify/server/index.mjs`. `scale.max` muss 1
+  bleiben, weil Räume im Arbeitsspeicher eines Prozesses liegen.
+- Es gibt bewusst keine Weiterleitung aller Pfade auf `index.html` (sie würde `/ws/*` abfangen). Unbekannte
+  Pfade bekommen `404.html`, das zur Startseite zurückführt und `?join=` erhält.
 
-Das Backend ist ein einzelner Container (`Dockerfile` im Repo-Stamm), ohne Datenbank.
+Lokal mit Netlifys Werkzeugen: `npm run build:netlify`, dann `netlify dev` (CLI ≥ 27.17, Node ≥ 24).
+
+## 8. Backend-Deployment als Container (Alternative)
+
+Wer das Backend nicht auf Netlify betreiben will, nimmt den Container (`Dockerfile` im Repo-Stamm, keine Datenbank):
 
 ```bash
 docker build -t glimmergrave-server .
 docker run -p 8787:8787 -e ALLOWED_ORIGINS=https://deine-site.netlify.app glimmergrave-server
 ```
 
-Geeignet ist jeder Host, der einen dauerhaft laufenden Container mit WebSockets und TLS anbietet
-(z. B. Fly.io, Render, Railway, ein eigener Server hinter Caddy/Traefik/nginx). Worauf zu achten ist:
+Geeignet ist jeder Host mit dauerhaft laufendem Container, WebSockets und TLS (Fly.io, Render, Railway, eigener
+Server oder Cluster hinter einem Reverse Proxy):
 
 - TLS am Eingang, damit die Adresse `wss://` ist; WebSocket-Upgrade und Leerlauf-Timeout ≥ 60 s zulassen.
-- **Eine** Instanz. Räume liegen im Arbeitsspeicher eines Prozesses (siehe Einschränkungen).
-- Health-Check: `GET /health` → `{"ok":true,…}`.
-- `ALLOWED_ORIGINS` auf die Netlify-Adresse setzen.
+- **Eine** Instanz. Health-Check: `GET /health`.
+- Im Frontend-Build `VITE_SERVER_URL=wss://<backend>` setzen und im Backend `ALLOWED_ORIGINS` auf die Adresse
+  der Seite. In `netlify.toml` dann den Build-Befehl auf `npm run build:client` stellen und `netlify/server/`
+  entfernen, damit Netlify keinen zweiten Server startet.
 
 Ohne Docker: `npm ci && npm run build:server && PORT=8787 node server/dist/server.js`.
-
-**Verbindung Frontend ↔ Backend:** Der einzige Berührungspunkt ist `VITE_SERVER_URL` (zur Build-Zeit im
-Frontend) und `ALLOWED_ORIGINS` (zur Laufzeit im Backend).
 
 ## 9. Umgebungsvariablen
 
 | Variable | Wo | Bedeutung | Standard |
 |---|---|---|---|
-| `VITE_SERVER_URL` | Frontend-Build | WebSocket-Adresse des Backends (`wss://…`) | Dev: `ws://<host>:8787`; Produktion: leer = nicht konfiguriert |
-| `PORT` | Backend | Port des Servers | `8787` |
-| `ALLOWED_ORIGINS` | Backend | Kommagetrennte erlaubte Browser-Origins, `*` = alle | `*` |
+| `VITE_SERVER_URL` | Frontend-Build | Adresse eines externen Backends (`wss://…`). Für Netlify Server **nicht** setzen. | Dev: `ws://<host>:8787`; Produktion: dieselbe Adresse wie die Seite, Pfad `/ws/game` |
+| `PORT` | Backend | Port des Servers (Netlify setzt ihn selbst) | `8787` |
+| `ALLOWED_ORIGINS` | Backend | Kommagetrennte erlaubte Browser-Origins, `*` = alle. Seiten vom selben Host sind immer erlaubt. | `*` |
 | `MAX_ROOMS` | Backend | Maximale Zahl gleichzeitiger Räume | `200` |
 | `DEBUG_START_CHAMBER` | Backend, nur QA | Runs beginnen in dieser Kammer (0–7). Nie in Produktion setzen. | `0` |
 
@@ -153,9 +168,14 @@ Bibliotheken: MIT (three, ws, vite, …), Cinzel: SIL Open Font License.
 
 ## 12. Bekannte Einschränkungen
 
-- **Nicht veröffentlicht, kein Test über das Internet.** Geprüft wurde lokal mit unabhängigen Browser-Clients
-  und Bot-Clients über echte WebSockets, zusätzlich mit 150 ms künstlicher Latenz. Ein Test mit zwei Rechnern
-  über das Internet steht aus (Schritte in Abschnitt 15).
+- **Nicht auf Netlify selbst getestet, kein Test über das Internet.** Geprüft wurde lokal mit unabhängigen
+  Browser-Clients und Bot-Clients über echte WebSockets, zusätzlich mit 150 ms künstlicher Latenz. Für Netlify
+  Server: Netlifys Bundler nimmt Startdatei und Einstellungen an, und unter Netlifys lokalem Emulator erreichen
+  HTTP und WebSocket den Spielserver. Der Emulator wendet aber weder die Pfad-Einstellung noch die Limits an.
+- **Netlify Server ist Early Access** (eine Woche alt bei Fertigstellung): Verhalten, Limits und Preise können
+  sich ändern. Unsicher ist insbesondere, ob das Server-Bundle erst nach dem Build-Befehl gepackt wird
+  (davon hängt ab, ob die erzeugte Datei `game-server.generated.mjs` gefunden wird); falls nicht, schlägt der
+  Deploy sichtbar fehl, und die Datei muss eingecheckt werden.
 - **Keine echte FPS-Messung.** Die Testumgebung hat keine GPU (Software-Rendering). Gemessen sind
   Rechenzeit pro Frame, Draw Calls, Dreiecke, Speicher und Netzlast, nicht die Bildrate auf echter Hardware.
 - **Nur Chrome getestet** (headless). Firefox und Edge sind ungetestet.
@@ -163,8 +183,8 @@ Bibliotheken: MIT (three, ws, vite, …), Cinzel: SIL Open Font License.
 - **Sieg im Browser nicht durchgespielt.** Bots gewinnen Runs in den Server-Tests; die Browser-Sitzungen
   endeten mit Niederlagen (Kammer 6 und Boss). Die Sieg-Auswertung ist nur mit Beispieldaten geprüft.
 - **Balance** ist ausschließlich mit Bots abgestimmt, nicht mit menschlichen Spielern.
-- **Eine Server-Instanz.** Räume liegen im Arbeitsspeicher; ein Neustart beendet laufende Sitzungen,
-  mehrere Instanzen bräuchten Routing pro Raumcode.
+- **Eine Server-Instanz.** Räume liegen im Arbeitsspeicher; ein Neustart (auf Netlify spätestens alle
+  8 Stunden und bei jedem Deploy) beendet laufende Sitzungen, mehrere Instanzen bräuchten Routing pro Raumcode.
 - **WebSocket/TCP:** bei Paketverlust können kurze Hänger entstehen.
 - Kein Beitritt in einen laufenden Run (nur Wiederbeitritt), kein Gamepad, keine Touch-Steuerung,
   keine Konten; Fortschritt (Statistik, Oath-Stufen) liegt lokal im Browser.
@@ -175,21 +195,23 @@ Bibliotheken: MIT (three, ws, vite, …), Cinzel: SIL Open Font License.
 | Prüfung | Ergebnis |
 |---|---|
 | Frische Installation (`npm ci` in neuem Klon), Typprüfung, Lint | fehlerfrei |
-| Unit- und Integrationstests (`npm test`) | 183 Tests in 13 Dateien bestanden |
+| Unit- und Integrationstests (`npm test`) | 185 Tests in 14 Dateien bestanden (auch unter Node 24) |
 | – Protokoll, Bewegung, Fähigkeiten, Status/Resonance, Boons, Draft, Gegner, Telegraph-Fairness, Director, Determinismus | enthalten |
 | – Server mit echten WebSocket-Clients: Erstellen/Beitreten/Wiederbeitritt, ungültiger Code, voller Raum, falsche Version, kaputte/zu große Nachrichten, Ratenlimit, Host-Wechsel, Abbruch im Run, Ablauf der Frist, Rückkehr zur Lobby | enthalten |
 | – Zwei Bots spielen einen ganzen Run, auch mit 150 ± 50 ms Latenz | bestanden |
-| Browser-Tests gegen den Produktions-Build (`npm run test:e2e`) | 11 Tests bestanden |
-| – Start ohne Konsolenfehler mit Netlify-Headern (CSP), Deep-Link-Fallback, `?join=`-Vorbelegung | enthalten |
+| Browser-Tests gegen den Produktions-Build (`npm run test:e2e`), Seite und WebSocket auf derselben Adresse | 12 Tests bestanden |
+| – Start ohne Konsolenfehler mit Netlify-Headern (CSP), `/ws/health`, 404-Seite führt zurück und erhält `?join=` | enthalten |
 | – Zwei unabhängige Browser-Clients: Host/Join, Bereit-Status, nur der Host kann starten | enthalten |
 | – Bewegung und Kampf synchron zwischen den Clients, 150 ms Latenz, Neuladen → Wiederbeitritt, Verbindungsabbruch, Verlassen | enthalten |
 | Ganzer Run im Browser mit 3 Bot-Mitspielern (Dev-Autopilot) | 7:55 min bis Niederlage in Kammer 6, keine Konsolenfehler |
 | Bosskampf im Browser, danach Rückkehr zur Lobby | lief, keine Konsolenfehler |
-| Produktions-Build mit `wss://`-Adresse | keine `localhost`-Adressen oder absoluten Pfade im Ergebnis |
+| Produktions-Build | keine `localhost`-Adressen oder absoluten Pfade im Ergebnis |
+| Netlifys Bundler (`@netlify/zip-it-and-ship-it`) auf `netlify/server/index.mjs` | angenommen: Region `fra`, Größe `small`, max. 1 Instanz, Route `/ws/*`, Laufzeit Node 24; das Bundle startet und beantwortet `/ws/health` |
+| Netlifys lokaler Emulator (`@netlify/dev` 5.2, Node 24) | Startseite, `/ws/health` und ein WebSocket-Beitritt über den Emulator funktionieren |
 | Server-Bundle | startet, `/health` antwortet |
 
-Netlify-Routen und -Header wurden lokal mit `scripts/serve-dist.mjs` nachgestellt (liest `netlify.toml`),
-nicht auf Netlify selbst.
+Header, 404-Verhalten und die Weiterleitung von `/ws/*` wurden lokal mit `scripts/serve-dist.mjs`
+nachgestellt (liest `netlify.toml`), nicht auf Netlify selbst.
 
 ## 14. Performance-Ergebnisse
 
@@ -223,7 +245,8 @@ Lokal (zwei Geräte im selben Netz oder zwei Browserfenster):
 
 Über das Internet (nach dem Deployment):
 
-1. Backend deployen, `https://<backend>/health` muss `{"ok":true}` liefern.
-2. Frontend mit `VITE_SERVER_URL=wss://<backend>` auf Netlify deployen.
-3. Zwei Personen an verschiedenen Anschlüssen wiederholen die Schritte 2–6 mit der Netlify-Adresse.
+1. Auf Netlify deployen, `https://<site>/ws/health` muss `{"ok":true}` liefern.
+2. Zwei Personen an verschiedenen Anschlüssen wiederholen die Schritte 2–6 mit der Netlify-Adresse.
    Die Ping-Anzeige oben rechts zeigt die Laufzeit zum Server.
+3. Eine Sitzung länger als 30 Minuten offen halten und prüfen, dass der automatische Wiederbeitritt nach der
+   Trennung durch Netlify funktioniert.

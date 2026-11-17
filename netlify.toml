@@ -1,18 +1,17 @@
-# Netlify configuration for the static frontend (client/). The multiplayer backend is deployed separately;
-# set VITE_SERVER_URL (wss://…) in the Netlify build environment. See README.md.
+# Netlify configuration: the static game client (client/dist) plus the multiplayer backend as a Netlify Server
+# (netlify/server/index.mjs, reachable on the same origin under /ws/*). See README.md.
+# To use an external backend instead, set VITE_SERVER_URL (wss://…) in the build environment.
 
 [build]
-  command = "npm run build:client"
+  command = "npm run build:netlify"
   publish = "client/dist"
 
 [build.environment]
-  NODE_VERSION = "22"
+  # Netlify Server requires Node.js 24 or later.
+  NODE_VERSION = "24"
 
-# Single-page app: every unknown path serves the app (e.g. /?join=ABCDE or a mistyped deep link).
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
+# No catch-all rewrite to /index.html: it would also swallow /ws/* before it reaches the server.
+# The game has a single page; unknown paths get client/public/404.html, which returns to it.
 
 [[headers]]
   for = "/*"

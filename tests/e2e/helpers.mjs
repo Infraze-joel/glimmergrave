@@ -17,10 +17,14 @@ const CHROME = process.env.CHROME_BIN ?? ['/usr/bin/google-chrome', '/usr/bin/ch
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export const tid = (id) => `[data-testid="${id}"]`;
 
-/** Builds client (pointing at the lag proxy) and server unless E2E_SKIP_BUILD=1. */
+/**
+ * Builds the client exactly as Netlify does (no VITE_SERVER_URL: the backend is expected on the same origin
+ * under /ws) plus the server bundle, unless E2E_SKIP_BUILD=1.
+ */
 export function build() {
   if (process.env.E2E_SKIP_BUILD === '1') return;
-  const env = { ...process.env, VITE_SERVER_URL: `ws://127.0.0.1:${PROXY_PORT}` };
+  const env = { ...process.env };
+  delete env.VITE_SERVER_URL;
   execFileSync('npm', ['run', 'build'], { cwd: ROOT, env, stdio: 'pipe' });
 }
 
@@ -89,7 +93,16 @@ export async function newClient(browser, path = '/') {
 
 export async function open(page, path = '/') {
   await page.goto(BASE + path, { waitUntil: 'load', timeout: 60000 });
-  await page.waitForFunction("document.body.dataset.screen && document.body.dataset.screen !== 'loading' && window.__game", { timeout: 120000 });
+  // The 404 page redirects to '/', which destroys the first execution context: retry until the game is up.
+  const deadline = Date.now() + 120000;
+  for (;;) {
+    try {
+      await page.waitForFunction("document.body?.dataset.screen && document.body.dataset.screen !== 'loading' && window.__game", { timeout: 5000 });
+      break;
+    } catch (err) {
+      if (Date.now() > deadline) throw err;
+    }
+  }
   // Software GL is slow: draw only every 30th frame so game logic and input keep real-time pace.
   await page.evaluate(() => { window.__game.renderEvery = 30; });
 }

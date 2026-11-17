@@ -7,7 +7,7 @@ import type { ClassId, GameEvent, RunPhase } from '@shared/types.ts';
 import type { ErrorCode } from '@shared/protocol.ts';
 import type { Settings } from './Settings.ts';
 
-export type ConnError = ErrorCode | 'unreachable' | 'connection_lost' | 'not_configured';
+export type ConnError = ErrorCode | 'unreachable' | 'connection_lost';
 
 export interface EventMap {
   // ---- UI intents (emitted by ui/, handled by net/ or game/)

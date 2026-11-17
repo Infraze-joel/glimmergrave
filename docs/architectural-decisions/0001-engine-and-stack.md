@@ -1,7 +1,7 @@
 # ADR 0001: Engine, stack and multiplayer topology
 
 ## Status
-Accepted (2026-11-17)
+Accepted (2026-11-17). The hosting part is amended by ADR 0002 (backend on Netlify Server).
 
 ## Decision
 - Three.js + TypeScript + Vite static frontend, hosted on Netlify.

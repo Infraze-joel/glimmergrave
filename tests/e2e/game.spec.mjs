@@ -6,7 +6,7 @@ import {
   BASE, aimAt, build, eventually, gameText, host, join, launch, newClient, open, screen, sleep, startBackend, startBots, startLagProxy, tid, waitScreen,
 } from './helpers.mjs';
 import { startStatic } from '../../scripts/serve-dist.mjs';
-import { PROXY_PORT, STATIC_PORT } from './helpers.mjs';
+import { PROXY_PORT, SERVER_PORT, STATIC_PORT } from './helpers.mjs';
 
 let backend, proxy, web, browser;
 /** Clients shared by the session tests below (they build on each other, in order). */
@@ -16,7 +16,8 @@ before(async () => {
   build();
   backend = await startBackend();
   proxy = startLagProxy();
-  web = await startStatic(STATIC_PORT, `ws://127.0.0.1:${PROXY_PORT}`);
+  // Same origin for page and WebSocket, as on Netlify: /ws/* -> lag proxy -> game server.
+  web = await startStatic(STATIC_PORT, PROXY_PORT, SERVER_PORT);
   browser = await launch();
 }, { timeout: 300000 });
 
@@ -40,14 +41,21 @@ test('boots to the menu without errors and with the Netlify security headers', a
   await c.close();
 });
 
-test('unknown deep links fall back to the app and ?join= prefills the code', async () => {
-  const res = await fetch(BASE + '/some/deep/link');
+test('the backend is reachable on the same origin under /ws', async () => {
+  const res = await fetch(BASE + '/ws/health');
   assert.equal(res.status, 200);
-  assert.match(await res.text(), /<canvas id="game-canvas"/);
+  assert.equal((await res.json()).ok, true);
+});
+
+test('unknown paths get the 404 page, which returns to the game and keeps ?join=', async () => {
+  const res = await fetch(BASE + '/some/deep/link');
+  assert.equal(res.status, 404);
+  assert.match(await res.text(), /404\.js/);
   const c = await newClient(browser, '/some/deep/link?join=abcde');
   assert.equal(await screen(c.page), 'menu');
+  assert.equal(new URL(c.page.url()).pathname, '/');
   assert.equal(await c.page.$eval(tid('menu-join-code'), (el) => el.value), 'ABCDE');
-  assert.deepEqual(c.problems, []);
+  assert.deepEqual(c.problems.filter((p) => !/404/.test(p)), []);
   await c.close();
 });
 

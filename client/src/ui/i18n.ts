@@ -55,8 +55,6 @@ const EN = {
   'menu.stat.best': 'Deepest',
   'menu.stat.oath': 'Oath',
   'menu.stat.bestValue': '{n}/{total}',
-  'menu.notConfigured.title': 'Server not configured',
-  'menu.notConfigured.body': 'This build has no multiplayer server address, so hosting and joining are disabled.',
   'menu.connecting': 'Opening the gate…',
   'menu.connectingHint': 'Connecting to the server',
   'menu.health': 'Health',
@@ -378,7 +376,6 @@ const EN = {
   'error.timeout': 'The server stopped hearing from you. You were disconnected.',
   'error.unreachable': 'Could not reach the server. Check your connection and try again.',
   'error.connection_lost': 'The connection to the server was lost.',
-  'error.not_configured': 'No multiplayer server is configured for this build.',
   'error.reload': 'Reload',
 } as const;
 
@@ -425,8 +422,6 @@ const DE: Record<I18nKey, string> = {
   'menu.stat.best': 'Tiefste',
   'menu.stat.oath': 'Eid',
   'menu.stat.bestValue': '{n}/{total}',
-  'menu.notConfigured.title': 'Kein Server konfiguriert',
-  'menu.notConfigured.body': 'Dieser Build kennt keine Mehrspieler-Serveradresse. Hosten und Beitreten sind deaktiviert.',
   'menu.connecting': 'Das Tor öffnet sich …',
   'menu.connectingHint': 'Verbindung zum Server wird aufgebaut',
   'menu.health': 'Leben',
@@ -748,7 +743,6 @@ const DE: Record<I18nKey, string> = {
   'error.timeout': 'Der Server hat nichts mehr von dir gehört. Du wurdest getrennt.',
   'error.unreachable': 'Der Server ist nicht erreichbar. Prüf deine Verbindung und versuch es noch einmal.',
   'error.connection_lost': 'Die Verbindung zum Server ist abgebrochen.',
-  'error.not_configured': 'Für diesen Build ist kein Mehrspieler-Server konfiguriert.',
   'error.reload': 'Neu laden',
 };
 

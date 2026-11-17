@@ -211,30 +211,8 @@
   letter-spacing: 0.05em;
 }
 
-.gg-menu-notice {
-  display: flex;
-  gap: 0.7em;
-  padding: 0.7em 0.9em;
-  border: 1px solid #8a6a2a;
-  border-left: 3px solid var(--gg-gold);
-  background: rgba(40, 30, 10, 0.85);
-  font-size: 0.82em;
-  color: #f1dfb3;
-}
 
-.gg-menu-notice .gg-icon {
-  flex: none;
-  width: 1.5em;
-  height: 1.5em;
-  color: var(--gg-gold);
-}
 
-.gg-menu-notice b {
-  display: block;
-  font-family: var(--gg-font-display);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
 
 .gg-record {
   margin-top: auto;

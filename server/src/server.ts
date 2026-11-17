@@ -138,7 +138,7 @@ export function startServer(opts: ServerOptions = {}): Promise<RunningServer> {
       res.writeHead(405, { 'content-type': 'text/plain', allow: 'GET, HEAD' }).end('method not allowed');
       return;
     }
-    if (path === '/health') {
+    if ((SERVER.HEALTH_PATHS as readonly string[]).includes(path ?? '')) {
       const body = JSON.stringify({ ok: true, rooms: rooms.size, players: playerCount(), uptime: Math.round((now() - startedAt) / 1000) });
       res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store', 'access-control-allow-origin': '*' }).end(body);
       return;
@@ -163,7 +163,9 @@ export function startServer(opts: ServerOptions = {}): Promise<RunningServer> {
     if (closing) return reject(socket, 503, 'Service Unavailable');
     if (!(SERVER.WS_PATHS as readonly string[]).includes(path)) return reject(socket, 404, 'Not Found');
     const origin = req.headers.origin;
-    if (!anyOrigin && origin !== undefined && !origins.includes(origin.replace(/\/+$/, ''))) {
+    // A page served from the same host as this endpoint (single-origin hosting) is always allowed.
+    const sameHost = origin !== undefined && req.headers.host !== undefined && origin.replace(/^https?:\/\//, '').replace(/\/+$/, '') === req.headers.host;
+    if (!anyOrigin && origin !== undefined && !sameHost && !origins.includes(origin.replace(/\/+$/, ''))) {
       log('warn', 'origin_rejected', {});
       return reject(socket, 403, 'Forbidden');
     }
