@@ -391,6 +391,8 @@ export interface AudioDebug {
   /** Sample voices sounding now / source nodes started and not yet ended (leak check). */
   voices: number;
   liveNodes: number;
+  /** Per-event mix nodes still plugged in (they are unplugged a few seconds after their sound). */
+  mixNodes: number;
   /** Events that played a designed stack vs. the synthesised fallback so far. */
   designed: number;
   fallbacks: number;
@@ -405,7 +407,7 @@ export function audioDebug(): AudioDebug | null {
   return {
     state: engine.ctx.state, music: engine.music.state(), tracks: engine.music.trackCount(), time: engine.ctx.currentTime,
     piece: engine.music.key(), biome: engine.ambience.biome(), space: engine.graph.space(), samples: engine.bank.stats(),
-    voices: sfx.voices, liveNodes: engine.graph.live.count, designed: sfx.designed, fallbacks: sfx.fallbacks,
+    voices: sfx.voices, liveNodes: engine.graph.live.count, mixNodes: sfx.mixNodes, designed: sfx.designed, fallbacks: sfx.fallbacks,
     peak: engine.graph.meter(),
   };
 }

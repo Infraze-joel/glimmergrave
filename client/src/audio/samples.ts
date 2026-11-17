@@ -9,7 +9,7 @@
  * The player turns a buffer into a voice: round-robin variant, random pitch / gain, optional filters, reverb
  * send, per-pool voice limits with priority stealing.
  */
-import type { AudioGraph, BusName } from './engine.ts';
+import { panned, type AudioGraph, type BusName } from './engine.ts';
 import { AUDIO_BASE, AUDIO_TIERS, AUDIO_TOTAL_BYTES, SAMPLES, type SampleGroup, type SampleInfo } from './manifest.ts';
 
 const LOAD = {
@@ -29,7 +29,7 @@ export const VOICES = {
   MIN_RATE: 0.25,
   MAX_RATE: 4,
   /** Simultaneous sample voices per pool. */
-  LIMITS: { own: 14, combat: 14, element: 10, big: 10, ambience: 8, ui: 6, music: 18 },
+  LIMITS: { own: 20, combat: 18, element: 14, big: 14, ambience: 8, ui: 6, music: 18 },
   /** Priorities: danger cues and the own hero win over the party, the party over ambience. */
   PRI: { AMBIENT: 0, WORLD: 1, PARTY: 2, OWN: 3 },
 } as const;
@@ -198,6 +198,8 @@ export interface VoiceOpts {
   offset?: number;
   /** Fixed variant number (1-based) instead of round robin. */
   variant?: number;
+  /** Stereo position -1..1 (0 = centre). */
+  pan?: number;
   bus?: BusName | 'ui';
   pri?: number;
   /** Custom destination + reverb (music tracks, ambience scenes); such voices live in `pool` (default music). */
@@ -293,7 +295,7 @@ export function createPlayer(g: AudioGraph, bank: Bank) {
       amp.gain.linearRampToValueAtTime(0, start + length);
     }
     node.connect(amp);
-    amp.connect(o.dest ?? (o.bus === 'ui' ? g.ui : g.buses[o.bus ?? 'combat']));
+    panned(ctx, amp, o.pan).connect(o.dest ?? (o.bus === 'ui' ? g.ui : g.buses[o.bus ?? 'combat']));
     if (o.send !== undefined && o.send > 0 && o.bus !== 'ui') {
       const tap = ctx.createGain();
       tap.gain.value = o.send;

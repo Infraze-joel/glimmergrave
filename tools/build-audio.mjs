@@ -64,6 +64,8 @@ const DSP = {
   LOUDNESS_WINDOW_S: 0.1,
   LOUDNESS_RATE: 48000,
   MAX_GAIN: 4,
+  /** Very short clicks measure quiet; their trim is capped so that peak x gain never exceeds this (linear). */
+  MAX_PEAK_AFTER_GAIN: 0.9,
 };
 
 /** Load order: 0 UI, 1 core combat, 2 abilities / elements / enemies, 3 run flow, 4 ambience beds. */
@@ -251,7 +253,8 @@ for (const [key, pack] of Object.entries(PACKS)) {
 
 // ------------------------------------------------------------------ build
 
-rmSync(OUT, { recursive: true, force: true });
+// Files are replaced in place and stale ones removed afterwards: deleting the folder first would make a
+// running Vite dev server forget its public files until it is restarted.
 mkdirSync(OUT, { recursive: true });
 
 const entries = [];
@@ -274,7 +277,7 @@ for (const [group, cat, tier, files] of GROUPS) {
     // Measure what ships, not what went in.
     const shipped = decode(join(OUT, file), DSP.LOUDNESS_RATE);
     const loud = loudness(shipped, category.integrated === true);
-    const gain = Math.min(DSP.MAX_GAIN, lin(category.target - loud));
+    const gain = Math.min(DSP.MAX_GAIN, lin(category.target - loud), DSP.MAX_PEAK_AFTER_GAIN / peakOf(shipped));
     const bytes = statSync(join(OUT, file)).size;
     entries.push({
       name, group, cat, tier, file,
@@ -332,7 +335,14 @@ export const AUDIO_TOTAL_BYTES = ${total};
 export const AUDIO_TIERS = ${Math.max(...entries.map((e) => e.tier)) + 1};
 `;
 writeFileSync(MANIFEST, manifest);
-writeFileSync(join(OUT, 'credits.json'), `${JSON.stringify({ licence: 'CC0 1.0 Universal', files: credits }, null, 1)}\n`);
+const keep = new Set([...entries.map((e) => e.file), 'credits.json']);
+for (const file of readdirSync(OUT)) if (!keep.has(file)) rmSync(join(OUT, file));
+// Licence record that ships next to the files: per pack, shipped file -> source file.
+const byPack = Object.values(packInfo).map((pack) => ({
+  pack: pack.title, author: 'Kenney (kenney.nl)', licence: 'CC0 1.0 Universal', repository: pack.url, commit: pack.commit,
+  files: Object.fromEntries(credits.filter((c) => c.url === pack.url).map((c) => [c.file, c.source.slice(pack.sub.length + 1)])),
+}));
+writeFileSync(join(OUT, 'credits.json'), `${JSON.stringify({ licence: 'CC0 1.0 Universal', packs: byPack })}\n`);
 
 // ------------------------------------------------------------------ docs table
 

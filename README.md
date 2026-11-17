@@ -15,7 +15,8 @@ Die Wardens of the Last Bell steigen in das Glimmergrave hinab, eine versunkene 
 **Resonance**: Fähigkeiten lassen sich mit Ember, Rime oder Storm aufladen. Trifft ein Element einen Gegner,
 der bereits ein *anderes* trägt, entlädt sich das in einer Explosion, die das neue Element auf umstehende
 Gegner überträgt. Allein baut man sich Kombinationen über mehrere Fähigkeiten, in der Gruppe ergänzen sich die
-Spieler. Vollständiges Konzept: [`docs/gameplan.md`](docs/gameplan.md).
+Spieler. Jeder Run führt durch drei Biome zu einem von drei Endbossen, und mit dem verdienten Glimmer werden
+die Helden dauerhaft stärker. Vollständiges Konzept: [`docs/gameplan.md`](docs/gameplan.md).
 
 ## 2. Gameplay-Loop
 
@@ -24,9 +25,25 @@ Spieler. Vollständiges Konzept: [`docs/gameplan.md`](docs/gameplan.md).
 3. Kammer geräumt → jeder wählt 1 von 3 Boons (33 Stück, bis zu 3 Stufen); gefallene Helden stehen wieder auf.
 4. Zwei Ausgänge öffnen sich (Boon / Blessing / Cursed). Die Gruppe entscheidet, indem sie sich gemeinsam in
    einen Durchgang stellt.
-5. Acht Kammern: Kampf ×3, Elite (Crypt Champion), Kampf ×2, Elite, Boss (Bone Regent, 3 Phasen).
-6. Sieg oder Niederlage → Auswertung → zurück in die Lobby. Ein Sieg schaltet die nächste Oath-Stufe
-   (Schwierigkeit 0–3) frei.
+5. Acht Kammern in drei Akten: Kampf ×3, Elite (Crypt Champion), Kampf ×2, Herold (schwächere Form eines
+   Bosses, der in diesem Run nicht der Endboss ist), Endboss. Der Endboss wechselt pro Run: Bone Regent,
+   Hex Matron oder Ossuary Stalker, alle mit drei Phasen.
+6. Akt 1 spielt in der Gruft, Akt 2 und 3 in den überfluteten Katakomben und der Glutschmiede (Reihenfolge
+   wechselt). Jedes Biom hat eigene Raumformen, Hindernisse und Bodenfallen (Stacheln, Frostnebel,
+   Feuerdüsen), die Helden und Gegner treffen.
+7. Sieg oder Niederlage → Auswertung mit verdientem Glimmer → Rüstkammer → nächster Run. Ein Sieg schaltet
+   die nächste Oath-Stufe (Schwierigkeit 0–3) frei.
+
+**Dauerhafter Fortschritt:** Glimmer gibt es für jeden Run. In der Rüstkammer kauft man neun Upgrades in
+Stufen (Leben, Schaden, Tempo, Cooldowns, Neuwürfe, Start-Infusion, robustere Wiederbelebung, mehr Glimmer).
+Ohne Upgrades gewinnt ein geübter Solo-Spieler etwa jeden dritten Run, voll ausgebaut etwa vier von fünf
+(mit Bots gemessen).
+
+**Anpassung:** Stofffarbe, Kopfbedeckung, Umhang und drei Ausrüstungsvarianten pro Klasse, rein optisch,
+mit 3D-Vorschau.
+
+**Einstieg:** Ein geführtes Training (etwa drei Minuten) erklärt Bewegung, Dash, die drei Elemente, Resonance,
+Fallen, Boon-Auswahl und Türen. Danach helfen die Element-Leiste im HUD, einmalige Hinweise und der Kodex.
 
 Ein Run dauert etwa 10–15 Minuten.
 
@@ -42,6 +59,7 @@ Ein Run dauert etwa 10–15 Minuten.
 | neben gefallenem Verbündeten stehen (3 s) | Wiederbeleben |
 | Tab (halten) | Übersicht: Statistik und Boons |
 | 1–4 | Boon-Karte wählen |
+| R | Boon-Auswahl neu würfeln (mit dem Upgrade „Einsicht") |
 | Esc | Pause-/Einstellungsmenü |
 
 ## 4. Technische Architektur
@@ -70,6 +88,8 @@ liegen in `shared/src/data/*` und `shared/src/constants.ts`. Mehr: [`docs/tech.m
 - **Eigener Held:** Client-Vorhersage mit demselben Bewegungscode wie der Server
   (`shared/src/sim/movement.ts`), Abgleich über die bestätigte Eingabenummer, Korrekturen werden geglättet.
 - **Alle anderen Entitäten:** Interpolation 120 ms in der Vergangenheit.
+- **Ausrüstung und Upgrades:** Der Client schickt Aussehen und Upgrade-Stufen mit; der Server begrenzt jede
+  Stufe auf ihr Maximum. Glimmer-Belohnungen berechnet der Server, gespeichert wird im Browser.
 - **Sitzungen:** Codes ohne verwechselbare Zeichen, max. 4 Spieler, Beitritt nur in der Lobby.
   Verbindungsabbruch: Slot bleibt 90 s reserviert, Wiederbeitritt per geheimem Token (auch nach Neuladen der
   Seite, automatisch). Host-Wechsel, wenn der Host geht.
@@ -162,8 +182,9 @@ TypeScript 7, Three.js r187 (WebGL), Vite 8, Node.js 22, `ws` 8, esbuild, Vitest
 ## 11. Assets und Lizenzen
 
 Alle 3D-Modelle, Texturen und Animationen stammen aus drei **KayKit**-Paketen von Kay Lousberg unter
-**CC0 1.0** (frei, auch kommerziell, keine Namensnennung nötig). Audio wird zur Laufzeit synthetisiert, es gibt
-keine Audiodateien. Icons und Favicon sind eigene SVGs. Quellen und Pipeline: [`docs/ASSETS.md`](docs/ASSETS.md).
+**CC0 1.0** (frei, auch kommerziell, keine Namensnennung nötig). Soundeffekte stammen aus CC0-Paketen von
+Kenney, ergänzt um synthetische Schichten für die Elemente; die Musik wird zur Laufzeit erzeugt. Quellen,
+Lizenzen und Pipeline: [`docs/AUDIO.md`](docs/AUDIO.md). Icons und Favicon sind eigene SVGs. Quellen und Pipeline: [`docs/ASSETS.md`](docs/ASSETS.md).
 Bibliotheken: MIT (three, ws, vite, …), Cinzel: SIL Open Font License.
 
 ## 12. Bekannte Einschränkungen
@@ -186,8 +207,10 @@ Bibliotheken: MIT (three, ws, vite, …), Cinzel: SIL Open Font License.
 - **Eine Server-Instanz.** Räume liegen im Arbeitsspeicher; ein Neustart (auf Netlify spätestens alle
   8 Stunden und bei jedem Deploy) beendet laufende Sitzungen, mehrere Instanzen bräuchten Routing pro Raumcode.
 - **WebSocket/TCP:** bei Paketverlust können kurze Hänger entstehen.
-- Kein Beitritt in einen laufenden Run (nur Wiederbeitritt), kein Gamepad, keine Touch-Steuerung,
-  keine Konten; Fortschritt (Statistik, Oath-Stufen) liegt lokal im Browser.
+- Kein Beitritt in einen laufenden Run (nur Wiederbeitritt), kein Gamepad, keine Touch-Steuerung.
+- **Keine Konten:** Statistik, Glimmer, Upgrades und Aussehen liegen im Browser. Wer den Speicher löscht,
+  verliert sie; wer ihn manipuliert, kann sich höchstens voll ausgebaute Upgrades geben (der Server begrenzt
+  die Stufen).
 - Die visuelle Abnahme der 3D-Darstellung erfolgte anhand von Screenshots bei sehr niedriger Bildrate.
 
 ## 13. Durchgeführte Tests

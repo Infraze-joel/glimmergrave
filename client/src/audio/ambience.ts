@@ -106,14 +106,15 @@ export function createAmbience(g: AudioGraph, player: Player) {
   // ---------------------------------------------------------------- the three biomes
   const DEFS: Record<BiomeId, SceneDef> = {
     crypt: {
-      gain: 1,
+      gain: 0.44,
       beds: [{ group: 'bed.drone', rate: 0.5, gain: 0.5, lpf: 260 }],
       build(scene, t) {
         loopNoise(scene, t, 'lowpass', 170, 0.5, 0.34, 2);
         hum(scene, t, 55, 0.035);
         hum(scene, t, 55.6, 0.035);
-        const air = loopNoise(scene, t, 'bandpass', 420, 0.6, 0.012);
-        lfo(scene, t, 0.07, 0.008, air.amp.gain);
+        const air = loopNoise(scene, t, 'bandpass', 420, 0.6, 0.03);
+        lfo(scene, t, 0.07, 0.018, air.amp.gain);
+        loopNoise(scene, t, 'bandpass', 1900, 0.5, 0.005); // a breath of stale air on small speakers
       },
       events: [
         { every: [2.5, 8], play: (scene, t) => drip(scene, t, 0.06, 2) },
@@ -121,7 +122,7 @@ export function createAmbience(g: AudioGraph, player: Player) {
       ],
     },
     flooded: {
-      gain: 1,
+      gain: 0.8,
       beds: [{ group: 'bed.drone', rate: 0.42, gain: 0.3, lpf: 200 }],
       build(scene, t) {
         loopNoise(scene, t, 'lowpass', 140, 0.5, 0.2, 2);
@@ -145,19 +146,19 @@ export function createAmbience(g: AudioGraph, player: Player) {
       ],
     },
     forge: {
-      gain: 1,
+      gain: 0.53,
       beds: [
-        { group: 'bed.rumble', rate: 0.8, gain: 0.5, lpf: 420 },
-        { group: 'tex.fireLow', rate: 0.9, gain: 0.55, lpf: 1800 },
+        { group: 'bed.rumble', rate: 1.2, gain: 0.4, lpf: 700 },
+        { group: 'tex.fireLow', rate: 1, gain: 0.8, lpf: 2800 },
       ],
       build(scene, t) {
-        hum(scene, t, 41, 0.04);
-        hum(scene, t, 41.4, 0.04);
-        loopNoise(scene, t, 'lowpass', 120, 0.5, 0.22, 2);
+        hum(scene, t, 55, 0.03);
+        hum(scene, t, 55.5, 0.03);
+        loopNoise(scene, t, 'lowpass', 150, 0.5, 0.14, 2);
         // bellows: a slow breath in level and brightness
-        const breath = loopNoise(scene, t, 'lowpass', 320, 0.7, 0.05);
-        lfo(scene, t, 0.23, 0.045, breath.amp.gain);
-        lfo(scene, t, 0.23, 220, breath.filter.frequency);
+        const breath = loopNoise(scene, t, 'lowpass', 520, 0.7, 0.07);
+        lfo(scene, t, 0.23, 0.06, breath.amp.gain);
+        lfo(scene, t, 0.23, 340, breath.filter.frequency);
       },
       events: [
         {

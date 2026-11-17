@@ -13,7 +13,7 @@
  * Victory / defeat are one-shot stingers.
  */
 import type { BiomeId, BossKind } from '@shared/types.ts';
-import { MIX, midiToHz, noise, tone, type AudioGraph, type NoiseOpts, type ToneOpts } from './engine.ts';
+import { MIX, midiToHz, noise, panned, tone, type AudioGraph, type NoiseOpts, type ToneOpts } from './engine.ts';
 import type { SampleGroup } from './manifest.ts';
 import { VOICES, type Player, type VoiceOpts } from './samples.ts';
 
@@ -125,8 +125,14 @@ const STALKER_MOTIFS: (number | null)[][] = [
   [4, _, 3, _, 1, _, 0, _, _, _, _, _, _, _, _, _],
 ];
 
+/** Pad low-pass cutoffs in the pieces are multiplied by this (one knob for the overall darkness of the score). */
+const PAD_BRIGHTNESS = 1.5;
+
 /** Steepness of the bass saturator curve; `drive` / `post` in the tints are matched to it for equal loudness. */
 const BASS_SHAPE = 2.5;
+
+/** Stereo placement of the score: detuned pad voices spread by SPREAD, light percussion sits slightly off-centre. */
+const STEREO = { SPREAD: 0.55, HAT: 0.22, BONE: -0.28, ANVIL: 0.32, GLASS: 0.18 } as const;
 
 /** How a biome colours the score. */
 interface Tint { cutoff: number; send: number; drive: number; post: number; anvil: boolean; drip: boolean }
@@ -183,19 +189,30 @@ function createKit(g: AudioGraph, player: Player | null, env: KitEnv) {
     amp.gain.linearRampToValueAtTime(gain, t + attack);
     if (hold > 0) amp.gain.setValueAtTime(gain, t + attack + hold);
     amp.gain.exponentialRampToValueAtTime(MIX.SILENCE, t + dur);
-    for (const freq of freqs) {
-      for (const detune of detunes) {
+    // one filter + envelope per detune group, the groups spread left and right
+    detunes.forEach((detune, side) => {
+      const group = side === 0 ? filter : ctx.createBiquadFilter();
+      if (side > 0) {
+        group.type = 'lowpass';
+        group.Q.value = q;
+        group.frequency.setValueAtTime(cutoffFrom, t);
+        group.frequency.linearRampToValueAtTime(cutoffPeak, t + Math.max(attack, 0.01));
+        group.frequency.linearRampToValueAtTime(cutoffEnd, t + dur);
+      }
+      for (const freq of freqs) {
         const osc = ctx.createOscillator();
         osc.type = type;
         osc.frequency.value = freq;
         osc.detune.value = detune;
-        osc.connect(filter);
+        osc.connect(group);
         g.track(osc);
         osc.start(t);
         osc.stop(end);
       }
-    }
-    filter.connect(amp).connect(out);
+      const pan = detunes.length > 1 ? (side / (detunes.length - 1)) * 2 * STEREO.SPREAD - STEREO.SPREAD : 0;
+      panned(ctx, group, pan).connect(amp);
+    });
+    amp.connect(out);
     if (sendAmount > 0) {
       const tap = ctx.createGain();
       tap.gain.value = sendAmount;
@@ -207,7 +224,7 @@ function createKit(g: AudioGraph, player: Player | null, env: KitEnv) {
     applyTint,
     kick(t: number, gain: number): void {
       if (S('hit.tight', t, gain * 1.5, { rate: 0.92 })) {
-        T(t, { freq: 110, freqEnd: 42, dur: 0.2, gain: gain * 0.7 });
+        T(t, { freq: 110, freqEnd: 42, dur: 0.2, gain: gain * 0.55 });
       } else {
         T(t, { freq: 150, freqEnd: 42, dur: 0.24, gain });
         T(t, { type: 'triangle', freq: 1100, freqEnd: 300, dur: 0.016, gain: gain * 0.3 });
@@ -222,8 +239,8 @@ function createKit(g: AudioGraph, player: Player | null, env: KitEnv) {
       }
     },
     hat(t: number, gain: number, open = false): void {
-      N(t, { dur: open ? 0.17 : 0.035, gain, filter: 'highpass', freq: 7800 });
-      if (open) N(t, { dur: 0.12, gain: gain * 0.5, filter: 'bandpass', freq: 10500, q: 2 });
+      N(t, { dur: open ? 0.17 : 0.035, gain: gain * 1.5, filter: 'highpass', freq: 7800, pan: STEREO.HAT });
+      if (open) N(t, { dur: 0.12, gain: gain * 0.7, filter: 'bandpass', freq: 10500, q: 2, pan: STEREO.HAT });
     },
     tom(t: number, midi: number, gain: number): void {
       const f = midiToHz(midi);
@@ -242,12 +259,12 @@ function createKit(g: AudioGraph, player: Player | null, env: KitEnv) {
     },
     /** A knock of bone on bone; `rate` gives the pitch of the ostinato. */
     bone(t: number, rate: number, gain: number): void {
-      if (!S('hit.bone', t, gain * 2.2, { rate, send: 0.2 })) {
+      if (!S('hit.bone', t, gain * 2.6, { rate, send: 0.25, pan: STEREO.BONE })) {
         T(t, { type: 'triangle', freq: 420 * rate, freqEnd: 300 * rate, dur: 0.04, gain });
       }
     },
     anvil(t: number, gain: number): void {
-      if (!S('hit.ring', t, gain * 1.8, { rate: 0.8, send: 0.5 })) {
+      if (!S('hit.ring', t, gain * 1.8, { rate: 0.8, send: 0.5, pan: STEREO.ANVIL })) {
         for (const f of [2100, 3140]) T(t, { freq: f, dur: 0.18, gain: gain * 0.5, send: 0.4 });
       }
     },
@@ -258,14 +275,16 @@ function createKit(g: AudioGraph, player: Player | null, env: KitEnv) {
     },
     bass(t: number, midi: number, dur: number, gain: number, cutoff: number): void {
       const f = midiToHz(midi);
-      tone(g, bassIn, t, { type: 'sawtooth', freq: f, dur, gain, lpf: cutoff * 3, lpfEnd: cutoff, q: 3 }, send);
+      tone(g, bassIn, t, { type: 'sawtooth', freq: f, dur, gain, lpf: cutoff * 3.6, lpfEnd: cutoff * 1.3, q: 3 }, send);
       tone(g, bassIn, t, { type: 'square', freq: f, detune: 9, dur: dur * 0.8, gain: gain * 0.25, lpf: cutoff * 1.6, lpfEnd: cutoff * 0.8 }, send);
-      tone(g, bassIn, t, { freq: f, dur, gain: gain * 0.75 }, send);
+      tone(g, bassIn, t, { freq: f, dur, gain: gain * 0.5 }, send);
+      tone(g, bassIn, t, { type: 'triangle', freq: f * 2, dur: dur * 0.7, gain: gain * 0.2 }, send); // audible on small speakers
     },
     pad(t: number, midis: number[], dur: number, gain: number, cutoff: number): void {
       const attack = Math.min(1.2, dur * 0.35);
-      stack(t, midis.map(midiToHz), [-8, 7], 'sawtooth', dur * 1.25, gain, attack, dur * 0.4, cutoff * 0.55, cutoff, cutoff * 0.7, 0.8, 0.35);
-      T(t, { type: 'triangle', freq: midiToHz(midis[0] + OCTAVE), dur: dur * 1.2, gain: gain * 0.5, attack, hold: dur * 0.4, send: 0.35 });
+      const c = cutoff * PAD_BRIGHTNESS;
+      stack(t, midis.map(midiToHz), [-8, 7], 'sawtooth', dur * 1.25, gain * 1.2, attack, dur * 0.4, c * 0.55, c, c * 0.7, 0.8, 0.35);
+      T(t, { type: 'triangle', freq: midiToHz(midis[0] + OCTAVE), dur: dur * 1.2, gain: gain * 0.6, attack, hold: dur * 0.4, send: 0.35 });
     },
     /** Wordless choir: saws with vibrato through two vowel formants. */
     choir(t: number, midis: number[], dur: number, gain: number, vowel: 'ah' | 'oo'): void {
@@ -315,9 +334,9 @@ function createKit(g: AudioGraph, player: Player | null, env: KitEnv) {
     },
     lead(t: number, midi: number, dur: number, gain: number, bright: number): void {
       const f = midiToHz(midi);
-      T(t, { type: 'sawtooth', freq: f, detune: -6, dur, gain: gain * 0.5, lpf: bright, lpfEnd: bright * 0.45, q: 2.5, attack: 0.01, vib: 10, send: 0.3 });
-      T(t, { type: 'triangle', freq: f, detune: 6, dur, gain, attack: 0.01, vib: 10, send: 0.3 });
-      T(t, { freq: f * 2, dur: dur * 0.6, gain: gain * 0.14, attack: 0.01 });
+      T(t, { type: 'sawtooth', freq: f, detune: -6, dur, gain: gain * 0.7, lpf: bright * 1.3, lpfEnd: bright * 0.6, q: 2.5, attack: 0.01, vib: 10, send: 0.3 });
+      T(t, { type: 'triangle', freq: f, detune: 6, dur, gain: gain * 1.2, attack: 0.01, vib: 10, send: 0.3 });
+      T(t, { freq: f * 2, dur: dur * 0.6, gain: gain * 0.2, attack: 0.01 });
     },
     /** Sustained, breathy voice for slow melodies. */
     wail(t: number, midi: number, dur: number, gain: number): void {
@@ -339,9 +358,9 @@ function createKit(g: AudioGraph, player: Player | null, env: KitEnv) {
     /** Small glassy bell for arpeggios. */
     glass(t: number, midi: number, gain: number): void {
       const f = midiToHz(midi);
-      T(t, { freq: f, dur: 0.7, gain, send: 0.6 });
-      T(t, { freq: f * 2.76, dur: 0.25, gain: gain * 0.22, send: 0.4 });
-      T(t, { type: 'triangle', freq: f * 2, dur: 0.12, gain: gain * 0.2 });
+      T(t, { freq: f, dur: 0.7, gain: gain * 1.2, send: 0.6 });
+      T(t, { freq: f * 2.76, dur: 0.25, gain: gain * 0.3, send: 0.4 });
+      T(t, { type: 'triangle', freq: f * 2, dur: 0.12, gain: gain * 0.25 });
     },
     pluck(t: number, midi: number, gain: number): void {
       const f = midiToHz(midi);
@@ -353,8 +372,8 @@ function createKit(g: AudioGraph, player: Player | null, env: KitEnv) {
     },
     drone(t: number, midi: number, dur: number, gain: number): void {
       const attack = Math.min(0.8, dur * 0.3);
-      T(t, { freq: midiToHz(midi), dur: dur * 1.15, gain, attack, hold: dur * 0.5 });
-      T(t, { type: 'triangle', freq: midiToHz(midi) / 2, dur: dur * 1.15, gain: gain * 0.5, attack, hold: dur * 0.5, lpf: 220 });
+      T(t, { freq: midiToHz(midi), dur: dur * 1.15, gain: gain * 0.7, attack, hold: dur * 0.5 });
+      T(t, { type: 'triangle', freq: midiToHz(midi), dur: dur * 1.15, gain: gain * 0.35, attack, hold: dur * 0.5, lpf: 400 });
     },
     noise: N,
     tone: T,
@@ -595,6 +614,7 @@ const DEFS: Record<TrackKey, TrackDef> = {
       if (phase >= 2 && (s === 4 || s === 12)) kit.snare(t, 0.18);
       if (phase >= 2 && s % 2 === 1 && rnd(idx, 11) < 0.5) kit.hat(t, 0.03);
       if (phase >= 3) kit.hat(t, s % 4 === 2 ? 0.045 : 0.025);
+      else if (phase === 1 && s % 4 === 2) kit.hat(t, 0.02);
       if (tint.anvil && s === 12) kit.anvil(t, 0.045);
       if (tint.drip && s === 6 && bar % 2 === 1) kit.drop(t, note(chord, 4, 3), 0.04);
       if (s === 0) {

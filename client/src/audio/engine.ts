@@ -8,7 +8,7 @@
  *   reverbIn ─> room | hall convolver ────────────────┘                                        │
  *   music tracks ─> musicIn (ducking) ─> hurt low-pass ─> music (user volume) ─────────────────┼─> master
  *   musicReverbIn ─> convolver ─> musicIn                                                      │   (user volume)
- *   master ─> compressor ─> limiter ─> soft clip ─> output trim ─> destination (+ analyser for the dev meter)
+ *   master ─> DC blocker ─> compressor ─> limiter ─> soft clip ─> output trim ─> destination (+ analyser, dev meter)
  */
 
 export const MIX = {
@@ -19,8 +19,13 @@ export const MIX = {
   OUTPUT_TRIM: 0.8,
   COMP: { threshold: -15, knee: 12, ratio: 3, attack: 0.004, release: 0.2 },
   LIMIT: { threshold: -4, knee: 0, ratio: 20, attack: 0.001, release: 0.09 },
-  /** Holds dense combat (dozens of hits in one frame) together before it reaches the master chain. */
-  BURST: { threshold: -20, knee: 8, ratio: 8, attack: 0.002, release: 0.14 },
+  /**
+   * Holds dense combat (dozens of hits in one frame) together before it reaches the master chain. The threshold
+   * sits above a single ordinary hit, so lone transients keep their punch and only stacks are squeezed.
+   */
+  BURST: { threshold: -12, knee: 6, ratio: 6, attack: 0.002, release: 0.14 },
+  /** Make-up gain a DynamicsCompressorNode adds on its own with the BURST settings (measured); taken out again. */
+  BURST_MAKEUP_DB: 4.81,
   SOFT_CLIP_DRIVE: 1.5,
   SOFT_CLIP_CEILING: 0.97,
   SOFT_CLIP_SAMPLES: 2048,
@@ -33,13 +38,19 @@ export const MIX = {
   /** Open cutoff of the hurt low-pass (effectively bypassed). */
   OPEN_HZ: 20000,
   METER_FFT: 2048,
+  DC_BLOCK_HZ: 20,
 } as const;
 
-/** Synthetic spaces. `hall` replaces `room` in boss chambers; `music` gives the score its own tail. */
+/**
+ * Synthetic spaces. `hall` replaces `room` in boss chambers; `music` gives the score its own tail.
+ * Return gains are calibrated by measurement (ConvolverNode normalisation makes these responses quiet): a
+ * sound sent at 1.0 comes back about 2 dB under its dry level in the room, 1 dB over it in the hall and 4 dB
+ * under it for the score.
+ */
 const SPACES = {
-  room: { seconds: 1.5, decay: 3.4, predelay: 0.012, damp: 0.72, gain: 0.5 },
-  hall: { seconds: 3.2, decay: 2.6, predelay: 0.028, damp: 0.8, gain: 0.62 },
-  music: { seconds: 2.4, decay: 3.2, predelay: 0.02, damp: 0.7, gain: 0.42 },
+  room: { seconds: 1.5, decay: 3.4, predelay: 0.012, damp: 0.72, gain: 1.9 },
+  hall: { seconds: 3.2, decay: 2.6, predelay: 0.028, damp: 0.8, gain: 1.85 },
+  music: { seconds: 2.4, decay: 3.2, predelay: 0.02, damp: 0.7, gain: 1.2 },
 } as const;
 
 const SPACE_FADE = 1.2;
@@ -166,7 +177,7 @@ export function createGraph(ctx: BaseAudioContext): AudioGraph {
     buses[name] = gainNode(ctx, MIX.BUS[name]);
     buses[name].connect(name === 'ambience' ? gameMix : burst);
   }
-  burst.connect(gameMix);
+  burst.connect(gainNode(ctx, Math.pow(10, -MIX.BURST_MAKEUP_DB / 20))).connect(gameMix);
 
   // Game reverb: two spaces fed by one send, crossfaded with the chamber kind.
   const reverbIn = ctx.createGain();
@@ -190,7 +201,12 @@ export function createGraph(ctx: BaseAudioContext): AudioGraph {
   musicIn.connect(musicLpf).connect(music);
   music.connect(master);
   sfx.connect(master);
-  master.connect(comp).connect(limit).connect(clip).connect(out).connect(ctx.destination);
+  // Sub-sonic / DC blocker ahead of the dynamics, so the clipper's ceiling still bounds the output.
+  const dcBlock = ctx.createBiquadFilter();
+  dcBlock.type = 'highpass';
+  dcBlock.frequency.value = MIX.DC_BLOCK_HZ;
+  dcBlock.Q.value = Math.SQRT1_2;
+  master.connect(dcBlock).connect(comp).connect(limit).connect(clip).connect(out).connect(ctx.destination);
 
   let analyser: AnalyserNode | null = null;
   let meterData: Float32Array<ArrayBuffer> | null = null;
@@ -291,6 +307,8 @@ export interface NoiseOpts {
   attack?: number;
   send?: number;
   hold?: number;
+  /** Stereo position -1..1 (0 = centre). */
+  pan?: number;
 }
 
 const MIN_FREQ = 20;
@@ -315,6 +333,14 @@ function route(g: AudioGraph, node: AudioNode, dest: AudioNode, send: number, re
     tap.gain.value = send;
     node.connect(tap).connect(reverb);
   }
+}
+
+/** Places a mono voice in the stereo field (no-op for centre or where StereoPannerNode is missing). */
+export function panned(ctx: BaseAudioContext, node: AudioNode, pan: number | undefined): AudioNode {
+  if (!pan || typeof ctx.createStereoPanner !== 'function') return node;
+  const panner = ctx.createStereoPanner();
+  panner.pan.value = Math.max(-1, Math.min(1, pan));
+  return node.connect(panner);
 }
 
 /** One enveloped oscillator, optionally low-passed. `reverb` defaults to the game send. */
@@ -381,7 +407,7 @@ export function noise(g: AudioGraph, dest: AudioNode, t: number, o: NoiseOpts, r
   if (o.freqEnd !== undefined) filter.frequency.exponentialRampToValueAtTime(Math.max(MIN_FREQ, o.freqEnd), t + o.dur);
   const amp = envelope(g, t, o.gain, o.attack ?? 0.003, o.hold ?? 0, o.dur);
   src.connect(filter).connect(amp);
-  route(g, amp, dest, o.send ?? 0, reverb);
+  route(g, panned(ctx, amp, o.pan), dest, o.send ?? 0, reverb);
   g.track(src);
   src.start(t, Math.random() * (MIX.NOISE_SECONDS - 0.1));
   src.stop(t + o.dur + TAIL);

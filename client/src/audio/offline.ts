@@ -14,6 +14,13 @@ import { createSfx, type Sfx } from './sfx.ts';
 const SAMPLE_RATE = 44100;
 const CHANNELS = 2;
 const SILENT_PEAK = 1e-9;
+/**
+ * A fresh context's compressors need a moment to settle (anything sounding in the first half second comes out
+ * far too quiet), so every render runs this long before the measured part starts. Sounds are fired at the end
+ * of the pre-roll via OfflineAudioContext.suspend(); statistics cover only what follows.
+ */
+const PREROLL_S = 1;
+const QUANTUM_S = 128 / SAMPLE_RATE;
 
 export interface RenderStats {
   name: string;
@@ -55,27 +62,28 @@ function bankFor(o: RenderOptions): Bank {
 const toDb = (v: number): number => 20 * Math.log10(Math.max(v, SILENT_PEAK));
 const LOUD_WINDOW_S = 0.4;
 
-function analyse(name: string, seconds: number, buffer: AudioBuffer): RenderStats {
+function analyse(name: string, seconds: number, buffer: AudioBuffer, from = 0): RenderStats {
   let peak = 0;
   let sum = 0;
   let total = 0;
   let count = 0;
   let loudest = 0;
   const win = Math.floor(LOUD_WINDOW_S * buffer.sampleRate);
+  const first = Math.min(buffer.length, Math.floor(from * buffer.sampleRate));
   for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
     const data = buffer.getChannelData(ch);
     let run = 0;
-    for (let i = 0; i < data.length; i++) {
+    for (let i = first; i < data.length; i++) {
       const v = data[i];
       const sq = v * v;
       if (Math.abs(v) > peak) peak = Math.abs(v);
       sum += sq;
       total += v;
       run += sq;
-      if (i >= win) run -= data[i - win] * data[i - win];
-      if (i >= win - 1 && run > loudest) loudest = run;
+      if (i - first >= win) run -= data[i - win] * data[i - win];
+      if (i - first >= win - 1 && run > loudest) loudest = run;
     }
-    count += data.length;
+    count += data.length - first;
   }
   const rms = Math.sqrt(sum / Math.max(1, count));
   return {
@@ -84,10 +92,23 @@ function analyse(name: string, seconds: number, buffer: AudioBuffer): RenderStat
   };
 }
 
-async function render(name: string, seconds: number, setup: (ctx: OfflineAudioContext) => void): Promise<RenderStats> {
-  const ctx = new OfflineAudioContext(CHANNELS, Math.ceil(seconds * SAMPLE_RATE), SAMPLE_RATE);
-  setup(ctx);
-  return analyse(name, seconds, await ctx.startRendering());
+/** Runs `fire` when the render reaches `at` seconds (rounded to a render quantum). */
+function atTime(ctx: OfflineAudioContext, at: number, fire: () => void): void {
+  if (typeof ctx.suspend !== 'function') { fire(); return; }
+  void ctx.suspend(Math.round(at / QUANTUM_S) * QUANTUM_S).then(() => {
+    try { fire(); } finally { void ctx.resume(); }
+  });
+}
+
+/**
+ * Renders `seconds` after the pre-roll. `build` wires the graph at time 0 and may return what to fire once the
+ * pre-roll is over (one-shots); continuous material (music, ambience) simply starts in `build`.
+ */
+async function render(name: string, seconds: number, build: (ctx: OfflineAudioContext) => (() => void) | void): Promise<RenderStats> {
+  const ctx = new OfflineAudioContext(CHANNELS, Math.ceil((PREROLL_S + seconds) * SAMPLE_RATE), SAMPLE_RATE);
+  const fire = build(ctx);
+  if (fire) atTime(ctx, PREROLL_S, fire);
+  return analyse(name, seconds, await ctx.startRendering(), PREROLL_S);
 }
 
 function levels(graph: AudioGraph): void {
@@ -107,7 +128,7 @@ export function renderMusic(stateName: Exclude<MusicState, 'none'>, seconds: num
     music.setBossKind(o.boss ?? 'regent');
     music.setBiome(o.biome ?? 'crypt');
     music.setState(stateName, 0.05);
-    music.schedule(seconds);
+    music.schedule(PREROLL_S + seconds);
   });
 }
 
@@ -115,7 +136,8 @@ export function renderStinger(kind: 'victory' | 'defeat', o: RenderOptions = {})
   return render(`stinger:${kind}`, 5, (ctx) => {
     const graph = createGraph(ctx);
     levels(graph);
-    createMusic(graph, createSfx(graph, bankFor(o)).player).stinger(kind);
+    const music = createMusic(graph, createSfx(graph, bankFor(o)).player);
+    return () => music.stinger(kind);
   });
 }
 
@@ -125,7 +147,7 @@ export function renderAmbience(biome: BiomeId, seconds: number, o: RenderOptions
     levels(graph);
     const ambience = createAmbience(graph, createSfx(graph, bankFor(o)).player);
     ambience.setBiome(biome);
-    ambience.schedule(seconds);
+    ambience.schedule(PREROLL_S + seconds);
   });
 }
 
@@ -199,7 +221,8 @@ export function renderSfx(name: string, play: (sfx: Sfx) => void, seconds = 2.5,
   return render(`sfx:${name}`, seconds, (ctx) => {
     const graph = createGraph(ctx);
     levels(graph);
-    play(createSfx(graph, bankFor(o)));
+    const sfx = createSfx(graph, bankFor(o));
+    return () => play(sfx);
   });
 }
 
@@ -212,19 +235,21 @@ export function renderStress(seconds = 6, o: RenderOptions = {}): Promise<Render
     const music = createMusic(graph, sfx.player);
     music.setBossPhase(3);
     music.setState('boss', 0.05);
-    music.schedule(seconds);
-    // currentTime is 0 while setting up, so everything below lands on the same instant: the limiter must hold.
-    for (let i = 0; i < 40; i++) {
-      sfx.hit({ dmg: 20 + i, crit: i % 3 === 0, el: ELEMENT_IDS[i % 3], own: i % 2 === 0 });
-      sfx.kill('minion', true);
-      sfx.spawn('minion', false);
-    }
-    sfx.resonance('ember', 'storm', true);
-    sfx.resonance('rime', 'storm', true);
-    sfx.aoe('ember', true);
-    sfx.bossPhase();
-    sfx.wave();
-    sfx.chamberClear();
+    music.schedule(PREROLL_S + seconds);
+    // Everything below lands on the same instant: the limiters must hold.
+    return () => {
+      for (let i = 0; i < 40; i++) {
+        sfx.hit({ dmg: 20 + i, crit: i % 3 === 0, el: ELEMENT_IDS[i % 3], own: i % 2 === 0 });
+        sfx.kill('minion', true);
+        sfx.spawn('minion', false);
+      }
+      sfx.resonance('ember', 'storm', true);
+      sfx.resonance('rime', 'storm', true);
+      sfx.aoe('ember', true);
+      sfx.bossPhase();
+      sfx.wave();
+      sfx.chamberClear();
+    };
   });
 }
 
@@ -243,40 +268,26 @@ export function stressEvents(): [number, (sfx: Sfx) => void][] {
   return events.sort((a, b) => a[0] - b[0]);
 }
 
-/**
- * Renders the timed stress case with OfflineAudioContext.suspend(), so the limiter windows and voice stealing
- * behave as they do live. Falls back to firing everything at once where suspend() is unavailable.
- */
+/** Renders the timed stress case, so the limiter windows and voice stealing behave as they do live. */
 export function renderStressTimed(seconds = 5, o: RenderOptions = {}): Promise<RenderStats> {
-  const ctx = new OfflineAudioContext(CHANNELS, Math.ceil(seconds * SAMPLE_RATE), SAMPLE_RATE);
+  const ctx = new OfflineAudioContext(CHANNELS, Math.ceil((PREROLL_S + seconds) * SAMPLE_RATE), SAMPLE_RATE);
   const graph = createGraph(ctx);
   levels(graph);
   const sfx = createSfx(graph, bankFor(o));
   const music = createMusic(graph, sfx.player);
   music.setBossPhase(3);
   music.setState('boss', 0.05);
-  music.schedule(seconds);
-  const events = stressEvents();
-  const QUANTUM = 128 / SAMPLE_RATE;
-  if (typeof ctx.suspend === 'function') {
-    // group events by render quantum: one suspend per quantum
-    const slots = new Map<number, ((sfx: Sfx) => void)[]>();
-    for (const [at, fire] of events) {
-      const slot = Math.round((STRESS.START_S + at) / QUANTUM);
-      const list = slots.get(slot) ?? [];
-      list.push(fire);
-      slots.set(slot, list);
-    }
-    for (const [slot, list] of slots) {
-      void ctx.suspend(slot * QUANTUM).then(() => {
-        for (const fire of list) fire(sfx);
-        void ctx.resume();
-      });
-    }
-  } else {
-    for (const [, fire] of events) fire(sfx);
+  music.schedule(PREROLL_S + seconds);
+  // group events by render quantum: one suspend per quantum
+  const slots = new Map<number, ((sfx: Sfx) => void)[]>();
+  for (const [at, fire] of stressEvents()) {
+    const slot = Math.round((PREROLL_S + STRESS.START_S + at) / QUANTUM_S);
+    const list = slots.get(slot) ?? [];
+    list.push(fire);
+    slots.set(slot, list);
   }
-  return ctx.startRendering().then((buffer) => analyse('stress.timed', seconds, buffer));
+  for (const [slot, list] of slots) atTime(ctx, slot * QUANTUM_S, () => { for (const fire of list) fire(sfx); });
+  return ctx.startRendering().then((buffer) => analyse('stress.timed', seconds, buffer, PREROLL_S));
 }
 
 export const OFFLINE_BIOMES = BIOME_IDS;
