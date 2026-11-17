@@ -3,7 +3,7 @@
  * UI and audio run on their own, driven by GameState and the EventBus.
  */
 import { NET, TICK_DT } from '@shared/constants.ts';
-import type { InputCmd, PlayerSnap, Snapshot } from '@shared/types.ts';
+import { ELEMENT_IDS, type AbilitySlot, type ClassId, type ElementId, type InputCmd, type PlayerSnap, type Snapshot } from '@shared/types.ts';
 import { initAudio } from '../audio/index.ts';
 import { bus } from '../core/EventBus.ts';
 import { saveProfile, state } from '../core/GameState.ts';
@@ -59,6 +59,8 @@ async function boot(): Promise<void> {
   let seq = 0;
   let accumulator = 0;
   let lastSelf: PlayerSnap | null = null;
+  /** The run just ended in front of this client and its Glimmer has not been credited yet. */
+  let rewardPending = false;
   const sample: InputSample = { moveX: 0, moveZ: 0, aim: 0, aimDist: 0, buttons: 0 };
   const toGround = (x: number, y: number, out: { x: number; z: number }): boolean => view.screenToGround(x, y, out);
 
@@ -95,7 +97,28 @@ async function boot(): Promise<void> {
     bus.emit('state:hud');
   };
 
-  bus.on('state:roster', () => view.setRoster(state.roster.map((p) => ({ slot: p.slot, cls: p.cls, name: p.name }))));
+  const INFUSION_ID = /^infuse_([a-z]+)_(primary|secondary|dash)$/;
+  bus.on('state:roster', () => {
+    view.setRoster(state.roster.map((p) => ({ slot: p.slot, cls: p.cls, name: p.name, look: p.look })));
+    for (const p of state.roster) {
+      const infusions: Record<AbilitySlot, ElementId | null> = { primary: null, secondary: null, dash: null };
+      for (const boon of p.boons) {
+        const match = INFUSION_ID.exec(boon.id);
+        if (match && (ELEMENT_IDS as readonly string[]).includes(match[1])) infusions[match[2] as AbilitySlot] = match[1] as ElementId;
+      }
+      view.setInfusions(p.slot, infusions);
+    }
+  });
+
+  // Hero preview behind the wardrobe / class picker (only while no chamber is shown).
+  let showcase: { cls: ClassId; screenX: number } | null = null;
+  const applyShowcase = (): void => {
+    const visible = showcase !== null && state.screen !== 'game' && state.screen !== 'summary';
+    view.setShowcase(visible && showcase ? { cls: showcase.cls, look: state.profile.looks[showcase.cls], screenX: showcase.screenX } : null);
+  };
+  bus.on('ui:showcase', (request) => { showcase = request; applyShowcase(); });
+  bus.on('state:profile', applyShowcase);
+  bus.on('state:screen', applyShowcase);
   bus.on('state:screen', updateInputEnabled);
   bus.on('ui:overlay', ({ open }) => { state.overlayOpen = open; updateInputEnabled(); });
   bus.on('net:status', () => {
@@ -114,16 +137,30 @@ async function boot(): Promise<void> {
       bus.emit('state:hud');
     }
     syncRoom();
-    const ended = (run.phase === 'victory' || run.phase === 'defeat') && previousPhase !== run.phase && previousPhase !== null;
+    view.setMarker(run.tutorial?.marker ?? null);
+    const over = run.phase === 'victory' || run.phase === 'defeat';
+    // Only count a run whose ending this client witnessed (not one found already over after a reload).
+    const ended = over && previousPhase !== run.phase && previousPhase !== null;
     if (ended) {
       const won = run.phase === 'victory';
       const profile = state.profile;
-      saveProfile({
-        runs: profile.runs + 1,
-        wins: profile.wins + (won ? 1 : 0),
-        bestChamber: Math.max(profile.bestChamber, run.chamber + 1),
-        oathUnlocked: won ? Math.max(profile.oathUnlocked, Math.min(MAX_OATH, run.oath + 1)) : profile.oathUnlocked,
-      });
+      if (run.tutorial) {
+        if (won) saveProfile({ tutorialDone: true });
+      } else {
+        saveProfile({
+          runs: profile.runs + 1,
+          wins: profile.wins + (won ? 1 : 0),
+          bestChamber: Math.max(profile.bestChamber, run.chamber + 1),
+          oathUnlocked: won ? Math.max(profile.oathUnlocked, Math.min(MAX_OATH, run.oath + 1)) : profile.oathUnlocked,
+        });
+      }
+      rewardPending = true;
+    }
+    if (!over) rewardPending = false;
+    const reward = over && rewardPending ? run.rewards.find((r) => r.slot === state.conn.slot) : undefined;
+    if (reward) {
+      rewardPending = false;
+      saveProfile({ glimmer: state.profile.glimmer + reward.glimmer, glimmerEarned: state.profile.glimmerEarned + reward.glimmer });
     }
   });
 
@@ -174,6 +211,7 @@ async function boot(): Promise<void> {
       if (accumulator > TICK_DT) accumulator = 0;
       prediction.smooth(elapsed);
 
+      view.setServerTick(buffer.renderTick(now));
       const interpolated = buffer.sample(now);
       if (prediction.ready) {
         const alpha = accumulator / TICK_DT;
