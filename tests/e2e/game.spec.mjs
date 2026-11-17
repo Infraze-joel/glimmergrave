@@ -3,7 +3,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  BASE, aimAt, build, gameText, host, join, launch, newClient, open, screen, sleep, startBackend, startBots, startLagProxy, tid, waitScreen,
+  BASE, aimAt, build, eventually, gameText, host, join, launch, newClient, open, screen, sleep, startBackend, startBots, startLagProxy, tid, waitScreen,
 } from './helpers.mjs';
 import { startStatic } from '../../scripts/serve-dist.mjs';
 import { PROXY_PORT, STATIC_PORT } from './helpers.mjs';
@@ -106,13 +106,20 @@ test('movement of one client is predicted locally and seen by the other client',
   await sleep(900);
   await a.page.keyboard.up('KeyA');
   await sleep(700);
-  const ta = await gameText(a.page);
-  const tb = await gameText(b.page);
-  const mine = selfOf(ta);
-  const seen = tb.players.find((p) => p.slot === 0);
+  const mine = selfOf(await gameText(a.page));
   assert.ok(before.x - mine.x > 2, `hero should have moved west by > 2 m (moved ${(before.x - mine.x).toFixed(2)})`);
-  assert.ok(Math.abs(seen.x - mine.x) < 0.3 && Math.abs(seen.z - mine.z) < 0.3, 'other client sees the same authoritative position');
-  assert.ok(Math.hypot(ta.predicted.x - mine.x, ta.predicted.z - mine.z) < 0.15, 'prediction converges on the server position at rest');
+  const agreed = await eventually(async () => {
+    const own = selfOf(await gameText(a.page));
+    const seen = (await gameText(b.page)).players.find((p) => p.slot === 0);
+    return Math.abs(seen.x - own.x) < 0.3 && Math.abs(seen.z - own.z) < 0.3;
+  });
+  assert.ok(agreed, 'other client sees the same authoritative position');
+  const settled = await eventually(async () => {
+    const t = await gameText(a.page);
+    const own = selfOf(t);
+    return Math.hypot(t.predicted.x - own.x, t.predicted.z - own.z) < 0.15;
+  });
+  assert.ok(settled, 'prediction converges on the server position at rest');
 });
 
 test('combat is authoritative and synchronised: damage dealt by one client shows up on the other', async () => {
@@ -143,11 +150,12 @@ test('combat is authoritative and synchronised: damage dealt by one client shows
     dealt = (await gameText(a.page)).run.stats.find((s) => s.slot === 1)?.damage ?? 0;
   }
   assert.ok(dealt > 0, 'client a must see damage dealt by client b');
-  await sleep(600);
-  const ta = await gameText(a.page);
-  const tb = await gameText(b.page);
-  assert.equal(ta.run.wave, tb.run.wave);
-  assert.ok(Math.abs(ta.enemiesAlive - tb.enemiesAlive) <= 2, 'both clients track the same enemies');
+  const same = await eventually(async () => {
+    const ta = await gameText(a.page);
+    const tb = await gameText(b.page);
+    return ta.run.wave === tb.run.wave && Math.abs(ta.enemiesAlive - tb.enemiesAlive) <= 1;
+  });
+  assert.ok(same, 'both clients track the same wave and enemies');
 });
 
 test('reloading the page rejoins the same slot in the running game', async () => {
@@ -181,8 +189,9 @@ test('the game stays playable with 150 ms of added latency', async () => {
   await sleep(1200);
   const t = await gameText(a.page);
   const me = selfOf(t);
-  // While moving the prediction leads the (delayed) authoritative position by roughly speed x latency.
-  assert.ok(worst < 3.5, `prediction lead while moving should stay bounded (worst ${worst.toFixed(2)} m)`);
+  // While moving, the drawn position leads the (delayed) authoritative one by roughly speed x latency
+  // (about 1.7 m here) plus at most 2.5 m of correction smoothing.
+  assert.ok(worst < 4.5, `prediction lead while moving should stay bounded (worst ${worst.toFixed(2)} m)`);
   if (me && me.state === 'alive') assert.ok(Math.hypot(t.predicted.x - me.x, t.predicted.z - me.z) < 0.2, 'prediction settles on the server position');
   assert.equal(t.conn.status, 'online');
   proxy.lag.oneWayMs = 0;

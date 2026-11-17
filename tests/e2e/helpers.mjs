@@ -143,3 +143,18 @@ export function startBots(code, count = 1, cls = 'rogue') {
     { cwd: ROOT, stdio: 'ignore', detached: true });
   return { stop: () => { try { process.kill(-proc.pid, 'SIGTERM'); } catch { /* already gone */ } } };
 }
+
+/**
+ * Polls `check` until it returns a truthy value or the timeout passes; returns the last value.
+ * Two pages never process the same snapshot at the same instant (and software rendering stalls them for
+ * hundreds of milliseconds), so cross-client comparisons must wait for convergence instead of sampling once.
+ */
+export async function eventually(check, timeout = 10000, interval = 200) {
+  const deadline = Date.now() + timeout;
+  let value = await check();
+  while (!value && Date.now() < deadline) {
+    await sleep(interval);
+    value = await check();
+  }
+  return value;
+}

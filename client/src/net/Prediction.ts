@@ -177,6 +177,13 @@ export class Prediction {
       this.errZ += dz;
       this.prevX -= dx;
       this.prevZ -= dz;
+      // Many small corrections in a row (frame stall, heavy jitter) must not add up to a visible offset.
+      if (this.errX * this.errX + this.errZ * this.errZ > SMOOTH_MAX_ERROR * SMOOTH_MAX_ERROR) {
+        this.prevX += this.errX;
+        this.prevZ += this.errZ;
+        this.errX = 0;
+        this.errZ = 0;
+      }
     }
   }
 

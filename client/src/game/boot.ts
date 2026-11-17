@@ -152,7 +152,8 @@ async function boot(): Promise<void> {
   let fpsFrames = 0;
   let fpsSince = last;
   const frame = (now: number): void => {
-    const dt = Math.min(MAX_FRAME_SECONDS, (now - last) / 1000);
+    const elapsed = (now - last) / 1000;
+    const dt = Math.min(MAX_FRAME_SECONDS, elapsed);
     last = now;
     fpsFrames++;
     if (now - fpsSince >= 1000) {
@@ -171,7 +172,7 @@ async function boot(): Promise<void> {
         steps++;
       }
       if (accumulator > TICK_DT) accumulator = 0;
-      prediction.smooth(dt);
+      prediction.smooth(elapsed);
 
       const interpolated = buffer.sample(now);
       if (prediction.ready) {
