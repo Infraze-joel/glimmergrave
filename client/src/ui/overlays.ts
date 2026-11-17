@@ -8,6 +8,7 @@ import { state } from '../core/GameState.ts';
 import { settings, updateSettings, type Quality } from '../core/Settings.ts';
 import { h, icon, key, setText, setVar } from './dom.ts';
 import { LANG_LABEL, LANGS, t, type I18nKey } from './i18n.ts';
+import { resetTips, setTipsEnabled, tipsEnabled } from './prefs.ts';
 import { ui, UI_CONFIG } from './store.ts';
 import type { View } from './view.ts';
 import type { IconName } from './icons.ts';
@@ -56,10 +57,12 @@ function controlsReference(): HTMLElement {
     row([icon('mouse', 'gg-controls-mouse')], t('controls.aim')),
     row([icon('mouseLeft', 'gg-controls-mouse')], t('controls.primary')),
     row([icon('mouseRight', 'gg-controls-mouse')], t('controls.secondary')),
-    row([key('Space')], t('controls.dash')),
+    row([key(t('hud.key.dash'))], t('controls.dash')),
     row([key('3 s')], t('controls.revive')),
     row([key('Tab')], t('controls.scoreboard')),
     row([key('1'), key('–'), key('4')], t('controls.pick')),
+    row([key('R')], t('controls.reroll')),
+    row([key('Enter')], t('controls.tip')),
     row([key('Esc')], t('controls.menu')),
   );
 }
@@ -82,6 +85,21 @@ function settingsBody(): { el: HTMLElement; sync: SettingsSync } {
     onClick: () => updateSettings({ damageNumbers: !settings.damageNumbers }),
   });
   const lang = segmented(t('settings.language'), LANGS, (l) => LANG_LABEL[l], () => settings.lang, (l) => updateSettings({ lang: l }));
+  // Tips are a UI-only preference (ui/prefs.ts), not part of the Settings contract.
+  const tips = h('button', {
+    class: 'gg-switch', type: 'button', role: 'switch', 'aria-label': t('settings.tips'), 'data-testid': 'settings-tips', 'data-sfx': 'toggle',
+    onClick: () => { setTipsEnabled(!tipsEnabled()); sync(); },
+  });
+  const resetLabel = h('span', null, t('settings.tipsReset'));
+  const reset = h('button', {
+    class: 'gg-btn gg-cut gg-btn--ghost gg-btn--small', type: 'button', 'data-testid': 'settings-tips-reset', 'data-sfx': 'confirm',
+    onClick: () => {
+      resetTips();
+      resetLabel.textContent = t('settings.tipsResetDone');
+      reset.classList.add('is-done');
+      window.setTimeout(() => { resetLabel.textContent = t('settings.tipsReset'); reset.classList.remove('is-done'); }, UI_CONFIG.COPY_FEEDBACK_MS);
+    },
+  }, icon('tip'), resetLabel);
 
   const el = h('div', { class: 'gg-settings' },
     h('div', { class: 'gg-settings-col' },
@@ -91,13 +109,16 @@ function settingsBody(): { el: HTMLElement; sync: SettingsSync } {
       quality.row, shake.row, zoom.row,
       h('div', { class: 'gg-set-row gg-set-row--inline' }, h('span', { class: 'gg-set-label' }, t('settings.damageNumbers')), numbers),
       lang.row,
+      h('div', { class: 'gg-set-row gg-set-row--inline gg-set-row--tips' },
+        h('span', { class: 'gg-set-label' }, t('settings.tips')), h('span', { class: 'gg-set-tips' }, reset, tips)),
     ),
     h('div', { class: 'gg-settings-col' }, h('h3', { class: 'gg-label' }, t('settings.controls')), controlsReference()),
   );
-  const sync = (): void => {
+  function sync(): void {
     for (const part of [master, music, sfx, quality, shake, zoom, lang]) part.sync();
     numbers.setAttribute('aria-checked', String(settings.damageNumbers));
-  };
+    tips.setAttribute('aria-checked', String(tipsEnabled()));
+  }
   sync();
   return { el, sync };
 }
@@ -129,6 +150,7 @@ export interface OverlayView extends View {
 export interface OverlayActions {
   closeModal(): void;
   setPause(open: boolean): void;
+  openCodex(): void;
 }
 
 export function createOverlays(actions: OverlayActions): OverlayView {
@@ -191,6 +213,9 @@ export function createOverlays(actions: OverlayActions): OverlayView {
             onClick: () => { ui.pauseConfirm = true; sync(); },
           }, icon('exit'), t('settings.leave')),
           h('span', { class: 'gg-modal-spacer' }),
+          h('button', {
+            class: 'gg-btn gg-cut', type: 'button', 'data-testid': 'pause-codex', 'data-sfx': 'click', onClick: actions.openCodex,
+          }, icon('codex'), t('menu.codex')),
           h('button', { class: 'gg-btn gg-cut gg-btn--primary', type: 'button', onClick: () => actions.setPause(false) },
             t('settings.resume')),
         ]

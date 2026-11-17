@@ -1,7 +1,11 @@
 /** UI-local view state (not part of the GameState contract). */
+import type { BiomeId, ClassId } from '@shared/types.ts';
 import type { ConnError } from '../core/EventBus.ts';
 
 export type ModalKind = 'howto' | 'settings' | 'leave';
+/** Full-screen pages that open on top of the menu, lobby, summary or pause menu. */
+export type PageKind = 'armory' | 'wardrobe' | 'codex';
+export type CodexTab = 'elements' | 'combat' | 'hazards' | 'enemies' | 'doors' | 'boons';
 
 export const ui = {
   /** Modal opened from a button (menu / lobby). */
@@ -21,7 +25,13 @@ export const ui = {
   picked: -1,
   /** profile.oathUnlocked as it was while the run was still going (for the "new oath" notice). */
   oathBaseline: null as number | null,
-  /** Overridable by the dev harness to preview the "server not configured" state. */
+  /** Armory / wardrobe / codex page, or null. */
+  page: null as PageKind | null,
+  codexTab: 'elements' as CodexTab,
+  /** Class shown in the wardrobe (the lobby locks it to the own class). */
+  wardrobeCls: null as ClassId | null,
+  /** Biome seen per chamber index in the current run (for the act grouping of the chamber track). */
+  biomes: new Map<number, BiomeId>(),
 };
 
 /** Purely visual tuning of the UI layer. */
@@ -45,4 +55,13 @@ export const UI_CONFIG = {
   FLAVOUR_ROTATE_MS: 3800,
   FLAVOUR_COUNT: 5,
   MOTE_COUNT: 14,
+  /** Seconds a contextual tip stays before it dismisses itself. */
+  TIP_SECONDS: 14,
+  TIP_GAP_MS: 900,
+  /** Resonances closer together than this build one combo. */
+  COMBO_WINDOW_MS: 3500,
+  COMBO_SHOW_MS: 2600,
+  TUTORIAL_DONE_MS: 1500,
+  ACT_BANNER_MS: 3600,
+  PURCHASE_FLASH_MS: 700,
 } as const;

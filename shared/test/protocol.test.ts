@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { NET, WORLD } from '@shared/constants.ts';
+import { DEFAULT_LOOK, LOOK, META_UPGRADES, sanitizeLook, sanitizeMeta } from '@shared/data/meta.ts';
 import {
   BIN, INPUT_BYTES, decodeInput, decodeSnapshot, encodeInput, encodeSnapshot, encodeSnapshotBody, normalizeRoomCode,
-  parseClientMsg, sanitizeName, type SnapshotBody,
+  parseClientMsg, sanitizeLoadout, sanitizeName, type SnapshotBody,
 } from '@shared/protocol.ts';
-import { BTN, EF, PF, type InputCmd, type SelfState } from '@shared/types.ts';
+import { BTN, EF, ENEMY_ANIMS, ENEMY_KINDS, PF, PROJECTILE_KINDS, type InputCmd, type SelfState } from '@shared/types.ts';
 
 const TAU = Math.PI * 2;
 const angleErr = (a: number, b: number): number => Math.abs(((a - b + Math.PI * 3) % TAU) - Math.PI);
@@ -136,6 +137,21 @@ describe('snapshot codec', () => {
     });
   });
 
+  it('round-trips every enemy kind, enemy animation and projectile kind (incl. the update 2 additions)', () => {
+    const self: SelfState = { ackSeq: 1, x: 0, z: 0, dashTime: 0, dashDirX: 0, dashDirZ: 1, rootTime: 0, moveSpeed: 5 };
+    const body: SnapshotBody = {
+      tick: 9, players: [],
+      enemies: ENEMY_KINDS.flatMap((kind, k) => ENEMY_ANIMS.map((anim, a) => ({ id: k * 100 + a, kind, x: k, z: -a, rot: 0, hp: 1, anim, animSeq: a, flags: 0 }))).slice(0, 255),
+      projectiles: PROJECTILE_KINDS.map((kind, i) => ({ id: i + 1, kind, x: i, z: 2, rot: 0, element: i % 4, hostile: i % 2 === 0 })),
+    };
+    const snap = decodeSnapshot(encodeSnapshot(9, self, encodeSnapshotBody(body)))!;
+    expect(snap.enemies.map((e) => [e.kind, e.anim])).toEqual(body.enemies.map((e) => [e.kind, e.anim]));
+    expect(snap.projectiles.map((p) => [p.kind, p.element, p.hostile])).toEqual(body.projectiles.map((p) => [p.kind, p.element, p.hostile]));
+    expect(new Set(snap.enemies.map((e) => e.kind))).toEqual(new Set(ENEMY_KINDS));
+    expect(snap.projectiles.map((p) => p.kind)).toContain('soulWisp');
+    expect(snap.projectiles.map((p) => p.kind)).toContain('boneSpear');
+  });
+
   it('round-trips an empty world', () => {
     const out = decodeSnapshot(encodeSnapshot(1, self, encodeSnapshotBody({ tick: 1, players: [], enemies: [], projectiles: [] })));
     expect(out?.players).toEqual([]);
@@ -164,8 +180,15 @@ describe('snapshot codec', () => {
 describe('parseClientMsg', () => {
   const v = NET.PROTOCOL_VERSION;
   it('accepts every valid message type', () => {
-    expect(parseClientMsg({ t: 'create', v, name: ' Ada  Lovelace ', cls: 'mage' })).toEqual({ t: 'create', v, name: 'Ada Lovelace', cls: 'mage' });
-    expect(parseClientMsg({ t: 'join', v, code: 'abcde', name: 'Bo', cls: 'rogue' })).toEqual({ t: 'join', v, code: 'ABCDE', name: 'Bo', cls: 'rogue' });
+    const loadout = { look: { color: 3, head: false, cape: true, style: 2 }, meta: [1, 2, 3, 0, 1, 2, 1, 2, 3] };
+    const plain = { look: DEFAULT_LOOK, meta: META_UPGRADES.map(() => 0) };
+    expect(parseClientMsg({ t: 'create', v, name: ' Ada  Lovelace ', cls: 'mage', loadout })).toEqual({ t: 'create', v, name: 'Ada Lovelace', cls: 'mage', loadout, tutorial: false });
+    expect(parseClientMsg({ t: 'create', v, name: 'Ada', cls: 'mage', loadout, tutorial: true })).toEqual({ t: 'create', v, name: 'Ada', cls: 'mage', loadout, tutorial: true });
+    // A missing loadout is the default one (no upgrades); `tutorial` must be exactly true.
+    expect(parseClientMsg({ t: 'create', v, name: 'Ada', cls: 'mage', tutorial: 'yes' })).toEqual({ t: 'create', v, name: 'Ada', cls: 'mage', loadout: plain, tutorial: false });
+    expect(parseClientMsg({ t: 'join', v, code: 'abcde', name: 'Bo', cls: 'rogue', loadout })).toEqual({ t: 'join', v, code: 'ABCDE', name: 'Bo', cls: 'rogue', loadout });
+    expect(parseClientMsg({ t: 'lobby', loadout })).toEqual({ t: 'lobby', loadout });
+    expect(parseClientMsg({ t: 'reroll', extra: 1 })).toEqual({ t: 'reroll' });
     expect(parseClientMsg({ t: 'rejoin', v, code: 'ABCDE', token: '0123456789abcdef' })).toEqual({ t: 'rejoin', v, code: 'ABCDE', token: '0123456789abcdef' });
     expect(parseClientMsg({ t: 'lobby', cls: 'knight', ready: true, oath: 3 })).toEqual({ t: 'lobby', cls: 'knight', ready: true, oath: 3 });
     expect(parseClientMsg({ t: 'lobby' })).toEqual({ t: 'lobby' });
@@ -174,6 +197,24 @@ describe('parseClientMsg', () => {
     expect(parseClientMsg({ t: 'toLobby' })).toEqual({ t: 'toLobby' });
     expect(parseClientMsg({ t: 'leave' })).toEqual({ t: 'leave' });
     expect(parseClientMsg({ t: 'ping', c: 12.5 })).toEqual({ t: 'ping', c: 12.5 });
+  });
+
+  it('sanitises loadouts: garbage becomes the default, levels are clamped to 0..max, look indices to their range', () => {
+    const max = META_UPGRADES.map((u) => u.costs.length);
+    expect(sanitizeLoadout(undefined)).toEqual({ look: DEFAULT_LOOK, meta: max.map(() => 0) });
+    for (const junk of [null, 7, 'x', [], { look: 'red', meta: 'all' }, { look: [], meta: {} }]) {
+      expect(sanitizeLoadout(junk), JSON.stringify(junk)).toEqual({ look: DEFAULT_LOOK, meta: max.map(() => 0) });
+    }
+    const over = sanitizeLoadout({ look: { color: 99, head: 0, cape: false, style: -4, hat: 'crown' }, meta: [99, -3, 2.9, NaN, Infinity, '3', null, 1e9, 1, 5, 5, 5] });
+    expect(over.look).toEqual({ color: LOOK.COLORS.length - 1, head: true, cape: false, style: 0 });
+    expect(over.meta).toEqual([max[0], 0, 2, 0, 0, 0, 0, max[7], 1]);
+    expect(over.meta).toHaveLength(META_UPGRADES.length);
+    for (let i = 0; i < over.meta.length; i++) expect(Number.isInteger(over.meta[i]) && over.meta[i]! >= 0 && over.meta[i]! <= max[i]!).toBe(true);
+    // The same clamping applies inside messages; a hostile loadout never makes a message invalid.
+    const msg = parseClientMsg({ t: 'create', v, name: 'A', cls: 'mage', loadout: { look: { color: -1, style: 7.9 }, meta: [1e6] } });
+    expect(msg).toEqual({ t: 'create', v, name: 'A', cls: 'mage', tutorial: false, loadout: { look: { color: 0, head: true, cape: true, style: LOOK.STYLES - 1 }, meta: [max[0], 0, 0, 0, 0, 0, 0, 0, 0] } });
+    expect(sanitizeMeta([1, 1])).toEqual([1, 1, 0, 0, 0, 0, 0, 0, 0]);
+    expect(sanitizeLook({ color: 2.7 }).color).toBe(2);
   });
 
   it('drops unknown extra fields', () => {

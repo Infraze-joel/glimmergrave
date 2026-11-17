@@ -8,13 +8,16 @@
  *   boon.<boonId>.name|desc              infusion.<element>.<slot>.name   infusion.desc   infusion.slot.<slot>
  *   door.<type>.name|desc                oath.<0..3>.name    oath.desc    oath.0.desc
  *   rarity.<rarity>   category.<category>   toast.*   error.<ErrorCode | ConnError>
+ * Update 2 keys (tutorial.* tip.* codex.* armory.* meta.* wardrobe.* look.* biome.* hazard.*) live in strings2.ts.
  * Placeholders use {name}. Boon descriptions use {v} for the value at the offered level.
  */
 import { RUN } from '@shared/constants.ts';
 import { BOON_BY_ID, BOON_TUNING, type BoonDef } from '@shared/data/boons.ts';
 import type { Lang } from '../core/Settings.ts';
+import { DE2, EN2 } from './strings2.ts';
 
 const EN = {
+  ...EN2,
   'common.title': 'Glimmergrave',
   'common.tagline': 'A co-op descent for 1–4 Wardens',
   'common.ok': 'OK',
@@ -197,8 +200,8 @@ const EN = {
   'door.blessing.desc': 'Heals the party {v}% + a draft',
   'door.cursed.name': 'Cursed',
   'door.cursed.desc': 'Empowered foes · {n} choices, one rare',
-  'door.boss.name': 'The Regent',
-  'door.boss.desc': 'The Bone Regent awaits',
+  'door.boss.name': 'Final boss',
+  'door.boss.desc': '{boss} awaits',
 
   'oath.label': 'Oath',
   'oath.badge': 'Oath {n}',
@@ -281,8 +284,8 @@ const EN = {
   'toast.door.blessingSub': 'Clear it and the party is healed',
   'toast.door.cursed': 'A Cursed path',
   'toast.door.cursedSub': 'Empowered foes, richer spoils',
-  'toast.door.boss': 'The Regent’s Hall',
-  'toast.door.bossSub': 'The Bone Regent awaits',
+  'toast.door.boss': 'The Last Hall',
+  'toast.door.bossSub': '{boss} awaits',
 
   'draft.title': 'Choose a Boon',
   'draft.sub': 'Chamber {n} cleared',
@@ -348,7 +351,7 @@ const EN = {
   'howto.5': 'Stand by a downed ally to revive them. After each chamber: draft a boon, then pick a door together.',
 
   'summary.victory': 'Victory',
-  'summary.victorySub': 'The Bone Regent is dust. The Last Bell rings on.',
+  'summary.victorySub': '{boss} has fallen. The Last Bell rings on.',
   'summary.defeat': 'Defeat',
   'summary.defeatSub': 'The Glimmergrave keeps its dead. For now.',
   'summary.chamber': 'Chamber reached',
@@ -382,6 +385,7 @@ const EN = {
 export type I18nKey = keyof typeof EN;
 
 const DE: Record<I18nKey, string> = {
+  ...DE2,
   'common.title': 'Glimmergrave',
   'common.tagline': 'Ein Koop-Abstieg für 1–4 Wächter',
   'common.ok': 'OK',
@@ -564,8 +568,8 @@ const DE: Record<I18nKey, string> = {
   'door.blessing.desc': 'Heilt die Gruppe um {v} % + Auswahl',
   'door.cursed.name': 'Verflucht',
   'door.cursed.desc': 'Gestärkte Gegner · {n} Boons, einer selten',
-  'door.boss.name': 'Der Regent',
-  'door.boss.desc': 'Der Knochenregent wartet',
+  'door.boss.name': 'Endboss',
+  'door.boss.desc': '{boss} wartet',
 
   'oath.label': 'Eid',
   'oath.badge': 'Eid {n}',
@@ -613,7 +617,7 @@ const DE: Record<I18nKey, string> = {
   'hud.entered.blessing': 'Gesegnet',
   'hud.key.primary': 'LMB',
   'hud.key.secondary': 'RMB',
-  'hud.key.dash': 'Space',
+  'hud.key.dash': 'Leertaste',
   'hud.ping': '{n} ms',
   'hud.reconnecting': 'Verbindung verloren – verbinde neu …',
   'hud.downed': 'Am Boden',
@@ -648,8 +652,8 @@ const DE: Record<I18nKey, string> = {
   'toast.door.blessingSub': 'Räumt die Kammer, und die Gruppe wird geheilt',
   'toast.door.cursed': 'Ein verfluchter Pfad',
   'toast.door.cursedSub': 'Gestärkte Gegner, reichere Beute',
-  'toast.door.boss': 'Die Halle des Regenten',
-  'toast.door.bossSub': 'Der Knochenregent wartet',
+  'toast.door.boss': 'Die letzte Halle',
+  'toast.door.bossSub': '{boss} wartet',
 
   'draft.title': 'Wähle einen Boon',
   'draft.sub': 'Kammer {n} geräumt',
@@ -715,7 +719,7 @@ const DE: Record<I18nKey, string> = {
   'howto.5': 'Stell dich zu gefallenen Verbündeten, um sie wiederzubeleben. Nach jeder Kammer: Boon wählen, dann gemeinsam eine Tür.',
 
   'summary.victory': 'Sieg',
-  'summary.victorySub': 'Der Knochenregent ist Staub. Die Letzte Glocke läutet weiter.',
+  'summary.victorySub': '{boss} ist gefallen. Die Letzte Glocke läutet weiter.',
   'summary.defeat': 'Niederlage',
   'summary.defeatSub': 'Das Glimmergrave behält seine Toten. Fürs Erste.',
   'summary.chamber': 'Erreichte Kammer',

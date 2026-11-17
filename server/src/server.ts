@@ -223,10 +223,10 @@ export function startServer(opts: ServerOptions = {}): Promise<RunningServer> {
       let code = '';
       for (let i = 0; i < SERVER.ROOM_CODE_ATTEMPTS && (code === '' || rooms.has(code)); i++) code = randomRoomCode();
       if (code === '' || rooms.has(code)) return fail(conn, 'server_full', false);
-      const room = new Room(code, roomOptions);
+      const room = new Room(code, roomOptions, msg.tutorial === true);
       rooms.set(code, room);
-      log('info', 'room_created', { room: code, rooms: rooms.size });
-      const result = room.join(conn, msg.name, msg.cls);
+      log('info', 'room_created', { room: code, rooms: rooms.size, tutorial: room.tutorial });
+      const result = room.join(conn, msg.name, msg.cls, msg.loadout);
       if (!result.ok) {
         rooms.delete(code);
         return fail(conn, result.code, false);
@@ -238,7 +238,7 @@ export function startServer(opts: ServerOptions = {}): Promise<RunningServer> {
     const room = rooms.get(msg.code);
     if (!room) return fail(conn, 'room_not_found', false);
     if (msg.t === 'join') {
-      const result = room.join(conn, msg.name, msg.cls);
+      const result = room.join(conn, msg.name, msg.cls, msg.loadout);
       if (!result.ok) return fail(conn, result.code, false);
       conn.room = room;
       conn.session = result.session;

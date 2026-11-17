@@ -564,7 +564,7 @@
 }
 
 .gg-banner.is-on {
-  animation: gg-banner 2.6s var(--gg-ease) both;
+  animation: gg-banner var(--banner-ms, 2.6s) var(--gg-ease) both;
 }
 
 .gg-banner-title {

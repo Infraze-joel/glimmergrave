@@ -1,14 +1,17 @@
-/** Main menu: name, class picker, host / join, how to play, settings, profile record. */
+/**
+ * Main menu: name, training / host / join, armory, codex, settings, profile record and the class picker.
+ * The middle column is a transparent stage: the 3D view presents the selected hero there ('ui:showcase').
+ */
 import { NET, RUN } from '@shared/constants.ts';
 import { CLASSES } from '@shared/data/classes.ts';
 import { normalizeRoomCode, sanitizeName } from '@shared/protocol.ts';
 import { CLASS_IDS, type ClassId } from '@shared/types.ts';
 import { bus } from '../core/EventBus.ts';
 import { saveProfile, state } from '../core/GameState.ts';
-import { guardTextField, h, icon, key, setText, toggle } from './dom.ts';
-import { roman, t } from './i18n.ts';
+import { guardTextField, h, icon, key, setText, show, toggle } from './dom.ts';
+import { formatInt, roman, t } from './i18n.ts';
 import { ABILITY_ICON, ABILITY_SLOTS, classStat } from './model.ts';
-import { ui, UI_CONFIG, type ModalKind } from './store.ts';
+import { ui, UI_CONFIG, type ModalKind, type PageKind } from './store.ts';
 import type { View } from './view.ts';
 
 const MIN_STAT_PIPS = 2;
@@ -57,9 +60,11 @@ function abilityKey(slot: (typeof ABILITY_SLOTS)[number]): HTMLElement {
 export interface MenuView extends View {
   /** Enter on the menu: join when a full code is typed, otherwise host. */
   primaryAction(): void;
+  /** Transparent column whose centre is where the 3D hero preview should stand. */
+  stage: HTMLElement;
 }
 
-export function createMenu(openModal: (kind: ModalKind) => void): MenuView {
+export function createMenu(openModal: (kind: ModalKind) => void, openPage: (page: PageKind) => void): MenuView {
   // ---- name
   const nameInput = h('input', {
     class: 'gg-input', type: 'text', id: 'gg-name', maxlength: NET.MAX_NAME_LENGTH, autocomplete: 'off',
@@ -74,6 +79,10 @@ export function createMenu(openModal: (kind: ModalKind) => void): MenuView {
     if (state.conn.status === 'connecting') return;
     bus.emit('ui:create', { name: currentName(), cls: state.profile.cls });
   };
+  const train = (): void => {
+    if (state.conn.status === 'connecting') return;
+    bus.emit('ui:create', { name: currentName(), cls: state.profile.cls, tutorial: true });
+  };
   const join = (): void => {
     const code = normalizeRoomCode(ui.joinCode);
     if (!code || state.conn.status === 'connecting') return;
@@ -85,6 +94,12 @@ export function createMenu(openModal: (kind: ModalKind) => void): MenuView {
     class: 'gg-btn gg-cut gg-btn--primary gg-btn--block gg-menu-host', type: 'button', 'data-testid': 'menu-host',
     onClick: host,
   }, icon('bell'), t('menu.host'));
+  const trainBtn = h('button', {
+    class: 'gg-btn gg-cut gg-btn--block gg-menu-train', type: 'button', 'data-testid': 'menu-training', 'data-sfx': 'confirm',
+    onClick: train,
+  }, icon('training'), t('menu.training'));
+  const trainHint = h('p', { class: 'gg-menu-train-hint' }, icon('tip'), t('menu.trainingHint'));
+  const play = h('div', { class: 'gg-menu-play' }, h('div', { class: 'gg-menu-train-box' }, trainBtn, trainHint), hostBtn);
 
   const codeInput = h('input', {
     class: 'gg-input gg-input--code', type: 'text', id: 'gg-code', maxlength: NET.ROOM_CODE_LENGTH, autocomplete: 'off',
@@ -119,30 +134,56 @@ export function createMenu(openModal: (kind: ModalKind) => void): MenuView {
   const wins = stat(t('menu.stat.wins'));
   const best = stat(t('menu.stat.best'));
   const oath = stat(t('menu.stat.oath'));
+  const glimmer = stat(t('menu.stat.glimmer'));
+  glimmer.box.classList.add('gg-record-stat--glimmer');
+  glimmer.box.prepend(icon('glimmer'));
+
+  const link = (iconName: 'armory' | 'codex' | 'help' | 'gear', label: string, testid: string | null, onClick: () => void): HTMLButtonElement =>
+    h('button', {
+      class: 'gg-btn gg-cut gg-btn--ghost gg-btn--small', type: 'button', 'data-testid': testid, 'data-sfx': 'click', onClick,
+    }, icon(iconName), h('span', null, label));
+  const armoryWallet = h('b', { class: 'gg-menu-wallet gg-num' });
+  const armoryBtn = link('armory', t('menu.armory'), 'menu-armory', () => openPage('armory'));
+  armoryBtn.append(armoryWallet);
 
   const left = h('div', { class: 'gg-menu-left' },
-    h('header', { class: 'gg-logo' },
+    h('header', { class: 'gg-logo gg-logo--row' },
       h('div', { class: 'gg-logo-emblem' }, icon('emblem')),
-      h('h1', { class: 'gg-logo-title' }, t('common.title')),
-      h('p', { class: 'gg-logo-tag' }, t('common.tagline')),
+      h('div', null,
+        h('h1', { class: 'gg-logo-title' }, t('common.title')),
+        h('p', { class: 'gg-logo-tag' }, t('common.tagline')),
+      ),
     ),
     h('div', { class: 'gg-menu-form' },
       h('div', null, h('label', { class: 'gg-label', for: 'gg-name' }, t('menu.name')), nameInput),
-      hostBtn,
+      play,
       h('div', null,
         h('label', { class: 'gg-label', for: 'gg-code' }, t('menu.joinLabel')),
         h('div', { class: 'gg-menu-join' }, codeInput, joinBtn),
       ),
       h('div', { class: 'gg-menu-links' },
-        h('button', { class: 'gg-btn gg-cut gg-btn--ghost gg-btn--small', type: 'button', onClick: () => openModal('howto') },
-          icon('help'), t('menu.howto')),
-        h('button', { class: 'gg-btn gg-cut gg-btn--ghost gg-btn--small', type: 'button', onClick: () => openModal('settings') },
-          icon('gear'), t('menu.settings')),
+        armoryBtn,
+        link('codex', t('menu.codex'), 'menu-codex', () => openPage('codex')),
+        link('help', t('menu.howto'), 'menu-howto', () => openModal('howto')),
+        link('gear', t('menu.settings'), 'menu-settings', () => openModal('settings')),
       ),
     ),
     h('footer', { class: 'gg-record' },
       h('div', { class: 'gg-label' }, t('menu.profile')),
-      h('div', { class: 'gg-record-row' }, runs.box, wins.box, best.box, oath.box),
+      h('div', { class: 'gg-record-row' }, runs.box, wins.box, best.box, oath.box, glimmer.box),
+    ),
+  );
+
+  // ---- hero stage (transparent: the 3D preview shows through) + wardrobe
+  const stageName = h('div', { class: 'gg-stage-name' });
+  const stageRole = h('div', { class: 'gg-stage-role' });
+  const stage = h('div', { class: 'gg-menu-stage' },
+    h('div', { class: 'gg-stage-plate' },
+      stageName, stageRole,
+      h('button', {
+        class: 'gg-btn gg-cut gg-btn--small gg-stage-wardrobe', type: 'button', 'data-testid': 'menu-wardrobe', 'data-sfx': 'click',
+        onClick: () => { ui.wardrobeCls = state.profile.cls; openPage('wardrobe'); },
+      }, icon('wardrobe'), t('menu.wardrobe')),
     ),
   );
 
@@ -181,13 +222,24 @@ export function createMenu(openModal: (kind: ModalKind) => void): MenuView {
     grid.append(card);
   }
 
-  const el = h('section', { class: 'gg-screen gg-menu gg-backdrop' },
+  const backdrop = h('div', { class: 'gg-menu-bg gg-backdrop' });
+  const el = h('section', { class: 'gg-screen gg-menu' },
+    backdrop,
     motes(),
     h('div', { class: 'gg-menu-layout' },
       left,
+      stage,
       h('div', { class: 'gg-menu-right' }, h('h2', { class: 'gg-section-title' }, t('menu.class')), grid),
     ),
   );
+
+  /** Keeps the hole in the backdrop centred on the stage column. */
+  const placeHole = (): void => {
+    const rect = stage.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    backdrop.style.setProperty('--hole-x', `${Math.round(rect.left + rect.width / 2)}px`);
+    backdrop.style.setProperty('--hole-w', `${Math.round(rect.width / 2)}px`);
+  };
 
   function syncClass(): void {
     for (const [cls, card] of cards) {
@@ -200,6 +252,7 @@ export function createMenu(openModal: (kind: ModalKind) => void): MenuView {
   function syncButtons(): void {
     const busy = state.conn.status === 'connecting';
     hostBtn.disabled = busy;
+    trainBtn.disabled = busy;
     joinBtn.disabled = busy || normalizeRoomCode(ui.joinCode) === null;
   }
 
@@ -211,11 +264,27 @@ export function createMenu(openModal: (kind: ModalKind) => void): MenuView {
     setText(wins.value, String(p.wins));
     setText(best.value, p.bestChamber > 0 ? t('menu.stat.bestValue', { n: p.bestChamber, total: RUN.CHAMBERS.length }) : '–');
     setText(oath.value, roman(p.oathUnlocked));
+    setText(glimmer.value, formatInt(p.glimmer));
+    setText(armoryWallet, p.glimmer > 0 ? formatInt(p.glimmer) : '');
+    show(armoryWallet, p.glimmer > 0);
+    // Until the training is done it is the highlighted way in; afterwards hosting is.
+    const trained = p.tutorialDone;
+    toggle(play, 'is-trained', trained);
+    toggle(trainBtn, 'gg-btn--primary', !trained);
+    toggle(trainBtn, 'gg-btn--ghost', trained);
+    toggle(trainBtn, 'gg-btn--small', trained);
+    toggle(hostBtn, 'gg-btn--primary', trained);
+    show(trainHint, !trained);
+    el.dataset.trained = String(trained);
+    setText(stageName, t(`class.${p.cls}.name`));
+    setText(stageRole, t(`class.${p.cls}.role`));
+    stage.className = `gg-menu-stage gg-cls-${p.cls}`;
+    placeHole();
     if (document.activeElement !== nameInput && nameInput.value !== p.name) nameInput.value = p.name;
     if (document.activeElement !== codeInput && codeInput.value !== ui.joinCode) codeInput.value = ui.joinCode;
   };
 
-  return { el, sync, primaryAction: () => (normalizeRoomCode(ui.joinCode) ? join() : host()) };
+  return { el, sync, stage, primaryAction: () => (normalizeRoomCode(ui.joinCode) ? join() : host()) };
 }
 
 /** Reads `?join=CODE` once at startup. */

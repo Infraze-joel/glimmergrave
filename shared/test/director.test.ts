@@ -321,7 +321,11 @@ describe('whole run flow (forced)', () => {
           const id = w.getRunState().bossId;
           if (id >= 0) bossKind = w.enemies.find((e) => e.id === id)?.kind ?? '';
         }
-        expect(bossKind).toBe(run.chamberKind === 'boss' ? 'regent' : 'champion');
+        // First elite: the champion. Second elite: the herald. Last chamber: this run's final boss.
+        expect(bossKind).toBe(run.bossKind);
+        expect(bossKind).toBe(run.chamberKind === 'boss' ? run.finalBoss : chamber === 3 ? 'champion' : w.director.herald);
+      } else {
+        expect(run.bossKind).toBeNull();
       }
       if (run.chamberKind === 'boss') break;
       clearChamber(w);
@@ -336,8 +340,8 @@ describe('whole run flow (forced)', () => {
     }
     expect(kinds).toEqual([...RUN.CHAMBERS]);
     expect(new Set(versions).size).toBe(versions.length);
-    // Boss chamber: add a few summons, then kill the Regent -> everything dies, victory.
-    const regent = w.enemies.find((e) => e.kind === 'regent')!;
+    // Boss chamber: add a few summons, then kill the boss -> everything dies, victory.
+    const regent = w.enemies.find((e) => e.kind === w.run.finalBoss)!;
     regent.spawnTime = 0;
     w.spawnEnemy('minion', 3, 3, { summoned: true });
     w.spawnEnemy('minion', -3, 3, { summoned: true });

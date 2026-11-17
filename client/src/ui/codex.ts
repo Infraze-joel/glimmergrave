@@ -1,0 +1,365 @@
+/**
+ * Codex: the rules of the game in one place, reachable from the main menu and the pause menu.
+ * Every number is read from the shared balance tables at render time, never copied.
+ */
+import { RUN, WORLD } from '@shared/constants.ts';
+import { BOONS, type BoonCategory } from '@shared/data/boons.ts';
+import { DASH } from '@shared/data/classes.ts';
+import { ENEMY_TUNING } from '@shared/data/enemies.ts';
+import { REWARDS } from '@shared/data/meta.ts';
+import { HAZARD_TIMING } from '@shared/sim/hazards.ts';
+import { BOSS_KINDS, DOOR_TYPES, ELEMENT_IDS, type EnemyKind, type Hazard } from '@shared/types.ts';
+import { h, icon } from './dom.ts';
+import { ELEMENT_PAIRS, enemyHealth, enemyName, highlight, pairName, phaseThresholds, resonanceParams, statusParams } from './elements.ts';
+import { BOSS_ICON } from './hud.ts';
+import type { IconName } from './icons.ts';
+import { DOOR_TEXT_PARAMS, formatBoon, formatInt, roman, t, type I18nKey, type Params } from './i18n.ts';
+import { MAX_OATH, oathDescription, oathName } from './model.ts';
+import { pageHead } from './pages.ts';
+import { richEl } from './rich.ts';
+import { ui, type CodexTab } from './store.ts';
+import type { View } from './view.ts';
+
+const PERCENT = 100;
+const TABS: readonly CodexTab[] = ['elements', 'combat', 'hazards', 'enemies', 'doors', 'boons'];
+const TAB_ICON: Record<CodexTab, IconName> = {
+  elements: 'element', combat: 'combat', hazards: 'spikes', enemies: 'elite', doors: 'door', boons: 'boon',
+};
+const HAZARD_KINDS: readonly Hazard['kind'][] = ['spikes', 'vent', 'frost'];
+const FOES: readonly EnemyKind[] = ['minion', 'warrior', 'archer', 'mage'];
+const ENEMY_ICON: Partial<Record<EnemyKind, IconName>> = { minion: 'skull', warrior: 'defense', archer: 'crossbow', mage: 'nova', ...BOSS_ICON };
+const CATEGORIES: readonly BoonCategory[] = ['infusion', 'offense', 'defense', 'mobility', 'element', 'resonance', 'kinship'];
+const pctMore = (mul: number): number => Math.round((mul - 1) * PERCENT);
+
+/** Static, trusted drawing markup (same rule as icons.ts: never user data). */
+function drawing(markup: string, cls: string): HTMLElement {
+  const el = h('div', { class: `gg-draw ${cls}`, 'aria-hidden': 'true' });
+  el.innerHTML = `<svg viewBox="0 0 120 80" fill="none" stroke-linecap="round" stroke-linejoin="round">${markup}</svg>`;
+  return el;
+}
+
+const HERO = '<circle r="5" fill="#efe8d8" stroke="#06070b" stroke-width="1.5"/>';
+const FOE = '<circle r="6.5" fill="#39415a" stroke="#aab2c8" stroke-width="1.5"/><circle cx="-2.2" cy="-1" r="1.1" fill="#06070b"/><circle cx="2.2" cy="-1" r="1.1" fill="#06070b"/>';
+const at = (x: number, y: number, body: string): string => `<g transform="translate(${x} ${y})">${body}</g>`;
+const ESCAPE = 'stroke="#efe8d8" stroke-width="1.6" stroke-dasharray="3 3"';
+
+const TELEGRAPHS: Record<'circle' | 'arc' | 'line', string> = {
+  circle:
+    '<circle cx="52" cy="42" r="27" fill="rgba(226,65,79,.16)" stroke="#ff4d5e" stroke-width="1.8"/>' +
+    '<circle cx="52" cy="42" r="16" fill="rgba(226,65,79,.42)"/>' +
+    `${at(52, 42, HERO)}<path d="M60 42h36" ${ESCAPE}/><path d="M91 37l6 5-6 5" stroke="#efe8d8" stroke-width="1.6"/>`,
+  arc:
+    '<path d="M60 14L20.2 37A46 46 0 0 0 99.8 37Z" fill="rgba(226,65,79,.16)" stroke="#ff4d5e" stroke-width="1.8"/>' +
+    '<path d="M60 14L35.8 28A28 28 0 0 0 84.2 28Z" fill="rgba(226,65,79,.42)"/>' +
+    `${at(60, 14, FOE)}${at(60, 46, HERO)}<path d="M60 54v18" ${ESCAPE}/><path d="M55 68l5 6 5-6" stroke="#efe8d8" stroke-width="1.6"/>`,
+  line:
+    '<rect x="26" y="30" width="88" height="20" fill="rgba(226,65,79,.16)" stroke="#ff4d5e" stroke-width="1.8"/>' +
+    '<rect x="26" y="30" width="46" height="20" fill="rgba(226,65,79,.42)"/>' +
+    `${at(14, 40, FOE)}${at(84, 40, HERO)}<path d="M84 48v20" ${ESCAPE}/><path d="M79 64l5 6 5-6" stroke="#efe8d8" stroke-width="1.6"/>`,
+};
+
+/** Colours as in the 3D view: steel-white spikes, orange vents, cyan frost. */
+const HAZARD_COLOR: Record<Hazard['kind'], string> = { spikes: '#dfe6f2', vent: '#ff8a3c', frost: '#58d8ff' };
+
+function hazardDrawing(kind: Hazard['kind'], phase: 'idle' | 'warn' | 'active'): HTMLElement {
+  const c = HAZARD_COLOR[kind];
+  const floor = '<ellipse cx="60" cy="46" rx="44" ry="24" fill="#141926" stroke="#333b4f" stroke-width="1.5"/>';
+  let body: string;
+  if (phase === 'idle') {
+    body = `<ellipse cx="60" cy="46" rx="30" ry="16" stroke="${c}" stroke-opacity=".35" stroke-width="1.5" stroke-dasharray="2 5"/>`;
+    if (kind === 'spikes') body += [-16, -5, 6, 17].map((x) => `<circle cx="${60 + x}" cy="46" r="1.6" fill="${c}" fill-opacity=".4"/>`).join('');
+    if (kind === 'vent') body += `<ellipse cx="60" cy="46" rx="9" ry="5" fill="#06070b" stroke="${c}" stroke-opacity=".45" stroke-width="1.5"/>`;
+    if (kind === 'frost') body += `<path d="M44 46c5-3 9-3 14 0s9 3 16 0" stroke="${c}" stroke-opacity=".4" stroke-width="1.5"/>`;
+  } else if (phase === 'warn') {
+    body = `<ellipse cx="60" cy="46" rx="30" ry="16" fill="${c}" fill-opacity=".14" stroke="${c}" stroke-width="2" stroke-dasharray="6 4"/>` +
+      `<ellipse cx="60" cy="46" rx="17" ry="9" fill="${c}" fill-opacity=".3"/>` +
+      `<path d="M60 36v9M60 50v.5" stroke="${c}" stroke-width="3"/>`;
+  } else {
+    body = `<ellipse cx="60" cy="46" rx="30" ry="16" fill="${c}" fill-opacity=".34" stroke="${c}" stroke-width="2.4"/>`;
+    if (kind === 'spikes') {
+      body += [-18, -6, 6, 18].map((x) => `<path d="M${56 + x} 48l4-26 4 26z" fill="${c}" stroke="#06070b" stroke-width="1"/>`).join('');
+    } else if (kind === 'vent') {
+      body += `<path d="M60 10c2 9 14 14 14 27a14 14 0 0 1-28 0c0-6 3-10 6-13 1 4 2 6 5 7-1-8 0-15 3-21z" fill="${c}" stroke="#ffe7ad" stroke-width="1.5"/>` +
+        '<path d="M60 48a6 6 0 0 1-6-6c0-3 3-5 6-9 3 4 6 6 6 9a6 6 0 0 1-6 6z" fill="#ffe7ad"/>';
+    } else {
+      body += [0, 60, 120].map((a) => `<path d="M60 22v32" stroke="${c}" stroke-width="2.4" transform="rotate(${a} 60 38)"/>`).join('') +
+        `<path d="M36 52c6-4 10-4 16 0s10 4 16 0 10-4 16 0" stroke="#e8fbff" stroke-width="1.8"/>` +
+        `<path d="M42 60c5-3 9-3 14 0s9 3 14 0" stroke="${c}" stroke-width="1.6"/>`;
+    }
+  }
+  return drawing(floor + body, `gg-draw--hazard is-${phase}`);
+}
+
+function card(iconName: IconName, title: string, body: string, cls = ''): HTMLElement {
+  return h('article', { class: `gg-codex-card gg-cut ${cls}` },
+    h('span', { class: 'gg-codex-card-icon' }, icon(iconName)),
+    h('div', null, h('h4', null, title), richEl('p', '', body)),
+  );
+}
+
+const heading = (text: string, iconName?: IconName): HTMLElement =>
+  h('h3', { class: 'gg-codex-h' }, iconName ? icon(iconName) : null, text);
+
+// ------------------------------------------------------------------ tabs
+
+function elementsTab(): HTMLElement[] {
+  const statuses = h('div', { class: 'gg-codex-statuses' });
+  for (const el of ELEMENT_IDS) {
+    statuses.append(h('article', { class: 'gg-status-card gg-cut', 'data-element': el },
+      h('span', { class: 'gg-status-icon' }, icon(el)),
+      h('div', { class: 'gg-status-names' },
+        h('b', null, t(`element.${el}.name`)),
+        h('span', null, t('codex.elements.applies')),
+        h('strong', null, t(`status.${el}.name`)),
+      ),
+      h('p', null, t(`status.${el}.detail`, statusParams(el))),
+    ));
+  }
+  const foe = (cls: string, label: string | null): HTMLElement =>
+    h('span', { class: `gg-res-foe ${cls}` }, icon('skull'), label ? h('i', null, label) : null);
+  const step = (n: number, key: 'step1' | 'step2' | 'step3', scene: HTMLElement, params?: Params): HTMLElement =>
+    h('li', { class: `gg-res-step gg-res-step--${n}` },
+      scene,
+      h('div', { class: 'gg-res-text' },
+        h('b', null, h('span', { class: 'gg-res-num gg-num' }, String(n)), t(`codex.res.${key}`)),
+        h('span', null, t(`codex.res.${key}.desc`, params)),
+      ),
+    );
+  const diagram = h('ol', { class: 'gg-res-diagram' },
+    step(1, 'step1', h('div', { class: 'gg-res-scene' }, h('span', { class: 'gg-res-shot is-a' }, icon('ember'), 'A'), icon('arrow', 'gg-res-arrow'), foe('has-a', 'A'))),
+    step(2, 'step2', h('div', { class: 'gg-res-scene' }, h('span', { class: 'gg-res-shot is-b' }, icon('rime'), 'B'), icon('arrow', 'gg-res-arrow'), foe('has-a', 'A'))),
+    step(3, 'step3', h('div', { class: 'gg-res-scene is-burst' }, foe('has-b is-small', 'B'), foe('is-core', null), foe('has-b is-small', 'B')), resonanceParams()),
+  );
+  const pairs = h('ul', { class: 'gg-codex-pairs' });
+  for (const [a, b] of ELEMENT_PAIRS) {
+    pairs.append(h('li', { class: 'gg-cut' },
+      h('span', { class: `gg-el-${a}` }, icon(a), t(`element.${a}.name`)),
+      icon('plus', 'gg-pair-plus'),
+      h('span', { class: `gg-el-${b}` }, icon(b), t(`element.${b}.name`)),
+      icon('arrow', 'gg-pair-plus'),
+      h('b', null, pairName(a, b)),
+    ));
+  }
+  return [
+    richEl('p', 'gg-codex-intro', t('codex.elements.intro')),
+    statuses,
+    heading(t('codex.res.title'), 'resonance'),
+    richEl('p', 'gg-codex-lead', t('codex.res.lead')),
+    diagram,
+    richEl('p', 'gg-codex-note', t('codex.res.rule')),
+    h('div', { class: 'gg-label' }, t('codex.res.pairs')),
+    pairs,
+  ];
+}
+
+function combatTab(): HTMLElement[] {
+  const shapes = h('div', { class: 'gg-codex-shapes' });
+  for (const shape of ['circle', 'arc', 'line'] as const) {
+    shapes.append(h('article', { class: 'gg-shape-card gg-cut' },
+      drawing(TELEGRAPHS[shape], 'gg-draw--tele'),
+      h('h4', null, t(`codex.tele.${shape}`)),
+      h('p', null, t(`codex.tele.${shape}.desc`)),
+    ));
+  }
+  return [
+    heading(t('codex.tele.title'), 'warning'),
+    richEl('p', 'gg-codex-lead', t('codex.tele.rule')),
+    shapes,
+    h('div', { class: 'gg-codex-grid' },
+      card('dash', t('codex.dash.title'), t('codex.dash.desc', { t: DASH.IFRAMES, cd: DASH.COOLDOWN })),
+      card('bash', t('codex.stagger.title'), t('codex.stagger.desc')),
+      card('revive', t('codex.revive.title'), t('codex.revive.desc', {
+        r: WORLD.REVIVE_RADIUS, t: WORLD.REVIVE_SECONDS, hp: Math.round(WORLD.REVIVE_HP_FRACTION * PERCENT),
+      })),
+      card('heart', t('codex.wind.title'), t('codex.wind.desc', { n: RUN.SOLO_SECOND_WINDS })),
+    ),
+  ];
+}
+
+function hazardsTab(): HTMLElement[] {
+  const rows = h('div', { class: 'gg-codex-hazards' });
+  const phases: ['idle' | 'warn' | 'active', Params][] = [['idle', {}], ['warn', { t: HAZARD_TIMING.WARN }], ['active', {}]];
+  for (const kind of HAZARD_KINDS) {
+    const strip = h('div', { class: 'gg-hazard-phases' });
+    phases.forEach(([phase, params], index) => {
+      if (index > 0) strip.append(icon('arrow', 'gg-hazard-arrow'));
+      strip.append(h('figure', { class: `gg-hazard-phase is-${phase}` },
+        hazardDrawing(kind, phase),
+        h('figcaption', null, h('b', null, t(`hazard.phase.${phase}`)), h('span', null, t(`hazard.phase.${phase}Desc`, params))),
+      ));
+    });
+    const row = h('article', { class: 'gg-hazard-row gg-cut', 'data-hazard': kind },
+      h('div', { class: 'gg-hazard-info' },
+        h('span', { class: 'gg-hazard-icon' }, icon(kind)),
+        h('h4', null, t(`hazard.${kind}.name`)),
+        richEl('p', '', t(`hazard.${kind}.desc`, { t: HAZARD_TIMING.ACTIVE[kind] })),
+      ),
+      strip,
+    );
+    row.style.setProperty('--hz', HAZARD_COLOR[kind]);
+    rows.append(row);
+  }
+  return [
+    richEl('p', 'gg-codex-intro', t('codex.hazards.intro')),
+    h('p', { class: 'gg-codex-note' }, t('codex.hazards.cycle', { warn: HAZARD_TIMING.WARN })),
+    rows,
+  ];
+}
+
+function enemyTipParams(kind: EnemyKind): Params {
+  if (kind === 'warrior') return { n: ENEMY_TUNING.WARRIOR_SHIELD_HP };
+  if (kind === 'champion') return { n: ENEMY_TUNING.CHAMPION.SUMMON_EVERY };
+  if (kind === 'regent') {
+    const [a, b] = phaseThresholds({ kind, name: '', herald: false });
+    return { a: Math.round((a ?? 0) * PERCENT), b: Math.round((b ?? 0) * PERCENT) };
+  }
+  return {};
+}
+
+function enemyCard(kind: EnemyKind): HTMLElement {
+  const hp = enemyHealth(kind);
+  const boss = (BOSS_KINDS as readonly string[]).includes(kind);
+  return h('article', { class: `gg-enemy-card gg-cut${boss ? ' is-boss' : kind === 'champion' ? ' is-elite' : ''}`, 'data-enemy': kind },
+    h('span', { class: 'gg-enemy-icon' }, icon(ENEMY_ICON[kind] ?? 'skull')),
+    h('div', { class: 'gg-enemy-main' },
+      h('div', { class: 'gg-enemy-top' },
+        h('h4', null, enemyName(kind)),
+        hp !== null ? h('span', { class: 'gg-enemy-hp gg-num' }, icon('heart'), t('codex.enemies.health', { n: formatInt(hp) })) : null,
+      ),
+      h('p', null, t(`enemy.${kind}.desc` as I18nKey)),
+      h('p', { class: 'gg-enemy-tip' }, h('b', null, t('codex.enemies.beat')), ' ', t(`enemy.${kind}.tip` as I18nKey, enemyTipParams(kind))),
+    ),
+  );
+}
+
+function enemiesTab(): HTMLElement[] {
+  const foes = h('div', { class: 'gg-codex-enemies' });
+  for (const kind of FOES) foes.append(enemyCard(kind));
+  const bosses = h('div', { class: 'gg-codex-enemies' });
+  bosses.append(enemyCard('champion'));
+  for (const kind of BOSS_KINDS) bosses.append(enemyCard(kind));
+  return [
+    heading(t('codex.enemies.foes'), 'skull'),
+    foes,
+    h('p', { class: 'gg-codex-note' }, t('codex.enemies.elite', {
+      hp: pctMore(ENEMY_TUNING.ELITE_HP_MUL), dmg: pctMore(ENEMY_TUNING.ELITE_DAMAGE_MUL),
+    })),
+    heading(t('codex.enemies.bosses'), 'boss'),
+    h('p', { class: 'gg-codex-lead' }, t('codex.enemies.final')),
+    bosses,
+    h('p', { class: 'gg-codex-note' }, t('enemy.herald.desc')),
+  ];
+}
+
+function doorsTab(): HTMLElement[] {
+  const doors = h('div', { class: 'gg-codex-grid' });
+  for (const type of DOOR_TYPES) {
+    const desc = type === 'boss' ? t('codex.doors.boss') : t(`door.${type}.desc`, DOOR_TEXT_PARAMS);
+    doors.append(card(type, t(`door.${type}.name`), desc, `gg-door--${type}`));
+  }
+  const oaths = h('ol', { class: 'gg-codex-oaths' });
+  for (let level = 0; level <= MAX_OATH; level++) {
+    oaths.append(h('li', { class: 'gg-cut' },
+      h('b', { class: 'gg-oath-num' }, roman(level)),
+      h('div', null, h('strong', null, oathName(level)), h('span', null, oathDescription(level))),
+    ));
+  }
+  return [
+    heading(t('codex.doors.title'), 'door'),
+    h('p', { class: 'gg-codex-lead' }, t('codex.doors.intro', { t: WORLD.DOOR_HOLD_SECONDS })),
+    doors,
+    heading(t('codex.oath.title'), 'bell'),
+    h('p', { class: 'gg-codex-lead' }, t('codex.oath.intro', { n: Math.round(REWARDS.OATH_BONUS * PERCENT) })),
+    oaths,
+    heading(t('codex.glimmer.title'), 'glimmer'),
+    h('p', { class: 'gg-codex-lead' }, t('codex.glimmer.intro')),
+    h('p', { class: 'gg-codex-note' }, t('armory.earnHint', {
+      c: REWARDS.PER_CHAMBER_CLEARED, e: REWARDS.PER_ELITE_SLAIN, b: REWARDS.BOSS_SLAIN, m: REWARDS.MINIMUM,
+    })),
+  ];
+}
+
+function boonRow(iconName: IconName, tint: string, rarity: string, name: string, desc: string, levels: number): HTMLElement {
+  const text = h('span', { class: 'gg-codex-boon-desc' });
+  text.append(...highlight(desc));
+  const row = h('li', { class: `gg-codex-boon gg-rarity-${rarity}` },
+    h('span', { class: 'gg-codex-boon-icon' }, icon(iconName)),
+    h('b', null, name),
+    text,
+    h('em', null, levels > 1 ? t('codex.boons.levels', { n: levels }) : t(`rarity.${rarity}` as I18nKey)),
+  );
+  row.style.setProperty('--tint', tint);
+  return row;
+}
+
+function boonsTab(): HTMLElement[] {
+  const out: HTMLElement[] = [h('p', { class: 'gg-codex-intro' }, t('codex.boons.intro'))];
+  for (const category of CATEGORIES) {
+    const list = h('ul', { class: 'gg-codex-boons' });
+    if (category === 'infusion') {
+      for (const el of ELEMENT_IDS) {
+        const def = BOONS.find((b) => b.category === 'infusion' && b.element === el);
+        list.append(boonRow(el, `var(--gg-${el})`, def?.rarity ?? 'rare',
+          t('codex.boons.infusionAny', { element: t(`element.${el}.name`) }),
+          t('codex.boons.infusionDesc', { status: t(`status.${el}.name`), detail: t(`status.${el}.detail`, statusParams(el)) }),
+          def?.values.length ?? 1));
+      }
+    } else {
+      for (const def of BOONS) {
+        if (def.category !== category) continue;
+        const text = formatBoon(def.id, 1);
+        const tint = def.element ? `var(--gg-${def.element})` : category === 'resonance' ? 'var(--gg-glimmer)' : category === 'kinship' ? 'var(--gg-gold)' : 'var(--gg-text)';
+        list.append(boonRow((def.element ?? category) as IconName, tint, def.rarity, text.name, text.desc, def.values.length));
+      }
+    }
+    out.push(
+      h('section', { class: 'gg-codex-cat', 'data-category': category },
+        h('header', null, heading(t(`category.${category}`), category), h('p', null, t(`codex.cat.${category}`))),
+        list,
+      ),
+    );
+  }
+  return out;
+}
+
+const BUILDERS: Record<CodexTab, () => HTMLElement[]> = {
+  elements: elementsTab, combat: combatTab, hazards: hazardsTab, enemies: enemiesTab, doors: doorsTab, boons: boonsTab,
+};
+
+export function createCodex(close: () => void): View {
+  const body = h('div', { class: 'gg-codex-body', tabindex: 0 });
+  const buttons = new Map<CodexTab, HTMLButtonElement>();
+  const tabs = h('nav', { class: 'gg-codex-tabs', role: 'tablist', 'aria-label': t('codex.title') });
+  let shown: CodexTab | null = null;
+
+  const sync = (): void => {
+    const tab = TABS.includes(ui.codexTab) ? ui.codexTab : 'elements';
+    for (const [id, btn] of buttons) {
+      btn.classList.toggle('is-selected', id === tab);
+      btn.setAttribute('aria-selected', String(id === tab));
+    }
+    if (shown === tab) return;
+    shown = tab;
+    body.dataset.tab = tab;
+    body.replaceChildren(...BUILDERS[tab]());
+    body.scrollTop = 0;
+  };
+
+  for (const tab of TABS) {
+    const btn = h('button', {
+      class: 'gg-codex-tab', type: 'button', role: 'tab', 'data-testid': `codex-tab-${tab}`, 'data-sfx': 'tab',
+      onClick: () => { ui.codexTab = tab; sync(); },
+    }, icon(TAB_ICON[tab]), h('span', null, t(`codex.tab.${tab}`)));
+    buttons.set(tab, btn);
+    tabs.append(btn);
+  }
+
+  const el = h('section', { class: 'gg-page gg-codex gg-backdrop', 'data-testid': 'codex-root' },
+    h('div', { class: 'gg-page-layout' },
+      pageHead({ icon: 'codex', title: t('codex.title'), close }),
+      tabs,
+      body,
+    ),
+  );
+  return { el, sync };
+}

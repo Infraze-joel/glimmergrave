@@ -1,5 +1,7 @@
 /** Purely visual tuning for the render kit. Gameplay numbers live in @shared. */
-import type { ClassId, DoorType, ElementId, EnemyKind } from '@shared/types.ts';
+import { ENEMIES } from '@shared/data/enemies.ts';
+import type { EnemyDef } from '@shared/data/enemies.ts';
+import type { ClassId, DoorType, ElementId, EnemyKind, Hazard, Look } from '@shared/types.ts';
 import type { Quality } from '../core/Settings.ts';
 
 export const MODEL_BASE = '/assets/models/';
@@ -22,7 +24,23 @@ export const PALETTE = {
   shield: 0x9fd8ff,
   torch: 0xff9a4d,
   white: 0xffffff,
+  /** The Hex Matron: violet robes, venom-green witchfire. */
+  hexViolet: 0x9a4dff,
+  hexGreen: 0x8dff3a,
+  /** The Ossuary Stalker: sickly yellow on old bone. */
+  sickly: 0xe8d44a,
+  bone: 0xe8dcc0,
+  /** Friendly guidance (tutorial marker): never used by hazards or telegraphs. */
+  guideTeal: 0x3df2d0,
+  guideGold: 0xffd166,
 } as const;
+
+/** Hazard warnings deliberately avoid the hostile red: one colour per kind, shared by fixture, warning and impact. */
+export const HAZARD_COLOR: Record<Hazard['kind'], number> = {
+  spikes: 0xdfe9ff,
+  vent: 0xff8a1e,
+  frost: 0x4fe6ff,
+};
 
 export const ELEMENT_COLOR: Record<ElementId, number> = {
   ember: PALETTE.ember,
@@ -30,7 +48,7 @@ export const ELEMENT_COLOR: Record<ElementId, number> = {
   storm: PALETTE.storm,
 };
 
-/** One colour per player slot (ring, cape, name label). Red is reserved for hostile things. */
+/** One colour per player slot (ground ring and name label only). Red is reserved for hostile things. */
 export const SLOT_COLORS = [0x4ea8ff, 0xffd23f, 0x5fe38a, 0xff86dc] as const;
 
 export const DOOR_COLOR: Record<DoorType, number> = {
@@ -92,6 +110,8 @@ export const HERO_VIS = {
   /** Natural ground speed of Running_A at timeScale 1 (m/s). */
   RUN_SPEED: 5.4,
   FLASH_TIME: 0.16,
+  /** Strength of the Look colour on cloth swatches (0 = the class's own palette). */
+  CLOTH_TINT: 0.94,
 } as const;
 
 export const ENEMY_VIS = {
@@ -108,13 +128,51 @@ export const ENEMY_VIS = {
   HEALTH_BAR_H: 0.16,
 } as const;
 
-/** Hero outfit: which optional child meshes of the GLB stay visible. */
-export const HERO_PARTS: Record<ClassId, string[]> = {
-  knight: ['Knight_Helmet', 'Knight_Cape', '1H_Sword', 'Badge_Shield'],
-  barbarian: ['Barbarian_Hat', 'Barbarian_Cape', '2H_Axe'],
-  mage: ['Mage_Hat', 'Mage_Cape', '2H_Staff', 'Spellbook_open'],
-  rogue: ['Rogue_Cape', '2H_Crossbow'],
+/**
+ * Hero outfit: which optional (rigid) child meshes of the GLB a Look keeps. `gear[style]` follows the per-class
+ * meaning of Look.style documented in shared/src/data/meta.ts. `belt` parts are re-hung on the hip instead of a hand.
+ * The rogue's hood is a different head mesh (hero_rogue_hooded.glb), so it has no `head` attachment.
+ */
+export interface HeroOutfit {
+  head: string | null;
+  cape: string;
+  gear: readonly (readonly string[])[];
+  belt: readonly (readonly string[])[];
+  /** Hue window (degrees, may wrap) + minimum saturation of the class's cloth swatches in its palette texture. */
+  cloth: { hueMin: number; hueMax: number; satMin: number };
+}
+
+export const HERO_OUTFIT: Record<ClassId, HeroOutfit> = {
+  knight: {
+    head: 'Knight_Helmet', cape: 'Knight_Cape',
+    gear: [['1H_Sword', 'Round_Shield'], ['1H_Sword', 'Spike_Shield'], ['1H_Sword', 'Badge_Shield']],
+    belt: [[], [], []],
+    cloth: { hueMin: 318, hueMax: 9, satMin: 0.5 },
+  },
+  barbarian: {
+    head: 'Barbarian_Hat', cape: 'Barbarian_Cape',
+    gear: [['2H_Axe'], ['1H_Axe', 'Barbarian_Round_Shield'], ['1H_Axe', '1H_Axe_Offhand']],
+    belt: [[], [], []],
+    cloth: { hueMin: 195, hueMax: 232, satMin: 0.22 },
+  },
+  mage: {
+    head: 'Mage_Hat', cape: 'Mage_Cape',
+    gear: [['2H_Staff'], ['1H_Wand', 'Spellbook_open'], ['2H_Staff', 'Spellbook']],
+    belt: [[], [], []],
+    cloth: { hueMin: 236, hueMax: 292, satMin: 0.25 },
+  },
+  rogue: {
+    head: null, cape: 'Rogue_Cape',
+    gear: [['2H_Crossbow'], ['1H_Crossbow', 'Knife_Offhand'], ['2H_Crossbow']],
+    belt: [[], [], ['Knife']],
+    cloth: { hueMin: 136, hueMax: 178, satMin: 0.35 },
+  },
 };
+
+/** Cache key of a baked hero: looks that differ only in colour share one geometry (the tint is a uniform). */
+export function lookKey(cls: ClassId, look: Look): string {
+  return `${cls}:${look.head ? 1 : 0}:${look.cape ? 1 : 0}:${look.style}`;
+}
 
 export const ENEMY_MODEL: Record<EnemyKind, string> = {
   minion: 'skel_minion',
@@ -123,6 +181,8 @@ export const ENEMY_MODEL: Record<EnemyKind, string> = {
   mage: 'skel_mage',
   champion: 'skel_warrior',
   regent: 'skel_warrior',
+  matron: 'skel_mage',
+  stalker: 'skel_rogue',
 };
 
 export const EYE_COLOR: Record<EnemyKind, number> = {
@@ -132,7 +192,32 @@ export const EYE_COLOR: Record<EnemyKind, number> = {
   mage: 0xff5fd0,
   champion: 0xff6a2a,
   regent: 0xff2a4a,
+  matron: 0x9dff3a,
+  stalker: 0xffe23a,
 };
+
+/** Aura / phase-burst colours of the big enemies (primary, secondary). */
+export const BOSS_AURA: Partial<Record<EnemyKind, readonly [number, number]>> = {
+  champion: [PALETTE.hostile, PALETTE.ember],
+  regent: [PALETTE.storm, PALETTE.hostile],
+  matron: [PALETTE.hexViolet, PALETTE.hexGreen],
+  stalker: [PALETTE.sickly, 0xff9a2e],
+};
+
+export function isBigEnemy(kind: EnemyKind): boolean {
+  return BOSS_AURA[kind] !== undefined;
+}
+
+/** Used until the balance table carries a row for a kind (the render kit must never crash on a new wire code). */
+const FALLBACK_DEFS: Partial<Record<EnemyKind, EnemyDef>> = {
+  matron: { kind: 'matron', hp: 2500, speed: 2.8, radius: 1.0, scale: 2.05, damage: 30, attackRange: 12, windup: 1.0, cooldown: 1.6, spawnTime: 2.4, cost: 0, minChamber: 0, poise: 0 },
+  stalker: { kind: 'stalker', hp: 2400, speed: 4.4, radius: 0.95, scale: 1.95, damage: 30, attackRange: 14, windup: 0.8, cooldown: 1.4, spawnTime: 2.2, cost: 0, minChamber: 0, poise: 0 },
+};
+
+export function enemyDef(kind: EnemyKind): EnemyDef {
+  const table: Partial<Record<EnemyKind, EnemyDef>> = ENEMIES;
+  return table[kind] ?? FALLBACK_DEFS[kind] ?? ENEMIES.minion;
+}
 
 export const LIMITS = {
   DECALS: 384,
@@ -144,4 +229,7 @@ export const LIMITS = {
   BURSTS: 64,
   PROJECTILES: 128,
   ENEMY_POOL_PER_KIND: 48,
+  FLOATERS: 24,
+  HAZARDS: 24,
+  HAZARD_SPIKES: 12,
 } as const;

@@ -11,8 +11,14 @@ import {
 } from '../types.ts';
 import { dashRechargeSeconds } from './abilities.ts';
 import { maxDashCharges } from './boons.ts';
-import { createDirector, enterChamber, pickBoon, roomSpawns, stepDirector, type DirectorState } from './director.ts';
+import {
+  createDirector, enterChamber, finishRun, openAttunementDraft, pickBoon, planRun, rerollDraft, roomSpawns, stepDirector,
+  type DirectorState, type RunOverrides,
+} from './director.ts';
 import { spawnEnemy, stepEnemy, type SpawnOpts } from './enemies.ts';
+import { stepHazards } from './hazardFx.ts';
+import { noMetaLevels } from './meta.ts';
+import { startTutorial, type TutorialRun } from './tutorial.ts';
 import { CLASSES } from '../data/classes.ts';
 import { createHero, placeHero, queueInput, resetHero, stepHero, stepHeroInteractions } from './players.ts';
 import { stepProjectiles } from './projectiles.ts';
@@ -23,13 +29,17 @@ import { DIRECTOR, SIM } from './tuning.ts';
 const LOBBY_ROOM_W = 30;
 const LOBBY_ROOM_D = 24;
 
-const lobbyRoom = (): RoomLayout => ({ seed: 0, w: LOBBY_ROOM_W, d: LOBBY_ROOM_D, obstacles: [], spawns: roomSpawns(LOBBY_ROOM_D) });
+const lobbyRoom = (): RoomLayout => ({
+  seed: 0, biome: 'crypt', w: LOBBY_ROOM_W, d: LOBBY_ROOM_D, obstacles: [], hazards: [], spawns: roomSpawns(LOBBY_ROOM_D),
+});
 
 type RunCore = Omit<RunState, 'stats' | 'room'>;
 
 const freshRun = (): RunCore => ({
   phase: 'lobby', oath: 0, chamber: 0, chamberKind: 'combat', entered: 'boon', wave: 0, waveCount: 0, doors: [],
   doorProgress: [], bossId: -1, draftPending: [], draftTime: 0, elapsed: 0, secondWinds: 0,
+  // `finalBoss` only means something once a run has started (it is drawn from the run seed).
+  bossKind: null, finalBoss: 'regent', rewards: [], tutorial: null,
 });
 
 export class World {
@@ -46,6 +56,18 @@ export class World {
   runVersion = 0;
   /** Increments whenever any hero's boons change. */
   boonVersion = 0;
+  /** Increments whenever a hero's draft offers change without a pick (rerolls). */
+  draftVersion = 0;
+  /** Script state of a training session, or null in a normal run. */
+  tutorial: TutorialRun | null = null;
+  /** Hazard bookkeeping (see hazardFx.ts): phase code and active-tick counter per hazard of `hazardRoom`. */
+  hazardPhase: number[] = [];
+  hazardTicks: number[] = [];
+  hazardRoom: RoomLayout | null = null;
+  /** Number of hazards that are warning or active this tick. */
+  hazardsLive = 0;
+  /** Fragile hostile projectiles (soul wisps) alive at the start of this tick's projectile step. */
+  fragileCount = 0;
   nextEnemyId = 1;
   nextProjectileId = 1;
   /** Enemy scaling of the current chamber. */
@@ -65,20 +87,38 @@ export class World {
     return undefined;
   }
 
-  /** Adds a hero. Only possible in the lobby; returns false for an invalid or taken slot or during a run. */
-  addPlayer(slot: number, cls: ClassId, name: string): boolean {
+  /**
+   * Adds a hero. Only possible in the lobby; returns false for an invalid or taken slot or during a run.
+   * `meta` are the hero's permanent upgrade levels (Loadout.meta); they are clamped to valid levels here.
+   */
+  addPlayer(slot: number, cls: ClassId, name: string, meta?: readonly number[]): boolean {
     if (this.run.phase !== 'lobby' || !Number.isInteger(slot) || slot < 0 || slot >= NET.MAX_PLAYERS) return false;
     if (this.hero(slot) || !(cls in CLASSES)) return false;
-    this.heroes.push(createHero(slot, cls, name));
+    this.heroes.push(createHero(slot, cls, name, meta));
     this.heroes.sort((a, b) => a.slot - b.slot);
     return true;
+  }
+
+  /** Replaces a hero's permanent upgrade levels (lobby only). */
+  setMeta(slot: number, meta: readonly number[]): boolean {
+    const h = this.hero(slot);
+    if (!h || this.run.phase !== 'lobby') return false;
+    const fresh = createHero(slot, h.cls, h.name, meta);
+    fresh.connected = h.connected;
+    this.heroes[this.heroes.indexOf(h)] = fresh;
+    return true;
+  }
+
+  getMeta(slot: number): number[] {
+    const h = this.hero(slot);
+    return h ? [...h.metaLevels] : noMetaLevels();
   }
 
   /** Changes a hero's class (lobby only). */
   setClass(slot: number, cls: ClassId): boolean {
     const h = this.hero(slot);
     if (!h || this.run.phase !== 'lobby' || !(cls in CLASSES)) return false;
-    const fresh = createHero(slot, cls, h.name);
+    const fresh = createHero(slot, cls, h.name, h.metaLevels);
     fresh.connected = h.connected;
     this.heroes[this.heroes.indexOf(h)] = fresh;
     return true;
@@ -120,15 +160,35 @@ export class World {
   // ------------------------------------------------------------------ run lifecycle
 
   /**
-   * Starts a run with the current roster. Deterministic for a given seed and input stream.
+   * Starts a run with the current roster. Deterministic for a given seed and input stream: the final boss, the
+   * herald and the biome order are drawn from the seed first (`overrides` pins them for tests and tools).
    * `startChamber` > 0 is a QA aid (server option `debugStartChamber`): the run begins in a later chamber.
+   * Heroes with the attunement upgrade get their infusion draft before anything spawns (phase `draft`).
    */
-  start(oath: number, seed: number, startChamber = 0): boolean {
+  start(oath: number, seed: number, startChamber = 0, overrides: RunOverrides = {}): boolean {
     if (this.run.phase !== 'lobby' || this.heroes.length === 0) return false;
     this.beginRun(oath, seed);
+    planRun(this, overrides);
     const last = RUN.CHAMBERS.length - 1;
     const index = Math.max(0, Math.min(last, Math.floor(startChamber)));
     enterChamber(this, index, index === last ? 'boss' : 'boon');
+    openAttunementDraft(this);
+    return true;
+  }
+
+  /**
+   * Starts the guided training session (data/tutorial.ts) for the single hero on the roster. Permanent upgrades
+   * do not apply in it. Ends in `victory` with the fixed tutorial reward once the last step is done.
+   */
+  startTutorial(seed: number): boolean {
+    if (this.run.phase !== 'lobby' || this.heroes.length !== 1) return false;
+    const h = this.heroes[0] as Hero;
+    const plain = createHero(h.slot, h.cls, h.name);
+    plain.connected = h.connected;
+    this.heroes[0] = plain;
+    this.beginRun(0, seed);
+    this.run.secondWinds = 0;
+    startTutorial(this, seed);
     return true;
   }
 
@@ -140,7 +200,7 @@ export class World {
     this.beginRun(0, seed);
     this.director.manual = true;
     this.run.phase = 'combat';
-    this.room = room ?? { seed, w: DIRECTOR.BOSS_ROOM_W, d: DIRECTOR.BOSS_ROOM_D, obstacles: [], spawns: roomSpawns(DIRECTOR.BOSS_ROOM_D) };
+    this.room = room ?? { seed, biome: 'crypt', w: DIRECTOR.BOSS_ROOM_W, d: DIRECTOR.BOSS_ROOM_D, obstacles: [], hazards: [], spawns: roomSpawns(DIRECTOR.BOSS_ROOM_D) };
     this.partySize = Math.max(1, this.heroes.length);
     for (const h of this.heroes) {
       const spawn = this.room.spawns[h.slot % this.room.spawns.length] as { x: number; z: number };
@@ -157,6 +217,7 @@ export class World {
     this.run.oath = Math.max(0, Math.min(RUN.OATH.length - 1, Math.floor(Number.isFinite(oath) ? oath : 0)));
     this.run.secondWinds = this.heroes.length === 1 ? RUN.SOLO_SECOND_WINDS : 0;
     this.director = createDirector();
+    this.tutorial = null;
     for (const h of this.heroes) resetHero(h);
     this.boonVersion++;
   }
@@ -166,6 +227,7 @@ export class World {
     this.clearEntities();
     this.run = freshRun();
     this.director = createDirector();
+    this.tutorial = null;
     this.room = lobbyRoom();
     this.tick = 0;
     for (const h of this.heroes) resetHero(h);
@@ -183,6 +245,9 @@ export class World {
     this.damageMul = 1;
     this.speedMul = 1;
     this.cursed = false;
+    this.hazardRoom = null;
+    this.hazardsLive = 0;
+    this.fragileCount = 0;
   }
 
   /** Is the simulation waiting because nobody is connected (or no run is active)? */
@@ -199,6 +264,7 @@ export class World {
     const phase = this.run.phase;
     for (const h of this.heroes) stepHero(this, h);
     stepHeroInteractions(this);
+    if (this.room.hazards.length > 0) stepHazards(this);
     if (phase === 'combat') {
       const counts = this.meleeWindups;
       counts.fill(0);
@@ -226,9 +292,7 @@ export class World {
     }
     // With nobody connected the world is merely paused; the run is lost only when every present hero is down.
     if (connected === 0 && this.heroes.length > 0) return;
-    this.run.phase = 'defeat';
-    this.projectiles.length = 0;
-    this.runVersion++;
+    finishRun(this, 'defeat');
   }
 
   private sweep(): void {
@@ -268,6 +332,18 @@ export class World {
     return pickBoon(this, h, index);
   }
 
+  /** Draft rerolls the hero has left this run (insight upgrade). */
+  getRerolls(slot: number): number {
+    const h = this.hero(slot);
+    return h ? h.rerolls : 0;
+  }
+
+  /** Spends a reroll: replaces the hero's current draft offers. False if there is nothing to reroll or none left. */
+  rerollDraft(slot: number): boolean {
+    const h = this.hero(slot);
+    return h ? rerollDraft(this, h) : false;
+  }
+
   // ------------------------------------------------------------------ output
 
   emit(ev: GameEvent): void {
@@ -288,6 +364,8 @@ export class World {
       doors: run.doors.map((d) => ({ ...d })),
       doorProgress: [...run.doorProgress],
       draftPending: [...run.draftPending],
+      rewards: run.rewards.map((r) => ({ ...r })),
+      tutorial: run.tutorial ? { ...run.tutorial, marker: run.tutorial.marker ? { ...run.tutorial.marker } : null } : null,
       room: run.phase === 'lobby' ? null : this.room,
       stats: this.heroes.map((h) => ({ ...h.run, damage: Math.round(h.run.damage) })),
     };

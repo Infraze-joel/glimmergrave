@@ -32,7 +32,9 @@ const SKEL_CLIPS = ['Idle', 'Idle_Combat', 'Running_A', 'Running_C', 'Walking_D_
   '2H_Melee_Attack_Slice', '2H_Melee_Attack_Spin', '2H_Melee_Attack_Spinning', '2H_Ranged_Shoot', '2H_Ranged_Aiming',
   '2H_Ranged_Reload', 'Spellcast_Shoot', 'Spellcast_Long', 'Spellcast_Summon', 'Spellcast_Raise', 'Hit_A', 'Hit_B',
   'Death_A', 'Death_A_Pose', 'Death_C_Skeletons', 'Death_C_Pose', 'Spawn_Ground_Skeletons', 'Skeletons_Awaken_Floor',
-  'Taunt', 'Taunt_Longer', 'Block', 'Dodge_Forward'];
+  'Taunt', 'Taunt_Longer', 'Block', 'Dodge_Forward',
+  // update 2: Hex Matron channel + Ossuary Stalker leap
+  'Spellcasting', 'Jump_Start', 'Jump_Idle', 'Jump_Land', '2H_Ranged_Shooting'];
 
 const DUNGEON = ['floor_tile_large', 'floor_tile_small', 'floor_tile_small_broken_A', 'floor_tile_small_broken_B',
   'floor_tile_small_decorated', 'floor_tile_small_weeds_A', 'floor_tile_small_weeds_B', 'floor_tile_large_rocks',
@@ -43,13 +45,19 @@ const DUNGEON = ['floor_tile_large', 'floor_tile_small', 'floor_tile_small_broke
   'chest', 'chest_gold', 'banner_patternA_red', 'banner_patternB_blue', 'banner_patternC_green', 'banner_shield_red',
   'banner_thin_yellow', 'rubble_large', 'rubble_half', 'candle_triple', 'candle_lit', 'coin_stack_large',
   'coin_stack_medium', 'sword_shield', 'sword_shield_gold', 'sword_shield_broken', 'keg', 'table_long_broken',
-  'table_medium_broken', 'barrier', 'barrier_column', 'stool', 'trunk_large_A', 'shelf_large', 'bottle_A_green', 'key'];
+  'table_medium_broken', 'barrier', 'barrier_column', 'stool', 'trunk_large_A', 'shelf_large', 'bottle_A_green', 'key',
+  // update 2: biome dressing (flooded catacombs, ember foundry) and the wardrobe diorama
+  'floor_dirt_small_A', 'floor_dirt_small_B', 'floor_dirt_small_C', 'floor_dirt_small_D', 'floor_dirt_small_weeds',
+  'floor_tile_grate', 'keg_decorated', 'barrel_large_decorated', 'table_long', 'trunk_small_A', 'chair', 'stairs_wide',
+  'wall_archedwindow_gated', 'banner_patternA_green', 'banner_blue', 'banner_patternB_red', 'banner_brown',
+  'banner_triple_yellow', 'coin_stack_small', 'candle_melted', 'plate_stack', 'shelf_small_candles'];
 
 const PROPS = [
   [join(SKE, 'Assets/gltf/Skeleton_Blade.gltf'), 'skel_blade'], [join(SKE, 'Assets/gltf/Skeleton_Axe.gltf'), 'skel_axe'],
   [join(SKE, 'Assets/gltf/Skeleton_Staff.gltf'), 'skel_staff'], [join(SKE, 'Assets/gltf/Skeleton_Crossbow.gltf'), 'skel_crossbow'],
   [join(SKE, 'Assets/gltf/Skeleton_Shield_Large_A.gltf'), 'skel_shield'], [join(SKE, 'Assets/gltf/Skeleton_Arrow.gltf'), 'skel_arrow'],
   [join(ADV, 'Assets/gltf/arrow.gltf'), 'arrow'], [join(ADV, 'Assets/gltf/dagger.gltf'), 'dagger'],
+  [join(SKE, 'Assets/gltf/Skeleton_Quiver.gltf'), 'skel_quiver'], [join(SKE, 'Assets/gltf/Skeleton_Shield_Small_B.gltf'), 'skel_buckler'],
 ];
 
 const report = [];
@@ -146,6 +154,8 @@ async function library(entries, name, lod = false) {
 }
 
 for (const h of ['Knight', 'Barbarian', 'Mage', 'Rogue']) await character(join(ADV, `Characters/gltf/${h}.glb`), `hero_${h.toLowerCase()}`);
+// The rogue's hood is a different head mesh, not an attachment: ship the hooded variant for Look.head = true.
+await character(join(ADV, 'Characters/gltf/Rogue_Hooded.glb'), 'hero_rogue_hooded');
 for (const s of ['Minion', 'Warrior', 'Rogue', 'Mage']) await character(join(SKE, `Characters/gltf/Skeleton_${s}.glb`), `skel_${s.toLowerCase()}`, true);
 await animations(join(ADV, 'Characters/gltf/Knight.glb'), 'anims_hero', HERO_CLIPS);
 await animations(join(SKE, 'Characters/gltf/Skeleton_Warrior.glb'), 'anims_skel', SKEL_CLIPS);

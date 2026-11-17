@@ -1,0 +1,1027 @@
+{
+ "licence": "CC0 1.0 Universal",
+ "files": [
+  {
+   "file": "ui.hover.1.mp3",
+   "pack": "Kenney UI Audio",
+   "source": "addons/kenney_ui_audio/rollover2.wav",
+   "url": "https://github.com/Calinou/kenney-ui-audio",
+   "commit": "8c3d81b9159d058c444f89d12d518276b0b09345"
+  },
+  {
+   "file": "ui.hover.2.mp3",
+   "pack": "Kenney UI Audio",
+   "source": "addons/kenney_ui_audio/rollover4.wav",
+   "url": "https://github.com/Calinou/kenney-ui-audio",
+   "commit": "8c3d81b9159d058c444f89d12d518276b0b09345"
+  },
+  {
+   "file": "ui.click.1.mp3",
+   "pack": "Kenney UI Audio",
+   "source": "addons/kenney_ui_audio/click2.wav",
+   "url": "https://github.com/Calinou/kenney-ui-audio",
+   "commit": "8c3d81b9159d058c444f89d12d518276b0b09345"
+  },
+  {
+   "file": "ui.click.2.mp3",
+   "pack": "Kenney UI Audio",
+   "source": "addons/kenney_ui_audio/click4.wav",
+   "url": "https://github.com/Calinou/kenney-ui-audio",
+   "commit": "8c3d81b9159d058c444f89d12d518276b0b09345"
+  },
+  {
+   "file": "ui.click.3.mp3",
+   "pack": "Kenney UI Audio",
+   "source": "addons/kenney_ui_audio/mouseclick1.wav",
+   "url": "https://github.com/Calinou/kenney-ui-audio",
+   "commit": "8c3d81b9159d058c444f89d12d518276b0b09345"
+  },
+  {
+   "file": "ui.confirm.1.mp3",
+   "pack": "Kenney Interface Sounds",
+   "source": "addons/kenney_interface_sounds/confirmation_002.wav",
+   "url": "https://github.com/Calinou/kenney-interface-sounds",
+   "commit": "4596a49eaf5a533948d49a47467f606bcdea70ff"
+  },
+  {
+   "file": "ui.back.1.mp3",
+   "pack": "Kenney Interface Sounds",
+   "source": "addons/kenney_interface_sounds/back_002.wav",
+   "url": "https://github.com/Calinou/kenney-interface-sounds",
+   "commit": "4596a49eaf5a533948d49a47467f606bcdea70ff"
+  },
+  {
+   "file": "ui.back.2.mp3",
+   "pack": "Kenney Interface Sounds",
+   "source": "addons/kenney_interface_sounds/back_003.wav",
+   "url": "https://github.com/Calinou/kenney-interface-sounds",
+   "commit": "4596a49eaf5a533948d49a47467f606bcdea70ff"
+  },
+  {
+   "file": "ui.error.1.mp3",
+   "pack": "Kenney Interface Sounds",
+   "source": "addons/kenney_interface_sounds/error_007.wav",
+   "url": "https://github.com/Calinou/kenney-interface-sounds",
+   "commit": "4596a49eaf5a533948d49a47467f606bcdea70ff"
+  },
+  {
+   "file": "ui.error.2.mp3",
+   "pack": "Kenney Interface Sounds",
+   "source": "addons/kenney_interface_sounds/error_006.wav",
+   "url": "https://github.com/Calinou/kenney-interface-sounds",
+   "commit": "4596a49eaf5a533948d49a47467f606bcdea70ff"
+  },
+  {
+   "file": "ui.ready.1.mp3",
+   "pack": "Kenney Interface Sounds",
+   "source": "addons/kenney_interface_sounds/confirmation_001.wav",
+   "url": "https://github.com/Calinou/kenney-interface-sounds",
+   "commit": "4596a49eaf5a533948d49a47467f606bcdea70ff"
+  },
+  {
+   "file": "ui.card.1.mp3",
+   "pack": "Kenney RPG Audio",
+   "source": "addons/kenney rpg audio/book_flip_2.ogg",
+   "url": "https://github.com/Boyquotes/kenney-rpg-audio-for-godot",
+   "commit": "22eb79bb843bbcadcaa6ed119353a33265ffad11"
+  },
+  {
+   "file": "ui.card.2.mp3",
+   "pack": "Kenney RPG Audio",
+   "source": "addons/kenney rpg audio/book_flip_3.ogg",
+   "url": "https://github.com/Boyquotes/kenney-rpg-audio-for-godot",
+   "commit": "22eb79bb843bbcadcaa6ed119353a33265ffad11"
+  },
+  {
+   "file": "ui.tick.1.mp3",
+   "pack": "Kenney Interface Sounds",
+   "source": "addons/kenney_interface_sounds/tick_002.wav",
+   "url": "https://github.com/Calinou/kenney-interface-sounds",
+   "commit": "4596a49eaf5a533948d49a47467f606bcdea70ff"
+  },
+  {
+   "file": "ui.tick.2.mp3",
+   "pack": "Kenney Interface Sounds",
+   "source": "addons/kenney_interface_sounds/tick_004.wav",
+   "url": "https://github.com/Calinou/kenney-interface-sounds",
+   "commit": "4596a49eaf5a533948d49a47467f606bcdea70ff"
+  },
+  {
+   "file": "ui.coins.1.mp3",
+   "pack": "Kenney RPG Audio",
+   "source": "addons/kenney rpg audio/handle_coins.ogg",
+   "url": "https://github.com/Boyquotes/kenney-rpg-audio-for-godot",
+   "commit": "22eb79bb843bbcadcaa6ed119353a33265ffad11"
+  },
+  {
+   "file": "ui.coins.2.mp3",
+   "pack": "Kenney RPG Audio",
+   "source": "addons/kenney rpg audio/handle_coins_2.ogg",
+   "url": "https://github.com/Boyquotes/kenney-rpg-audio-for-godot",
+   "commit": "22eb79bb843bbcadcaa6ed119353a33265ffad11"
+  },
+  {
+   "file": "ui.buy.1.mp3",
+   "pack": "Kenney Interface Sounds",
+   "source": "addons/kenney_interface_sounds/confirmation_003.wav",
+   "url": "https://github.com/Calinou/kenney-interface-sounds",
+   "commit": "4596a49eaf5a533948d49a47467f606bcdea70ff"
+  },
+  {
+   "file": "ui.equip.1.mp3",
+   "pack": "Kenney RPG Audio",
+   "source": "addons/kenney rpg audio/cloth_belt_2.ogg",
+   "url": "https://github.com/Boyquotes/kenney-rpg-audio-for-godot",
+   "commit": "22eb79bb843bbcadcaa6ed119353a33265ffad11"
+  },
+  {
+   "file": "ui.equip.2.mp3",
+   "pack": "Kenney RPG Audio",
+   "source": "addons/kenney rpg audio/belt_handle_1.ogg",
+   "url": "https://github.com/Boyquotes/kenney-rpg-audio-for-godot",
+   "commit": "22eb79bb843bbcadcaa6ed119353a33265ffad11"
+  },
+  {
+   "file": "ui.tab.1.mp3",
+   "pack": "Kenney UI Audio",
+   "source": "addons/kenney_ui_audio/switch12.wav",
+   "url": "https://github.com/Calinou/kenney-ui-audio",
+   "commit": "8c3d81b9159d058c444f89d12d518276b0b09345"
+  },
+  {
+   "file": "ui.tab.2.mp3",
+   "pack": "Kenney UI Audio",
+   "source": "addons/kenney_ui_audio/switch13.wav",
+   "url": "https://github.com/Calinou/kenney-ui-audio",
+   "commit": "8c3d81b9159d058c444f89d12d518276b0b09345"
+  },
+  {
+   "file": "ui.toggle.1.mp3",
+   "pack": "Kenney Interface Sounds",
+   "source": "addons/kenney_interface_sounds/toggle_001.wav",
+   "url": "https://github.com/Calinou/kenney-interface-sounds",
+   "commit": "4596a49eaf5a533948d49a47467f606bcdea70ff"
+  },
+  {
+   "file": "ui.toggle.2.mp3",
+   "pack": "Kenney Interface Sounds",
+   "source": "addons/kenney_interface_sounds/toggle_002.wav",
+   "url": "https://github.com/Calinou/kenney-interface-sounds",
+   "commit": "4596a49eaf5a533948d49a47467f606bcdea70ff"
+  },
+  {
+   "file": "ui.drop.1.mp3",
+   "pack": "Kenney Interface Sounds",
+   "source": "addons/kenney_interface_sounds/drop_002.wav",
+   "url": "https://github.com/Calinou/kenney-interface-sounds",
+   "commit": "4596a49eaf5a533948d49a47467f606bcdea70ff"
+  },
+  {
+   "file": "ui.drop.2.mp3",
+   "pack": "Kenney Interface Sounds",
+   "source": "addons/kenney_interface_sounds/drop_003.wav",
+   "url": "https://github.com/Calinou/kenney-interface-sounds",
+   "commit": "4596a49eaf5a533948d49a47467f606bcdea70ff"
+  },
+  {
+   "file": "swing.blade.1.mp3",
+   "pack": "Kenney RPG Audio",
+   "source": "addons/kenney rpg audio/knife_slice.ogg",
+   "url": "https://github.com/Boyquotes/kenney-rpg-audio-for-godot",
+   "commit": "22eb79bb843bbcadcaa6ed119353a33265ffad11"
+  },
+  {
+   "file": "swing.blade.2.mp3",
+   "pack": "Kenney RPG Audio",
+   "source": "addons/kenney rpg audio/knife_slice_2.ogg",
+   "url": "https://github.com/Boyquotes/kenney-rpg-audio-for-godot",
+   "commit": "22eb79bb843bbcadcaa6ed119353a33265ffad11"
+  },
+  {
+   "file": "swing.draw.1.mp3",
+   "pack": "Kenney RPG Audio",
+   "source": "addons/kenney rpg audio/draw_knife_1.ogg",
+   "url": "https://github.com/Boyquotes/kenney-rpg-audio-for-godot",
+   "commit": "22eb79bb843bbcadcaa6ed119353a33265ffad11"
+  },
+  {
+   "file": "swing.draw.2.mp3",
+   "pack": "Kenney RPG Audio",
+   "source": "addons/kenney rpg audio/draw_knife_2.ogg",
+   "url": "https://github.com/Boyquotes/kenney-rpg-audio-for-godot",
+   "commit": "22eb79bb843bbcadcaa6ed119353a33265ffad11"
+  },
+  {
+   "file": "swing.draw.3.mp3",
+   "pack": "Kenney RPG Audio",
+   "source": "addons/kenney rpg audio/draw_knife_3.ogg",
+   "url": "https://github.com/Boyquotes/kenney-rpg-audio-for-godot",
+   "commit": "22eb79bb843bbcadcaa6ed119353a33265ffad11"
+  },
+  {
+   "file": "swing.cloth.1.mp3",
+   "pack": "Kenney RPG Audio",
+   "source": "addons/kenney rpg audio/cloth_1.ogg",
+   "url": "https://github.com/Boyquotes/kenney-rpg-audio-for-godot",
+   "commit": "22eb79bb843bbcadcaa6ed119353a33265ffad11"
+  },
+  {
+   "file": "swing.cloth.2.mp3",
+   "pack": "Kenney RPG Audio",
+   "source": "addons/kenney rpg audio/cloth_2.ogg",
+   "url": "https://github.com/Boyquotes/kenney-rpg-audio-for-godot",
+   "commit": "22eb79bb843bbcadcaa6ed119353a33265ffad11"
+  },
+  {
+   "file": "swing.cloth.3.mp3",
+   "pack": "Kenney RPG Audio",
+   "source": "addons/kenney rpg audio/cloth_3.ogg",
+   "url": "https://github.com/Boyquotes/kenney-rpg-audio-for-godot",
+   "commit": "22eb79bb843bbcadcaa6ed119353a33265ffad11"
+  },
+  {
+   "file": "swing.chop.1.mp3",
+   "pack": "Kenney RPG Audio",
+   "source": "addons/kenney rpg audio/chop.ogg",
+   "url": "https://github.com/Boyquotes/kenney-rpg-audio-for-godot",
+   "commit": "22eb79bb843bbcadcaa6ed119353a33265ffad11"
+  },
+  {
+   "file": "hit.bone.1.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_wood_light_000.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.bone.2.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_wood_light_001.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.bone.3.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_wood_light_002.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.bone.4.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_wood_light_003.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.body.1.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_punch_medium_000.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.body.2.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_punch_medium_001.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.body.3.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_punch_medium_003.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.heavy.1.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_punch_heavy_000.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.heavy.2.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_punch_heavy_001.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.heavy.3.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_punch_heavy_002.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.thud.1.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_wood_medium_000.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.thud.2.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_wood_medium_002.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.thud.3.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_wood_medium_004.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.sub.1.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_soft_heavy_000.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.sub.2.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_soft_heavy_003.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.tight.1.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_soft_medium_000.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.tight.2.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_soft_medium_002.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.metal.1.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_metal_medium_000.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.metal.2.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_metal_medium_001.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.metal.3.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_metal_medium_003.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.clang.1.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_metal_heavy_001.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.clang.2.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_metal_heavy_003.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.ring.1.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_metal_light_000.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.ring.2.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_metal_light_001.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.ring.3.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_metal_light_003.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.plate.1.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_plate_heavy_000.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.plate.2.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_plate_heavy_002.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.plate.3.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_plate_medium_003.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.tin.1.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_tin_medium_000.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "hit.tin.2.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_tin_medium_003.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "glass.light.1.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_glass_light_000.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "glass.light.2.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_glass_light_002.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "glass.light.3.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_glass_light_004.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "glass.heavy.1.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_glass_heavy_000.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "glass.heavy.2.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_glass_heavy_001.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "glass.heavy.3.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_glass_heavy_004.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "glass.mid.1.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_glass_medium_001.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "glass.mid.2.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_glass_medium_004.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "bone.tick.1.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_generic_light_000.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "bone.tick.2.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_generic_light_002.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "bone.tick.3.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_generic_light_003.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "bone.tick.4.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_generic_light_004.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "bone.tap.1.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/footstep_concrete_000.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "bone.tap.2.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/footstep_concrete_002.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "foley.fall.1.mp3",
+   "pack": "Kenney RPG Audio",
+   "source": "addons/kenney rpg audio/drop_leather.ogg",
+   "url": "https://github.com/Boyquotes/kenney-rpg-audio-for-godot",
+   "commit": "22eb79bb843bbcadcaa6ed119353a33265ffad11"
+  },
+  {
+   "file": "foley.latch.1.mp3",
+   "pack": "Kenney RPG Audio",
+   "source": "addons/kenney rpg audio/metal_latch.ogg",
+   "url": "https://github.com/Boyquotes/kenney-rpg-audio-for-godot",
+   "commit": "22eb79bb843bbcadcaa6ed119353a33265ffad11"
+  },
+  {
+   "file": "foley.latch.2.mp3",
+   "pack": "Kenney RPG Audio",
+   "source": "addons/kenney rpg audio/metal_click.ogg",
+   "url": "https://github.com/Boyquotes/kenney-rpg-audio-for-godot",
+   "commit": "22eb79bb843bbcadcaa6ed119353a33265ffad11"
+  },
+  {
+   "file": "snow.1.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/footstep_snow_000.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "snow.2.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/footstep_snow_001.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "snow.3.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/footstep_snow_003.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "earth.1.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_mining_000.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "earth.2.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_mining_002.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "earth.3.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_mining_004.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "drum.low.1.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_wood_heavy_000.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "drum.low.2.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_wood_heavy_002.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "drum.plank.1.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_plank_medium_001.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "drum.plank.2.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_plank_medium_003.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "bell.1.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_bell_heavy_000.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "bell.2.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_bell_heavy_001.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "bell.3.mp3",
+   "pack": "Kenney Impact Sounds",
+   "source": "addons/kenney impact sounds/impact_bell_heavy_002.ogg",
+   "url": "https://github.com/Boyquotes/kenney-impact-sounds-for-godot",
+   "commit": "999dd1684873f8b020a3aa5b26e713da21688924"
+  },
+  {
+   "file": "boom.1.mp3",
+   "pack": "Kenney Sci-Fi Sounds",
+   "source": "addons/kenney sci-fi sounds/explosion_crunch_000.ogg",
+   "url": "https://github.com/Boyquotes/kenney-sci-fi-sounds-for-godot",
+   "commit": "c094967fe930c57ddb376f67c75f8aa0296690b7"
+  },
+  {
+   "file": "boom.2.mp3",
+   "pack": "Kenney Sci-Fi Sounds",
+   "source": "addons/kenney sci-fi sounds/explosion_crunch_002.ogg",
+   "url": "https://github.com/Boyquotes/kenney-sci-fi-sounds-for-godot",
+   "commit": "c094967fe930c57ddb376f67c75f8aa0296690b7"
+  },
+  {
+   "file": "boom.3.mp3",
+   "pack": "Kenney Sci-Fi Sounds",
+   "source": "addons/kenney sci-fi sounds/explosion_crunch_003.ogg",
+   "url": "https://github.com/Boyquotes/kenney-sci-fi-sounds-for-godot",
+   "commit": "c094967fe930c57ddb376f67c75f8aa0296690b7"
+  },
+  {
+   "file": "boom.sub.1.mp3",
+   "pack": "Kenney Sci-Fi Sounds",
+   "source": "addons/kenney sci-fi sounds/low_frequency_explosion_001.ogg",
+   "url": "https://github.com/Boyquotes/kenney-sci-fi-sounds-for-godot",
+   "commit": "c094967fe930c57ddb376f67c75f8aa0296690b7"
+  },
+  {
+   "file": "field.1.mp3",
+   "pack": "Kenney Sci-Fi Sounds",
+   "source": "addons/kenney sci-fi sounds/force_field_000.ogg",
+   "url": "https://github.com/Boyquotes/kenney-sci-fi-sounds-for-godot",
+   "commit": "c094967fe930c57ddb376f67c75f8aa0296690b7"
+  },
+  {
+   "file": "field.2.mp3",
+   "pack": "Kenney Sci-Fi Sounds",
+   "source": "addons/kenney sci-fi sounds/force_field_002.ogg",
+   "url": "https://github.com/Boyquotes/kenney-sci-fi-sounds-for-godot",
+   "commit": "c094967fe930c57ddb376f67c75f8aa0296690b7"
+  },
+  {
+   "file": "laser.small.1.mp3",
+   "pack": "Kenney Sci-Fi Sounds",
+   "source": "addons/kenney sci-fi sounds/laser_small_000.ogg",
+   "url": "https://github.com/Boyquotes/kenney-sci-fi-sounds-for-godot",
+   "commit": "c094967fe930c57ddb376f67c75f8aa0296690b7"
+  },
+  {
+   "file": "laser.small.2.mp3",
+   "pack": "Kenney Sci-Fi Sounds",
+   "source": "addons/kenney sci-fi sounds/laser_small_002.ogg",
+   "url": "https://github.com/Boyquotes/kenney-sci-fi-sounds-for-godot",
+   "commit": "c094967fe930c57ddb376f67c75f8aa0296690b7"
+  },
+  {
+   "file": "laser.small.3.mp3",
+   "pack": "Kenney Sci-Fi Sounds",
+   "source": "addons/kenney sci-fi sounds/laser_small_003.ogg",
+   "url": "https://github.com/Boyquotes/kenney-sci-fi-sounds-for-godot",
+   "commit": "c094967fe930c57ddb376f67c75f8aa0296690b7"
+  },
+  {
+   "file": "laser.large.1.mp3",
+   "pack": "Kenney Sci-Fi Sounds",
+   "source": "addons/kenney sci-fi sounds/laser_large_000.ogg",
+   "url": "https://github.com/Boyquotes/kenney-sci-fi-sounds-for-godot",
+   "commit": "c094967fe930c57ddb376f67c75f8aa0296690b7"
+  },
+  {
+   "file": "laser.large.2.mp3",
+   "pack": "Kenney Sci-Fi Sounds",
+   "source": "addons/kenney sci-fi sounds/laser_large_002.ogg",
+   "url": "https://github.com/Boyquotes/kenney-sci-fi-sounds-for-godot",
+   "commit": "c094967fe930c57ddb376f67c75f8aa0296690b7"
+  },
+  {
+   "file": "spark.1.mp3",
+   "pack": "Kenney Interface Sounds",
+   "source": "addons/kenney_interface_sounds/glitch_001.wav",
+   "url": "https://github.com/Calinou/kenney-interface-sounds",
+   "commit": "4596a49eaf5a533948d49a47467f606bcdea70ff"
+  },
+  {
+   "file": "spark.2.mp3",
+   "pack": "Kenney Interface Sounds",
+   "source": "addons/kenney_interface_sounds/glitch_002.wav",
+   "url": "https://github.com/Calinou/kenney-interface-sounds",
+   "commit": "4596a49eaf5a533948d49a47467f606bcdea70ff"
+  },
+  {
+   "file": "spark.3.mp3",
+   "pack": "Kenney Interface Sounds",
+   "source": "addons/kenney_interface_sounds/glitch_003.wav",
+   "url": "https://github.com/Calinou/kenney-interface-sounds",
+   "commit": "4596a49eaf5a533948d49a47467f606bcdea70ff"
+  },
+  {
+   "file": "spark.4.mp3",
+   "pack": "Kenney Interface Sounds",
+   "source": "addons/kenney_interface_sounds/glitch_004.wav",
+   "url": "https://github.com/Calinou/kenney-interface-sounds",
+   "commit": "4596a49eaf5a533948d49a47467f606bcdea70ff"
+  },
+  {
+   "file": "scratch.1.mp3",
+   "pack": "Kenney Interface Sounds",
+   "source": "addons/kenney_interface_sounds/scratch_001.wav",
+   "url": "https://github.com/Calinou/kenney-interface-sounds",
+   "commit": "4596a49eaf5a533948d49a47467f606bcdea70ff"
+  },
+  {
+   "file": "scratch.2.mp3",
+   "pack": "Kenney Interface Sounds",
+   "source": "addons/kenney_interface_sounds/scratch_002.wav",
+   "url": "https://github.com/Calinou/kenney-interface-sounds",
+   "commit": "4596a49eaf5a533948d49a47467f606bcdea70ff"
+  },
+  {
+   "file": "zap.down.1.mp3",
+   "pack": "Kenney Digital Audio",
+   "source": "addons/kenney digital audio/phaser_down_1.ogg",
+   "url": "https://github.com/Boyquotes/kenney-digital-audio-for-godot",
+   "commit": "185a77e7c675341ad8d0805b3bbe4f20427c2481"
+  },
+  {
+   "file": "zap.up.1.mp3",
+   "pack": "Kenney Digital Audio",
+   "source": "addons/kenney digital audio/phaser_up_2.ogg",
+   "url": "https://github.com/Boyquotes/kenney-digital-audio-for-godot",
+   "commit": "185a77e7c675341ad8d0805b3bbe4f20427c2481"
+  },
+  {
+   "file": "zap.up.2.mp3",
+   "pack": "Kenney Digital Audio",
+   "source": "addons/kenney digital audio/phaser_up_6.ogg",
+   "url": "https://github.com/Boyquotes/kenney-digital-audio-for-godot",
+   "commit": "185a77e7c675341ad8d0805b3bbe4f20427c2481"
+  },
+  {
+   "file": "zap.jump.1.mp3",
+   "pack": "Kenney Digital Audio",
+   "source": "addons/kenney digital audio/phase_jump_3.ogg",
+   "url": "https://github.com/Boyquotes/kenney-digital-audio-for-godot",
+   "commit": "185a77e7c675341ad8d0805b3bbe4f20427c2481"
+  },
+  {
+   "file": "zap.long.1.mp3",
+   "pack": "Kenney Digital Audio",
+   "source": "addons/kenney digital audio/laser_7.ogg",
+   "url": "https://github.com/Boyquotes/kenney-digital-audio-for-godot",
+   "commit": "185a77e7c675341ad8d0805b3bbe4f20427c2481"
+  },
+  {
+   "file": "zap.long.2.mp3",
+   "pack": "Kenney Digital Audio",
+   "source": "addons/kenney digital audio/laser_8.ogg",
+   "url": "https://github.com/Boyquotes/kenney-digital-audio-for-godot",
+   "commit": "185a77e7c675341ad8d0805b3bbe4f20427c2481"
+  },
+  {
+   "file": "shimmer.1.mp3",
+   "pack": "Kenney Interface Sounds",
+   "source": "addons/kenney_interface_sounds/glass_004.wav",
+   "url": "https://github.com/Calinou/kenney-interface-sounds",
+   "commit": "4596a49eaf5a533948d49a47467f606bcdea70ff"
+  },
+  {
+   "file": "ping.1.mp3",
+   "pack": "Kenney Interface Sounds",
+   "source": "addons/kenney_interface_sounds/glass_001.wav",
+   "url": "https://github.com/Calinou/kenney-interface-sounds",
+   "commit": "4596a49eaf5a533948d49a47467f606bcdea70ff"
+  },
+  {
+   "file": "ping.2.mp3",
+   "pack": "Kenney Interface Sounds",
+   "source": "addons/kenney_interface_sounds/glass_003.wav",
+   "url": "https://github.com/Calinou/kenney-interface-sounds",
+   "commit": "4596a49eaf5a533948d49a47467f606bcdea70ff"
+  },
+  {
+   "file": "ping.3.mp3",
+   "pack": "Kenney Interface Sounds",
+   "source": "addons/kenney_interface_sounds/glass_006.wav",
+   "url": "https://github.com/Calinou/kenney-interface-sounds",
+   "commit": "4596a49eaf5a533948d49a47467f606bcdea70ff"
+  },
+  {
+   "file": "tex.fire.1.mp3",
+   "pack": "Kenney Sci-Fi Sounds",
+   "source": "addons/kenney sci-fi sounds/thruster_fire_004.ogg",
+   "url": "https://github.com/Boyquotes/kenney-sci-fi-sounds-for-godot",
+   "commit": "c094967fe930c57ddb376f67c75f8aa0296690b7"
+  },
+  {
+   "file": "tex.fireLow.1.mp3",
+   "pack": "Kenney Sci-Fi Sounds",
+   "source": "addons/kenney sci-fi sounds/thruster_fire_003.ogg",
+   "url": "https://github.com/Boyquotes/kenney-sci-fi-sounds-for-godot",
+   "commit": "c094967fe930c57ddb376f67c75f8aa0296690b7"
+  },
+  {
+   "file": "door.open.1.mp3",
+   "pack": "Kenney RPG Audio",
+   "source": "addons/kenney rpg audio/door_open_1.ogg",
+   "url": "https://github.com/Boyquotes/kenney-rpg-audio-for-godot",
+   "commit": "22eb79bb843bbcadcaa6ed119353a33265ffad11"
+  },
+  {
+   "file": "door.open.2.mp3",
+   "pack": "Kenney RPG Audio",
+   "source": "addons/kenney rpg audio/door_open_2.ogg",
+   "url": "https://github.com/Boyquotes/kenney-rpg-audio-for-godot",
+   "commit": "22eb79bb843bbcadcaa6ed119353a33265ffad11"
+  },
+  {
+   "file": "door.close.1.mp3",
+   "pack": "Kenney RPG Audio",
+   "source": "addons/kenney rpg audio/door_close_4.ogg",
+   "url": "https://github.com/Boyquotes/kenney-rpg-audio-for-godot",
+   "commit": "22eb79bb843bbcadcaa6ed119353a33265ffad11"
+  },
+  {
+   "file": "creak.1.mp3",
+   "pack": "Kenney RPG Audio",
+   "source": "addons/kenney rpg audio/creak_1.ogg",
+   "url": "https://github.com/Boyquotes/kenney-rpg-audio-for-godot",
+   "commit": "22eb79bb843bbcadcaa6ed119353a33265ffad11"
+  },
+  {
+   "file": "creak.2.mp3",
+   "pack": "Kenney RPG Audio",
+   "source": "addons/kenney rpg audio/creak_2.ogg",
+   "url": "https://github.com/Boyquotes/kenney-rpg-audio-for-godot",
+   "commit": "22eb79bb843bbcadcaa6ed119353a33265ffad11"
+  },
+  {
+   "file": "creak.3.mp3",
+   "pack": "Kenney RPG Audio",
+   "source": "addons/kenney rpg audio/creak_3.ogg",
+   "url": "https://github.com/Boyquotes/kenney-rpg-audio-for-godot",
+   "commit": "22eb79bb843bbcadcaa6ed119353a33265ffad11"
+  },
+  {
+   "file": "pot.1.mp3",
+   "pack": "Kenney RPG Audio",
+   "source": "addons/kenney rpg audio/metal_pot_2.ogg",
+   "url": "https://github.com/Boyquotes/kenney-rpg-audio-for-godot",
+   "commit": "22eb79bb843bbcadcaa6ed119353a33265ffad11"
+  },
+  {
+   "file": "pot.2.mp3",
+   "pack": "Kenney RPG Audio",
+   "source": "addons/kenney rpg audio/metal_pot_3.ogg",
+   "url": "https://github.com/Boyquotes/kenney-rpg-audio-for-godot",
+   "commit": "22eb79bb843bbcadcaa6ed119353a33265ffad11"
+  },
+  {
+   "file": "jingle.rise.1.mp3",
+   "pack": "Kenney Music Jingles",
+   "source": "addons/kenney music jingles/Pizzicato jingles/jingles_pizzi_10.ogg",
+   "url": "https://github.com/Boyquotes/kenney-music-jingles-for-godot",
+   "commit": "1312c1a8ab2b5830136a5f53ea8c570389bd0808"
+  },
+  {
+   "file": "jingle.resolve.1.mp3",
+   "pack": "Kenney Music Jingles",
+   "source": "addons/kenney music jingles/Pizzicato jingles/jingles_pizzi_11.ogg",
+   "url": "https://github.com/Boyquotes/kenney-music-jingles-for-godot",
+   "commit": "1312c1a8ab2b5830136a5f53ea8c570389bd0808"
+  },
+  {
+   "file": "jingle.fifth.1.mp3",
+   "pack": "Kenney Music Jingles",
+   "source": "addons/kenney music jingles/Pizzicato jingles/jingles_pizzi_16.ogg",
+   "url": "https://github.com/Boyquotes/kenney-music-jingles-for-godot",
+   "commit": "1312c1a8ab2b5830136a5f53ea8c570389bd0808"
+  },
+  {
+   "file": "jingle.fall.1.mp3",
+   "pack": "Kenney Music Jingles",
+   "source": "addons/kenney music jingles/Pizzicato jingles/jingles_pizzi_7.ogg",
+   "url": "https://github.com/Boyquotes/kenney-music-jingles-for-godot",
+   "commit": "1312c1a8ab2b5830136a5f53ea8c570389bd0808"
+  },
+  {
+   "file": "jingle.magic.1.mp3",
+   "pack": "Kenney Music Jingles",
+   "source": "addons/kenney music jingles/Pizzicato jingles/jingles_pizzi_2.ogg",
+   "url": "https://github.com/Boyquotes/kenney-music-jingles-for-godot",
+   "commit": "1312c1a8ab2b5830136a5f53ea8c570389bd0808"
+  },
+  {
+   "file": "drum.war.1.mp3",
+   "pack": "Kenney Music Jingles",
+   "source": "addons/kenney music jingles/Hit jingles/jingles_hit_14.ogg",
+   "url": "https://github.com/Boyquotes/kenney-music-jingles-for-godot",
+   "commit": "1312c1a8ab2b5830136a5f53ea8c570389bd0808"
+  },
+  {
+   "file": "drum.war.2.mp3",
+   "pack": "Kenney Music Jingles",
+   "source": "addons/kenney music jingles/Hit jingles/jingles_hit_12.ogg",
+   "url": "https://github.com/Boyquotes/kenney-music-jingles-for-godot",
+   "commit": "1312c1a8ab2b5830136a5f53ea8c570389bd0808"
+  },
+  {
+   "file": "drum.war.3.mp3",
+   "pack": "Kenney Music Jingles",
+   "source": "addons/kenney music jingles/Hit jingles/jingles_hit_0.ogg",
+   "url": "https://github.com/Boyquotes/kenney-music-jingles-for-godot",
+   "commit": "1312c1a8ab2b5830136a5f53ea8c570389bd0808"
+  },
+  {
+   "file": "drum.fill.1.mp3",
+   "pack": "Kenney Music Jingles",
+   "source": "addons/kenney music jingles/Hit jingles/jingles_hit_11.ogg",
+   "url": "https://github.com/Boyquotes/kenney-music-jingles-for-godot",
+   "commit": "1312c1a8ab2b5830136a5f53ea8c570389bd0808"
+  },
+  {
+   "file": "drum.fill.2.mp3",
+   "pack": "Kenney Music Jingles",
+   "source": "addons/kenney music jingles/Hit jingles/jingles_hit_9.ogg",
+   "url": "https://github.com/Boyquotes/kenney-music-jingles-for-godot",
+   "commit": "1312c1a8ab2b5830136a5f53ea8c570389bd0808"
+  },
+  {
+   "file": "drum.fill.3.mp3",
+   "pack": "Kenney Music Jingles",
+   "source": "addons/kenney music jingles/Hit jingles/jingles_hit_3.ogg",
+   "url": "https://github.com/Boyquotes/kenney-music-jingles-for-godot",
+   "commit": "1312c1a8ab2b5830136a5f53ea8c570389bd0808"
+  },
+  {
+   "file": "slime.1.mp3",
+   "pack": "Kenney Sci-Fi Sounds",
+   "source": "addons/kenney sci-fi sounds/slime_000.ogg",
+   "url": "https://github.com/Boyquotes/kenney-sci-fi-sounds-for-godot",
+   "commit": "c094967fe930c57ddb376f67c75f8aa0296690b7"
+  },
+  {
+   "file": "bed.drone.1.mp3",
+   "pack": "Kenney Sci-Fi Sounds",
+   "source": "addons/kenney sci-fi sounds/space_engine_low_002.ogg",
+   "url": "https://github.com/Boyquotes/kenney-sci-fi-sounds-for-godot",
+   "commit": "c094967fe930c57ddb376f67c75f8aa0296690b7"
+  },
+  {
+   "file": "bed.rumble.1.mp3",
+   "pack": "Kenney Sci-Fi Sounds",
+   "source": "addons/kenney sci-fi sounds/space_engine_large_000.ogg",
+   "url": "https://github.com/Boyquotes/kenney-sci-fi-sounds-for-godot",
+   "commit": "c094967fe930c57ddb376f67c75f8aa0296690b7"
+  }
+ ]
+}

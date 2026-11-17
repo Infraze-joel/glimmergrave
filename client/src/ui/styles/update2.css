@@ -1,0 +1,1127 @@
+/*
+ * Update 2, in-game and screen additions: keyword colours, training coach, tips, element strip + combo,
+ * acts on the chamber track, boss bar variants, draft footnotes / tags / reroll, menu stage, Glimmer.
+ */
+
+/* ---------------------------------------------------------------- keywords inside rich text */
+.gg-kw {
+  font-weight: 700;
+}
+
+.gg-kw--ember { color: var(--gg-ember); }
+.gg-kw--rime { color: var(--gg-rime); }
+.gg-kw--storm { color: var(--gg-storm); }
+.gg-kw--res { color: var(--gg-glimmer); }
+
+.gg-kw-b {
+  font-weight: 700;
+  color: var(--gg-text);
+}
+
+.gg-kw-mouse {
+  width: 1.55em;
+  height: 1.55em;
+  margin: 0 0.05em;
+  vertical-align: -0.38em;
+  color: var(--gg-text);
+}
+
+:where(.gg-coach-body, .gg-tip-body, .gg-codex-body) .gg-key {
+  margin: 0 0.08em;
+  vertical-align: 0.08em;
+}
+
+[data-element='ember'] { --el: var(--gg-ember); }
+[data-element='rime'] { --el: var(--gg-rime); }
+[data-element='storm'] { --el: var(--gg-storm); }
+[data-element='res'] { --el: var(--gg-glimmer); }
+
+/* ---------------------------------------------------------------- training coach (HUD top centre) */
+.gg-coach-slot {
+  width: 100%;
+}
+
+.gg-coach-slot:empty {
+  display: none;
+}
+
+.gg-coach {
+  position: relative;
+  width: 100%;
+  border: 1px solid rgba(233, 196, 106, 0.45);
+  border-top: 3px solid var(--gg-gold);
+  border-radius: 0.3em;
+  background: linear-gradient(180deg, rgba(20, 24, 35, 0.94), rgba(6, 7, 11, 0.92));
+  box-shadow: 0 0.5em 1.6em rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  text-shadow: none;
+}
+
+.gg-coach-head {
+  display: flex;
+  align-items: center;
+  gap: 0.9em;
+  padding: 0.38em 1em;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(233, 196, 106, 0.07);
+}
+
+.gg-coach-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  font-family: var(--gg-font-display);
+  font-size: 0.78em;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--gg-gold);
+}
+
+.gg-coach-label .gg-icon {
+  width: 1.2em;
+  height: 1.2em;
+  filter: none;
+}
+
+.gg-coach-dots {
+  display: flex;
+  flex: 1;
+  justify-content: center;
+  gap: 0.34em;
+}
+
+.gg-coach-dots i {
+  width: 1.3em;
+  height: 0.3em;
+  border-radius: 1em;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.gg-coach-dots i.is-done {
+  background: var(--gg-glimmer);
+}
+
+.gg-coach-dots i.is-current {
+  background: var(--gg-gold);
+  box-shadow: 0 0 0.5em rgba(233, 196, 106, 0.8);
+}
+
+.gg-coach-step {
+  font-size: 0.8em;
+  font-weight: 700;
+  color: var(--gg-text-dim);
+  white-space: nowrap;
+}
+
+.gg-coach-main {
+  padding: 0.6em 1.1em 0.75em;
+  text-align: center;
+}
+
+.gg-coach.is-in .gg-coach-main {
+  animation: gg-rise-in var(--gg-med) var(--gg-ease) both;
+}
+
+.gg-coach-title {
+  font-family: var(--gg-font-display);
+  font-size: 1.3em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  color: var(--gg-gold-hi);
+}
+
+.gg-coach-body {
+  margin-top: 0.25em;
+  font-size: 1em;
+  line-height: 1.6;
+  color: var(--gg-text);
+  text-wrap: balance;
+}
+
+.gg-coach-bar {
+  height: 0.42em;
+  margin: 0.6em auto 0;
+  width: min(100%, 22em);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 1em;
+  background: rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+
+.gg-coach-bar i {
+  display: block;
+  width: var(--w, 0%);
+  height: 100%;
+  background: linear-gradient(90deg, var(--gg-glimmer-lo), var(--gg-glimmer));
+  transition: width var(--gg-med) var(--gg-ease);
+}
+
+.gg-coach-done {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em;
+  background: linear-gradient(180deg, rgba(14, 58, 50, 0.97), rgba(7, 30, 27, 0.97));
+  font-family: var(--gg-font-display);
+  font-size: 1.5em;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gg-glimmer-hi);
+}
+
+.gg-coach-done .gg-icon {
+  width: 1.4em;
+  height: 1.4em;
+  padding: 0.18em;
+  border-radius: 50%;
+  background: var(--gg-glimmer);
+  color: #04221d;
+  filter: none;
+}
+
+.gg-coach-done svg {
+  stroke-width: 3;
+}
+
+.gg-coach.is-done .gg-coach-done {
+  display: flex;
+  animation: gg-coach-done 1.5s var(--gg-ease) both;
+}
+
+@keyframes gg-coach-done {
+  0% { opacity: 0; transform: scale(1.08); }
+  12% { opacity: 1; transform: none; }
+  82% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* A learner does not need the run chrome. */
+.gg-hud--training .gg-track,
+.gg-hud--training .gg-wave,
+.gg-hud--training .gg-party,
+.gg-hud--training .gg-room-code {
+  display: none;
+}
+
+.gg-hud--training .gg-hud-tc {
+  width: min(44em, 66vw);
+}
+
+/* ---------------------------------------------------------------- contextual tips (left edge, never the centre) */
+.gg-tip-slot {
+  position: absolute;
+  top: 34%;
+  left: 1.1em;
+  width: min(21.5em, 30vw);
+}
+
+.gg-hud--draft .gg-tip-slot,
+.gg-hud--draft .gg-strip {
+  display: none;
+}
+
+.gg-tip {
+  --tone: var(--gg-gold);
+  position: relative;
+  padding: 0.7em 0.9em 0.75em;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-left: 3px solid var(--tone);
+  border-radius: 0.3em;
+  background: linear-gradient(120deg, rgba(20, 24, 35, 0.95), rgba(6, 7, 11, 0.93));
+  box-shadow: 0 0.5em 1.6em rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+  text-shadow: none;
+  animation: gg-tip-in 260ms var(--gg-ease) both;
+}
+
+.gg-tip[data-tone='ember'] { --tone: var(--gg-ember); }
+.gg-tip[data-tone='rime'] { --tone: var(--gg-rime); }
+.gg-tip[data-tone='storm'] { --tone: var(--gg-storm); }
+.gg-tip[data-tone='res'] { --tone: var(--gg-glimmer); }
+.gg-tip[data-tone='cursed'] { --tone: var(--gg-storm); }
+.gg-tip[data-tone='danger'] { --tone: var(--gg-danger); }
+.gg-tip[data-tone='hazard-spikes'] { --tone: #dfe6f2; }
+.gg-tip[data-tone='hazard-vent'] { --tone: #ff8a3c; }
+.gg-tip[data-tone='hazard-frost'] { --tone: var(--gg-rime); }
+
+@keyframes gg-tip-in {
+  from { opacity: 0; transform: translateX(-1.2em); }
+  to { opacity: 1; transform: none; }
+}
+
+.gg-tip-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+}
+
+.gg-tip-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 2.4em;
+  height: 2.4em;
+  border: 1px solid color-mix(in srgb, var(--tone) 60%, transparent);
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--tone) 30%, transparent), rgba(6, 7, 11, 0.7) 75%);
+  color: var(--tone);
+}
+
+.gg-tip-icon .gg-icon {
+  width: 1.5em;
+  height: 1.5em;
+  filter: none;
+}
+
+.gg-tip-label {
+  display: flex;
+  align-items: center;
+  gap: 0.3em;
+  font-family: var(--gg-font-display);
+  font-size: 0.64em;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--gg-text-dim);
+}
+
+.gg-tip-label .gg-icon {
+  width: 1.2em;
+  height: 1.2em;
+  color: var(--gg-gold);
+  filter: none;
+}
+
+.gg-tip-title {
+  display: block;
+  font-family: var(--gg-font-display);
+  font-size: 1.08em;
+  letter-spacing: 0.05em;
+  line-height: 1.2;
+  color: var(--tone);
+}
+
+.gg-tip-body {
+  margin-top: 0.5em;
+  font-size: 0.9em;
+  line-height: 1.5;
+  color: #d6dae4;
+}
+
+.gg-tip-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45em;
+  margin-top: 0.5em;
+  font-size: 0.78em;
+  color: var(--gg-text-dim);
+}
+
+.gg-tip-timer {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 2px;
+  background: var(--tone);
+  transform-origin: left;
+  animation: gg-tip-timer var(--tip-s, 14s) linear both;
+}
+
+@keyframes gg-tip-timer {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+/* ---------------------------------------------------------------- element strip + resonance combo */
+.gg-ability-row {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+
+.gg-strip {
+  position: absolute;
+  bottom: 1.7em;
+  left: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.45em;
+  width: max-content;
+  margin-left: 1.1em;
+}
+
+.gg-strip-chips {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.24em;
+}
+
+.gg-strip-chip,
+.gg-strip-res {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42em;
+  min-height: 1.75em;
+  padding: 0.05em 0.75em 0.05em 0.3em;
+  border: 1px solid color-mix(in srgb, var(--el, #fff) 55%, transparent);
+  border-radius: 1em;
+  background: rgba(6, 7, 11, 0.82);
+  font-size: 0.82em;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.gg-strip-chip .gg-icon {
+  width: 1.15em;
+  height: 1.15em;
+  color: var(--el);
+}
+
+.gg-strip-chip b {
+  color: var(--el);
+}
+
+.gg-strip-key {
+  min-width: 2.9em;
+  padding: 0.12em 0.4em;
+  border-radius: 1em;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 0.78em;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+  color: var(--gg-text-dim);
+}
+
+.gg-strip-verb {
+  color: var(--gg-text);
+}
+
+.gg-strip-verb::before {
+  content: '·';
+  margin-right: 0.42em;
+  color: var(--gg-text-faint);
+}
+
+.gg-strip-res {
+  --el: var(--gg-text-faint);
+  padding-left: 0.55em;
+  border-style: dashed;
+  color: var(--gg-text-dim);
+}
+
+.gg-strip-res.is-ready {
+  --el: var(--gg-glimmer);
+  border-style: solid;
+  background: rgba(9, 34, 31, 0.9);
+  color: var(--gg-glimmer-hi);
+  box-shadow: 0 0 0.8em rgba(69, 224, 192, 0.3);
+}
+
+.gg-strip-res .gg-icon {
+  width: 1.1em;
+  height: 1.1em;
+}
+
+.gg-strip-arrow {
+  opacity: 0.75;
+}
+
+.gg-strip-dot {
+  width: 0.62em;
+  height: 0.62em;
+  margin-right: -0.2em;
+  border-radius: 50%;
+  background: var(--el);
+  box-shadow: 0 0 0.4em var(--el);
+}
+
+.gg-combo {
+  --el-a: var(--gg-ember);
+  --el-b: var(--gg-rime);
+  padding: 0.28em 0.9em 0.32em 0.6em;
+  border: 1px solid rgba(69, 224, 192, 0.5);
+  border-radius: 0.4em;
+  background: linear-gradient(100deg, color-mix(in srgb, var(--el-a) 24%, rgba(6, 7, 11, 0.9)), rgba(6, 7, 11, 0.9) 45%, color-mix(in srgb, var(--el-b) 24%, rgba(6, 7, 11, 0.9)));
+  transform-origin: left bottom;
+  opacity: 0.86;
+}
+
+.gg-combo.is-own {
+  border-color: var(--gg-glimmer-hi);
+  box-shadow: 0 0 1.2em rgba(69, 224, 192, 0.45);
+  opacity: 1;
+}
+
+.gg-combo.is-bump {
+  animation: gg-combo-bump 300ms var(--gg-ease) both;
+}
+
+.gg-combo.is-own.is-bump {
+  animation-name: gg-combo-bump-own;
+}
+
+.gg-combo.is-leaving {
+  opacity: 0;
+  transition: opacity 240ms linear;
+}
+
+@keyframes gg-combo-bump {
+  0% { transform: scale(1.12); }
+  100% { transform: none; }
+}
+
+@keyframes gg-combo-bump-own {
+  0% { transform: scale(1.4); filter: brightness(1.9); }
+  100% { transform: none; filter: none; }
+}
+
+.gg-combo-main {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  font-family: var(--gg-font-display);
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--gg-glimmer-hi);
+}
+
+.gg-combo-main .gg-icon {
+  width: 1.3em;
+  height: 1.3em;
+  color: var(--gg-glimmer);
+}
+
+.gg-combo-count {
+  font-size: 1.45em;
+  line-height: 1;
+  color: var(--gg-gold-hi);
+}
+
+.gg-combo-count:empty {
+  display: none;
+}
+
+.gg-combo[data-tier='2'] .gg-combo-count { font-size: 1.8em; }
+.gg-combo[data-tier='3'] .gg-combo-count { font-size: 2.2em; color: #fff; text-shadow: 0 0 0.4em var(--gg-gold), var(--gg-shadow-text); }
+
+.gg-combo[data-tier='3'] {
+  box-shadow: 0 0 1.6em rgba(233, 196, 106, 0.6);
+  border-color: var(--gg-gold-hi);
+}
+
+.gg-combo-sub {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  font-size: 0.76em;
+  color: var(--gg-text-dim);
+}
+
+.gg-combo-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  color: var(--gg-text);
+}
+
+.gg-combo-pair .gg-icon {
+  width: 1.15em;
+  height: 1.15em;
+}
+
+.gg-combo-arrow {
+  opacity: 0.6;
+}
+
+.gg-combo-who {
+  font-weight: 700;
+}
+
+.gg-combo.is-own .gg-combo-who {
+  color: var(--gg-gold);
+}
+
+/* ---------------------------------------------------------------- chamber track: acts + final boss */
+.gg-track-act {
+  display: grid;
+  place-items: center;
+  min-width: 1.5em;
+  padding: 0 0.3em;
+  border-bottom: 2px solid var(--biome, var(--gg-line-strong));
+  font-family: var(--gg-font-display);
+  font-size: 0.66em;
+  font-weight: 700;
+  line-height: 1.5;
+  letter-spacing: 0.06em;
+  color: var(--gg-text-faint);
+  opacity: 0.75;
+}
+
+.gg-track-act:not(:first-child) {
+  margin-left: 0.5em;
+}
+
+.gg-track-act.is-current,
+.gg-track-act.is-done {
+  color: var(--biome, var(--gg-text));
+  opacity: 1;
+}
+
+[data-biome='crypt'] { --biome: #e9c46a; }
+[data-biome='flooded'] { --biome: #4fd3c4; }
+[data-biome='forge'] { --biome: #ff7a4a; }
+
+.gg-track-final {
+  max-width: 14em;
+  padding-left: 0.8em;
+  border-left: 1px solid rgba(255, 255, 255, 0.16);
+  font-family: var(--gg-font-display);
+  font-size: 0.68em;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: #ffb3bb;
+}
+
+.gg-hud-tc {
+  width: min(52em, 64vw);
+}
+
+/* ---------------------------------------------------------------- boss bar variants */
+.gg-boss-icon {
+  display: inline-flex;
+  color: var(--gg-gold);
+}
+
+.gg-boss[data-boss='matron'] .gg-boss-fill {
+  background: linear-gradient(180deg, #e0b8ff 0%, #8f45d6 42%, #32135c 100%);
+}
+
+.gg-boss[data-boss='stalker'] .gg-boss-fill {
+  background: linear-gradient(180deg, #f4edd6 0%, #c9a65a 42%, #5e4416 100%);
+}
+
+.gg-boss[data-boss='matron'] .gg-boss-head { color: #ecd9ff; }
+.gg-boss[data-boss='stalker'] .gg-boss-head { color: #f7edcf; }
+
+.gg-boss.is-herald .gg-boss-bar {
+  width: 72%;
+  margin: 0 auto;
+  height: 0.8em;
+}
+
+.gg-boss.is-herald .gg-boss-head {
+  font-size: 0.92em;
+  letter-spacing: 0.12em;
+}
+
+.gg-boss.is-herald .gg-boss-fill {
+  filter: saturate(0.7) brightness(0.9);
+}
+
+.gg-banner[data-tone^='biome'] .gg-banner-title {
+  font-size: 1.7em;
+  color: var(--biome, var(--gg-gold-hi));
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.95), 0 0 0.6em rgba(0, 0, 0, 0.9), 0 0 1.2em color-mix(in srgb, var(--biome, #e9c46a) 60%, transparent);
+}
+
+.gg-banner[data-tone='biome-crypt'] { --biome: #ffe7ad; }
+.gg-banner[data-tone='biome-flooded'] { --biome: #9ff3e6; }
+.gg-banner[data-tone='biome-forge'] { --biome: #ffb08c; }
+
+/* ---------------------------------------------------------------- draft: keywords, footnote, tag, reroll */
+.gg-boon-desc {
+  flex: 1 1 auto;
+}
+
+.gg-boon-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  max-width: 100%;
+  padding: 0.22em 0.75em 0.22em 0.5em;
+  border: 1px solid var(--tag, var(--gg-line-strong));
+  border-radius: 1em;
+  background: color-mix(in srgb, var(--tag, #fff) 14%, rgba(6, 7, 11, 0.85));
+  font-size: 0.76em;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: left;
+  color: var(--tag-text, var(--gg-text));
+}
+
+.gg-boon-tag .gg-icon {
+  width: 1.15em;
+  height: 1.15em;
+  color: var(--tag);
+}
+
+.gg-boon-tag.is-good {
+  --tag: var(--gg-glimmer);
+  --tag-text: var(--gg-glimmer-hi);
+}
+
+.gg-boon-tag.is-info {
+  --tag: var(--gg-gold);
+  --tag-text: var(--gg-gold-hi);
+}
+
+.gg-boon-tag.is-warn {
+  --tag: #ff9b52;
+  --tag-text: #ffd2ad;
+}
+
+.gg-boon-note {
+  width: 100%;
+  padding-top: 0.45em;
+  border-top: 1px dashed rgba(255, 255, 255, 0.14);
+  font-size: 0.74em;
+  line-height: 1.35;
+  color: var(--gg-text-dim);
+}
+
+.gg-boon-note .gg-kw,
+.gg-boon-desc .gg-kw {
+  font-weight: 700;
+}
+
+.gg-boon-card {
+  min-height: 23em;
+}
+
+.gg-boon-category {
+  padding-top: 0.5em;
+}
+
+.gg-draft-foot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.gg-reroll {
+  --edge: var(--gg-glimmer-lo);
+  gap: 0.55em;
+  min-height: 2.6em;
+  padding: 0 1.1em 0 0.7em;
+  color: var(--gg-glimmer-hi);
+  font-size: 0.84em;
+}
+
+.gg-reroll .gg-key {
+  font-size: 0.85em;
+}
+
+.gg-reroll-count {
+  padding: 0.1em 0.6em;
+  border-radius: 1em;
+  background: rgba(69, 224, 192, 0.16);
+  font-family: var(--gg-font-body);
+  font-size: 0.9em;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.gg-reroll:disabled .gg-reroll-count {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.gg-draft-cards.is-rerolling .gg-boon-card {
+  opacity: 0.35;
+  transform: scale(0.97) rotateY(8deg);
+}
+
+/* Training: the coach panel already says "choose a boon". */
+.gg-draft.is-training {
+  padding-top: 11.5em;
+}
+
+.gg-draft.is-training .gg-draft-head {
+  display: none;
+}
+
+/* ---------------------------------------------------------------- main menu: stage column + class list */
+.gg-menu-bg {
+  position: absolute;
+  inset: 0;
+  background-color: rgba(6, 7, 11, 0.55);
+  /* A soft hole over the stage column lets the 3D hero preview show through. */
+  -webkit-mask-image: radial-gradient(ellipse var(--hole-w, 14em) 46% at var(--hole-x, 50%) 47%, transparent 58%, #000 100%);
+  mask-image: radial-gradient(ellipse var(--hole-w, 14em) 46% at var(--hole-x, 50%) 47%, transparent 58%, #000 100%);
+}
+
+.gg-menu-layout {
+  grid-template-columns: 26em minmax(11em, 1fr) minmax(21em, 27em);
+  gap: 1.6em;
+}
+
+.gg-logo--row {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.9em;
+}
+
+.gg-logo--row .gg-logo-emblem {
+  flex: none;
+  width: 3.7em;
+  height: 3.7em;
+  margin: 0;
+}
+
+.gg-logo--row .gg-logo-title {
+  font-size: 1.95em;
+}
+
+.gg-logo--row .gg-logo-tag {
+  margin-top: 0.35em;
+  font-size: 0.64em;
+  letter-spacing: 0.16em;
+}
+
+.gg-menu-left {
+  gap: 1.1em;
+}
+
+.gg-menu-form {
+  gap: 0.8em;
+}
+
+.gg-menu-play {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6em;
+}
+
+.gg-menu-play.is-trained .gg-menu-train-box {
+  order: 2;
+}
+
+.gg-menu-train {
+  min-height: 3.3em;
+  font-size: 1.02em;
+}
+
+.gg-menu-train.gg-btn--small {
+  min-height: 2.3em;
+  font-size: 0.78em;
+}
+
+.gg-menu-play:not(.is-trained) .gg-menu-host {
+  --edge: var(--gg-gold-lo);
+  min-height: 2.9em;
+  font-size: 0.92em;
+  color: var(--gg-gold-hi);
+}
+
+.gg-menu-train-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4em;
+  margin-top: 0.35em;
+  font-size: 0.84em;
+  color: var(--gg-glimmer-hi);
+}
+
+.gg-menu-train-hint .gg-icon {
+  width: 1.15em;
+  height: 1.15em;
+  color: var(--gg-glimmer);
+}
+
+.gg-menu-links .gg-btn span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gg-menu-wallet {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.05em 0.55em;
+  border-radius: 1em;
+  background: rgba(69, 224, 192, 0.16);
+  font-family: var(--gg-font-body);
+  letter-spacing: 0.02em;
+  color: var(--gg-glimmer-hi);
+}
+
+.gg-record-row {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.4em;
+}
+
+.gg-record-stat {
+  position: relative;
+  padding: 0.4em 0.5em;
+  min-width: 0;
+}
+
+.gg-record-stat span {
+  font-size: 0.62em;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.gg-record-stat--glimmer {
+  border-color: var(--gg-glimmer-lo);
+}
+
+.gg-record-stat--glimmer b {
+  color: var(--gg-glimmer);
+}
+
+.gg-record-stat--glimmer .gg-icon {
+  position: absolute;
+  top: 0.35em;
+  right: 0.3em;
+  width: 1.15em;
+  height: 1.15em;
+  color: var(--gg-glimmer);
+}
+
+.gg-menu-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  padding-bottom: 1.2em;
+  pointer-events: none;
+}
+
+.gg-stage-plate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15em;
+  padding: 0.6em 1.4em 0.8em;
+  background: radial-gradient(closest-side, rgba(6, 7, 11, 0.82), rgba(6, 7, 11, 0.55) 70%, transparent);
+  text-align: center;
+}
+
+.gg-stage-name {
+  font-family: var(--gg-font-display);
+  font-size: 1.5em;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  color: var(--gg-text);
+  text-shadow: var(--gg-shadow-text);
+}
+
+.gg-stage-role {
+  margin-bottom: 0.5em;
+  font-size: 0.84em;
+  color: var(--cls);
+  text-shadow: var(--gg-shadow-text);
+}
+
+.gg-stage-wardrobe {
+  --edge: var(--cls);
+  pointer-events: auto;
+}
+
+.gg-menu-right {
+  gap: 0.7em;
+}
+
+.gg-menu-right .gg-section-title {
+  font-size: 1em;
+}
+
+.gg-class-grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.6em;
+}
+
+.gg-class-card {
+  gap: 0.55em;
+  padding: 0.7em 1em;
+}
+
+.gg-class-card .gg-class-emblem {
+  width: 2.6em;
+  height: 2.6em;
+}
+
+.gg-class-card .gg-class-emblem .gg-icon {
+  width: 1.6em;
+  height: 1.6em;
+}
+
+.gg-class-card .gg-class-name {
+  font-size: 1.15em;
+}
+
+/* Only the chosen class is spelled out; the others stay one compact row. */
+.gg-class-card:not(.is-selected) .gg-class-abilities,
+.gg-class-card:not(.is-selected) .gg-class-stats {
+  display: none;
+}
+
+.gg-class-card.is-selected .gg-class-stats {
+  padding-top: 0.5em;
+}
+
+.gg-class-abilities li {
+  grid-template-columns: 5.2em 1.35em minmax(0, 1fr);
+}
+
+/* ---------------------------------------------------------------- lobby: cloth accent + loadout buttons */
+.gg-slot-cloth {
+  position: absolute;
+  right: 26%;
+  bottom: 0.5em;
+  left: 26%;
+  height: 0.3em;
+  border-radius: 1em;
+  background: var(--look, var(--cls));
+  box-shadow: 0 0 0.7em color-mix(in srgb, var(--look, var(--cls)) 70%, transparent);
+}
+
+.gg-slot:not(.is-empty):not([data-look-color='0']) .gg-slot-emblem {
+  background: radial-gradient(circle, color-mix(in srgb, var(--look) 42%, transparent), rgba(6, 7, 11, 0.75) 78%);
+  box-shadow: 0 0 0 2px #0c0f16, 0 0 0 4px var(--look);
+}
+
+.gg-lobby-loadout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5em;
+  margin-top: 0.6em;
+}
+
+/* ---------------------------------------------------------------- summary: Glimmer + training */
+.gg-summary-glimmer {
+  --edge: var(--gg-glimmer-lo);
+  --fill: linear-gradient(180deg, rgba(14, 44, 40, 0.95), rgba(9, 22, 22, 0.95));
+}
+
+.gg-summary-glimmer .gg-icon {
+  color: var(--gg-glimmer);
+}
+
+.gg-summary-glimmer b {
+  color: var(--gg-glimmer-hi);
+}
+
+.gg-summary-wallet {
+  align-self: flex-end;
+  margin-left: 0.4em;
+  padding-bottom: 0.15em;
+  font-size: 0.72em;
+  font-style: normal;
+  white-space: nowrap;
+  color: #9fd9cd;
+}
+
+.gg-summary-chip {
+  min-width: 10.5em;
+}
+
+.gg-summary[data-mode='training'] {
+  background:
+    radial-gradient(90% 70% at 50% 0%, rgba(69, 224, 192, 0.2), transparent 60%),
+    radial-gradient(140% 120% at 50% 40%, rgba(12, 15, 22, 0.84), rgba(6, 7, 11, 0.97) 75%);
+}
+
+.gg-training-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.1em;
+  width: min(100%, 46em);
+}
+
+.gg-training-title {
+  font-size: 2.7em;
+  letter-spacing: 0.12em;
+  text-indent: 0.12em;
+}
+
+.gg-summary[data-mode='training'] .gg-summary-emblem {
+  color: var(--gg-glimmer);
+  filter: drop-shadow(0 0 0.8em rgba(69, 224, 192, 0.6));
+}
+
+.gg-training-panel {
+  --cut: 1em;
+  --fill: rgba(12, 15, 22, 0.94);
+  width: 100%;
+  padding: 1em 1.4em 1.1em;
+}
+
+.gg-training-learned {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55em;
+}
+
+.gg-training-learned li {
+  display: flex;
+  align-items: center;
+  gap: 0.8em;
+  line-height: 1.4;
+}
+
+.gg-training-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 2.2em;
+  height: 2.2em;
+  border: 1px solid color-mix(in srgb, var(--el) 60%, transparent);
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--el) 28%, transparent), rgba(6, 7, 11, 0.7) 75%);
+  color: var(--el);
+}
+
+.gg-training-reward {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em 1.2em;
+}
+
+.gg-training-hint {
+  color: var(--gg-text-dim);
+}
+
+.gg-summary-glimmer.is-big b {
+  font-size: 1.5em;
+}
+
+/* ---------------------------------------------------------------- settings: tips row */
+.gg-set-tips {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8em;
+  width: 100%;
+}
+
+.gg-set-tips .gg-btn.is-done {
+  --edge: var(--gg-glimmer);
+  color: var(--gg-glimmer-hi);
+}
+
+.gg-set-row--tips {
+  justify-items: stretch;
+}

@@ -5,10 +5,10 @@
  */
 import { TICK_DT, WORLD } from '../constants.ts';
 import { ENEMIES, ENEMY_TUNING, STATUS } from '../data/enemies.ts';
-import type { EnemyAnim, EnemyKind } from '../types.ts';
+import type { EnemyAnim, EnemyKind, Hazard } from '../types.ts';
 import { chillSlow, clearStatus, damageHero, enemyDamage, isBoss, rawDamageEnemy } from './combat.ts';
 import { stepBoss, createBossState } from './boss.ts';
-import { angleTo, closestT, DEG, inArc, sweepHit, TAU } from './geom.ts';
+import { angleTo, closestT, DEG, inArc, inLine, sweepHit, TAU } from './geom.ts';
 import { resolveCollisions } from './movement.ts';
 import { spawnProjectile } from './projectiles.ts';
 import type { AttackShape, Enemy, EnemyAttack, Hero } from './state.ts';
@@ -21,7 +21,14 @@ const GOLDEN_ANGLE = 2.399963;
 export interface SpawnOpts {
   elite?: boolean;
   summoned?: boolean;
+  /** Boss kinds only: the weakened phase-1 version fought in the second elite chamber. */
+  herald?: boolean;
+  /** Tutorial: no AI (training dummy) / ignores hazards (chaser). */
+  passive?: boolean;
+  reckless?: boolean;
 }
+
+const BOSS_KINDS_ALL: ReadonlySet<EnemyKind> = new Set<EnemyKind>(['champion', 'regent', 'matron', 'stalker']);
 
 export function setAnim(e: Enemy, anim: EnemyAnim): void {
   if (e.anim === anim) return;
@@ -42,11 +49,12 @@ export function spawnEnemy(w: World, kind: EnemyKind, x: number, z: number, opts
     w.enemies.splice(corpse, 1);
   }
   const def = ENEMIES[kind];
-  const boss = kind === 'champion' || kind === 'regent';
+  const boss = BOSS_KINDS_ALL.has(kind);
+  const herald = boss && kind !== 'champion' && opts.herald === true;
   const elite = opts.elite === true;
   const eliteHp = elite && !boss ? ENEMY_TUNING.ELITE_HP_MUL : 1;
   const eliteDamage = elite && !boss ? ENEMY_TUNING.ELITE_DAMAGE_MUL : 1;
-  const maxHp = def.hp * w.hpMul * eliteHp;
+  const maxHp = def.hp * w.hpMul * eliteHp * (herald ? ENEMY_TUNING.HERALD.HP_FRACTION : 1);
   const e: Enemy = {
     id: w.nextEnemyId++, kind, def, x, z, rot: 0, hp: maxHp, maxHp, radius: def.radius, elite,
     damageMul: w.damageMul * eliteDamage, speedMul: w.speedMul, anim: 'spawn', animSeq: 0, dead: false, corpseTime: 0,
@@ -55,7 +63,8 @@ export function spawnEnemy(w: World, kind: EnemyKind, x: number, z: number, opts
     shieldHp: kind === 'warrior' ? ENEMY_TUNING.WARRIOR_SHIELD_HP * w.hpMul * eliteHp : 0,
     status: null, statusTime: 0, statusPotency: 1, statusBy: -1, statusBonus: 0, burnTimer: 0, resonanceCd: 0,
     kbX: 0, kbZ: 0, blinkCd: ENEMY_TUNING.MAGE_BLINK_COOLDOWN / 2, strafeDir: w.rng.chance(0.5) ? 1 : -1, strafeTime: 0,
-    boss: boss ? createBossState(kind) : null, summoned: opts.summoned === true,
+    boss: boss ? createBossState(kind, herald) : null, summoned: opts.summoned === true,
+    passive: opts.passive === true, reckless: opts.reckless === true,
   };
   if (w.nextEnemyId > 0xffff) w.nextEnemyId = 1;
   resolveCollisions(e, e.radius, w.room);
@@ -127,6 +136,36 @@ export function steer(w: World, e: Enemy, tx: number, tz: number, speed: number,
       const push = AI.AVOID_PUSH * (1 - gap / clearance) + AI.AVOID_PUSH_MIN;
       vx += -dz * side * -push;
       vz += dx * side * -push;
+    }
+    // Warning / active hazards are walked around like obstacles, unless the destination itself lies inside
+    // (lured in) or the enemy is immune (bosses) or reckless.
+    if (w.hazardsLive > 0 && !e.boss && !e.reckless) {
+      const hazards = w.room.hazards;
+      for (let i = 0; i < hazards.length; i++) {
+        if ((w.hazardPhase[i] as number) === 0) continue;
+        const hz = hazards[i] as Hazard;
+        const clearance = hz.r + e.radius + AI.HAZARD_PAD;
+        const lureX = tx - hz.x;
+        const lureZ = tz - hz.z;
+        if (lureX * lureX + lureZ * lureZ < clearance * clearance) continue;
+        const ox = e.x - hz.x;
+        const oz = e.z - hz.z;
+        const od = Math.hypot(ox, oz);
+        if (od < clearance) {
+          // Standing in it: get out by the shortest way.
+          if (od > 1e-3) { vx += (ox / od) * AI.HAZARD_PUSH; vz += (oz / od) * AI.HAZARD_PUSH; }
+          continue;
+        }
+        const t = closestT(e.x, e.z, e.x + dx * look, e.z + dz * look, hz.x, hz.z);
+        if (t <= 0) continue;
+        const gap = Math.hypot(hz.x - (e.x + dx * look * t), hz.z - (e.z + dz * look * t));
+        if (gap >= clearance) continue;
+        const cross = dx * (hz.z - e.z) - dz * (hz.x - e.x);
+        const side = Math.abs(cross) > AI.AVOID_SIDE_EPSILON ? Math.sign(cross) : (e.id & 1) === 0 ? 1 : -1;
+        const push = AI.AVOID_PUSH * (1 - gap / clearance) + AI.AVOID_PUSH_MIN;
+        vx += -dz * side * -push;
+        vz += dx * side * -push;
+      }
     }
   }
   for (const o of w.enemies) {
@@ -207,7 +246,7 @@ export function landAttack(w: World, e: Enemy, a: EnemyAttack, shape: AttackShap
     let inside: boolean;
     if (shape === 'arc') inside = inArc(a.x, a.z, a.rot, a.r, a.w, hx, hz, 0);
     else if (shape === 'circle') inside = (hx - a.x) * (hx - a.x) + (hz - a.z) * (hz - a.z) <= a.r * a.r;
-    else inside = false;
+    else inside = inLine(a.x, a.z, a.rot, a.r, a.w, hx, hz, 0);
     if (inside) damageHero(w, h, dmg, e.id);
   }
 }
@@ -243,7 +282,7 @@ function stepMelee(w: World, e: Enemy, target: Hero): void {
 }
 
 /** Shared ranged positioning: hold a distance band around the target, strafing inside it. */
-function keepDistance(w: World, e: Enemy, target: Hero, keep: number, band: number, strafe: boolean, dt: number): void {
+export function keepDistance(w: World, e: Enemy, target: Hero, keep: number, band: number, strafe: boolean, dt: number): void {
   const tx = target.body.x;
   const tz = target.body.z;
   const dx = e.x - tx;
@@ -296,26 +335,26 @@ function stepArcher(w: World, e: Enemy, target: Hero, dt: number): void {
   keepDistance(w, e, target, ENEMY_TUNING.ARCHER_KEEP_DISTANCE, AI.ARCHER_BAND, true, dt);
 }
 
-function tryBlink(w: World, e: Enemy, threat: Hero): boolean {
+export function tryBlink(w: World, e: Enemy, threat: Hero, distance: number = ENEMY_TUNING.MAGE_BLINK_DISTANCE, cooldown: number = ENEMY_TUNING.MAGE_BLINK_COOLDOWN, minHeroDistance: number = AI.MAGE_BLINK_MIN_HERO_DISTANCE): boolean {
   const base = angleTo(threat.body.x, threat.body.z, e.x, e.z);
   const hx = w.room.w / 2 - e.radius - AI.MAGE_BLINK_WALL_MARGIN;
   const hz = w.room.d / 2 - e.radius - AI.MAGE_BLINK_WALL_MARGIN;
   for (const off of AI.MAGE_BLINK_ANGLES) {
     const a = base + off * DEG;
-    const x = e.x + Math.sin(a) * ENEMY_TUNING.MAGE_BLINK_DISTANCE;
-    const z = e.z + Math.cos(a) * ENEMY_TUNING.MAGE_BLINK_DISTANCE;
+    const x = e.x + Math.sin(a) * distance;
+    const z = e.z + Math.cos(a) * distance;
     if (Math.abs(x) > hx || Math.abs(z) > hz) continue;
     let free = true;
     for (const o of w.room.obstacles) if (Math.hypot(o.x - x, o.z - z) < o.r + e.radius + AI.MAGE_BLINK_OBSTACLE_MARGIN) { free = false; break; }
     if (!free) continue;
     for (const h of w.heroes) {
-      if (isTargetHero(h) && Math.hypot(h.body.x - x, h.body.z - z) < AI.MAGE_BLINK_MIN_HERO_DISTANCE) { free = false; break; }
+      if (isTargetHero(h) && Math.hypot(h.body.x - x, h.body.z - z) < minHeroDistance) { free = false; break; }
     }
     if (!free) continue;
     e.x = x;
     e.z = z;
     e.rot = angleTo(x, z, threat.body.x, threat.body.z);
-    e.blinkCd = ENEMY_TUNING.MAGE_BLINK_COOLDOWN;
+    e.blinkCd = cooldown;
     w.emit({ e: 'cast', who: { t: 'e', id: e.id }, ability: 'blink', x, z, rot: e.rot });
     return true;
   }
@@ -374,7 +413,8 @@ export function stepEnemy(w: World, e: Enemy): void {
       e.burnTimer -= dt;
       if (e.burnTimer <= SIM.EPS) {
         e.burnTimer += SIM.BURN_TICK_SECONDS;
-        rawDamageEnemy(w, e, STATUS.BURN.DPS * e.statusPotency * (1 + e.statusBonus) * SIM.BURN_TICK_SECONDS, e.statusBy, 'ember');
+        const src = w.hero(e.statusBy);
+        rawDamageEnemy(w, e, STATUS.BURN.DPS * e.statusPotency * (1 + e.statusBonus) * (src ? 1 + src.meta.might : 1) * SIM.BURN_TICK_SECONDS, e.statusBy, 'ember');
         if (e.dead) return;
       }
     }
@@ -410,6 +450,8 @@ export function stepEnemy(w: World, e: Enemy): void {
     resolveCollisions(e, e.radius, w.room);
     return;
   }
+  // Training dummies have no will of their own; the tutorial script drives whatever they do.
+  if (e.passive) return;
   if (e.attack) {
     e.attack.t -= dt;
     if (e.attack.t <= SIM.EPS) resolveAttack(w, e, e.attack);

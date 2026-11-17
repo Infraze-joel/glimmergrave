@@ -1,8 +1,9 @@
 /**
- * Crypt Champion and Bone Regent.
- * Both run the same loop: chase -> telegraphed attack -> recovery (punish window) -> gap -> next attack.
+ * Crypt Champion and Bone Regent, plus what every boss shares (state, targeting, phases, announced ground attacks).
+ * All bosses run the same loop: reposition -> telegraphed attack -> recovery (punish window) -> gap -> next attack.
  * They cannot be stunned or knocked back, never start two attacks back to back and always have an option that
- * does not require reaching the target (charge / volley), so kiting or body-blocking cannot stall them.
+ * does not require reaching the target (charge / volley / projectiles), so kiting or body-blocking cannot stall
+ * them. The Hex Matron lives in matron.ts, the Ossuary Stalker in stalker.ts.
  */
 import { WORLD, RUN } from '../constants.ts';
 import { ENEMY_TUNING } from '../data/enemies.ts';
@@ -13,7 +14,9 @@ import {
   spawnEnemy, steer,
 } from './enemies.ts';
 import { angleTo, DEG, TAU } from './geom.ts';
+import { createMatronCooldowns, stepMatron } from './matron.ts';
 import { spawnProjectile } from './projectiles.ts';
+import { createStalkerCooldowns, firePendingShot, stepStalker } from './stalker.ts';
 import type { BossState, Enemy, EnemyAttack, Hero } from './state.ts';
 import { AI, SIM } from './tuning.ts';
 import type { World } from './world.ts';
@@ -21,16 +24,24 @@ import type { World } from './world.ts';
 const CH = ENEMY_TUNING.CHAMPION;
 const RG = ENEMY_TUNING.REGENT;
 
-export function createBossState(kind: EnemyKind): BossState {
+/** Health fractions at which a boss enters phase 2 and 3 (the champion has a single phase). */
+const PHASE_THRESHOLDS: Partial<Record<EnemyKind, readonly [number, number]>> = {
+  regent: RG.PHASE_THRESHOLDS, matron: ENEMY_TUNING.MATRON.PHASE_THRESHOLDS, stalker: ENEMY_TUNING.STALKER.PHASE_THRESHOLDS,
+};
+
+export function createBossState(kind: EnemyKind, herald = false): BossState {
   return {
     phase: 1, gap: AI.BOSS_FIRST_GAP, chargeCd: AI.BOSS_FIRST_CHARGE, volleyCd: AI.BOSS_FIRST_VOLLEY,
-    summonCd: kind === 'champion' ? AI.CHAMPION.FIRST_SUMMON : RG.SUMMON_COOLDOWN, slamCd: AI.REGENT.SLAM_COOLDOWN,
+    summonCd: kind === 'champion' ? AI.CHAMPION.FIRST_SUMMON : kind === 'matron' ? ENEMY_TUNING.MATRON.SUMMON_COOLDOWN : RG.SUMMON_COOLDOWN,
+    slamCd: AI.REGENT.SLAM_COOLDOWN,
     chargeLeft: 0, chargeLen: 0, chargeFromX: 0, chargeFromZ: 0, chargeHit: [],
     repeats: 0, repeatTimer: 0, slams: [], chase: 0, retarget: 0, pendingPhase: 0,
+    herald, cd: kind === 'matron' ? createMatronCooldowns() : kind === 'stalker' ? createStalkerCooldowns() : [],
+    seqType: null, seqLeft: 0, seqTimer: 0, seqStep: 0, seqAngle: 0, seqDir: 1, cycle: 0,
   };
 }
 
-function bossTarget(w: World, e: Enemy, b: BossState, dt: number): Hero | null {
+export function bossTarget(w: World, e: Enemy, b: BossState, dt: number): Hero | null {
   b.retarget -= dt;
   const current = w.hero(e.target);
   if (current && isTargetHero(current) && b.retarget > 0) return current;
@@ -44,7 +55,7 @@ function bossTarget(w: World, e: Enemy, b: BossState, dt: number): Hero | null {
   return target;
 }
 
-function partyCount(w: World, base: number): number {
+export function partyCount(w: World, base: number): number {
   return Math.round(base * (1 + RUN.COUNT_PER_EXTRA_PLAYER * (w.partySize - 1)));
 }
 
@@ -145,7 +156,7 @@ function chooseRegent(w: World, e: Enemy, b: BossState, target: Hero, d: number)
   if (b.volleyCd <= 0) startVolley(w, e, b, target);
 }
 
-function endAttack(e: Enemy, b: BossState, recover: number): void {
+export function endAttack(e: Enemy, b: BossState, recover: number): void {
   e.attack = null;
   e.recover = recover;
   b.chase = 0;
@@ -222,6 +233,38 @@ function stepCharge(w: World, e: Enemy, b: BossState, dt: number): void {
   }
 }
 
+/**
+ * Announced ground attacks land on their own schedule: slam and blast circles, beam lines, queued shots and
+ * traps (a trap re-announces itself after every pulse until its pulses are used up).
+ */
+function stepPending(w: World, e: Enemy, b: BossState, dt: number): void {
+  for (let i = b.slams.length - 1; i >= 0; i--) {
+    const s = b.slams[i] as EnemyAttack;
+    s.t -= dt;
+    if (s.t > SIM.EPS) continue;
+    if (s.type === 'beam') {
+      b.slams.splice(i, 1);
+      w.emit({ e: 'cast', who: { t: 'e', id: e.id }, ability: 'matron_beam', x: s.x, z: s.z, rot: s.rot });
+      landAttack(w, e, s, 'line');
+      continue;
+    }
+    if (s.type === 'shoot' || s.type === 'spear') {
+      b.slams.splice(i, 1);
+      firePendingShot(w, e, s);
+      continue;
+    }
+    w.emit({ e: 'aoe', x: s.x, z: s.z, r: s.r, el: null, hostile: true });
+    landAttack(w, e, s, 'circle');
+    if (s.type === 'trap' && (s.pulses ?? 0) > 0) {
+      s.pulses = (s.pulses ?? 0) - 1;
+      s.t = s.interval ?? 0;
+      emitTelegraph(w, e, s, 'circle');
+      continue;
+    }
+    b.slams.splice(i, 1);
+  }
+}
+
 export function stepBoss(w: World, e: Enemy, dt: number): void {
   const b = e.boss as BossState;
   const rate = dt * (1 - chillSlow(e));
@@ -229,29 +272,29 @@ export function stepBoss(w: World, e: Enemy, dt: number): void {
   b.volleyCd -= rate;
   b.summonCd -= rate;
   b.slamCd -= rate;
+  for (let i = 0; i < b.cd.length; i++) b.cd[i] = (b.cd[i] as number) - rate;
 
-  if (e.kind === 'regent') {
+  const thresholds = PHASE_THRESHOLDS[e.kind];
+  if (thresholds && !b.herald) {
     const frac = e.hp / e.maxHp;
-    const phase = frac <= RG.PHASE_THRESHOLDS[1] ? 3 : frac <= RG.PHASE_THRESHOLDS[0] ? 2 : 1;
+    const phase = frac <= thresholds[1] ? 3 : frac <= thresholds[0] ? 2 : 1;
     if (phase > b.phase) {
       b.phase = phase;
       w.emit({ e: 'bossPhase', phase });
       // The new phase opens with its signature move after a short pause.
-      if (phase === 2) b.summonCd = 0;
-      if (phase === 3) b.slamCd = 0;
-      b.gap = Math.max(b.gap, AI.REGENT.PHASE_PAUSE);
+      b.pendingPhase = phase;
+      if (e.kind === 'regent') {
+        if (phase === 2) b.summonCd = 0;
+        if (phase === 3) b.slamCd = 0;
+        b.gap = Math.max(b.gap, AI.REGENT.PHASE_PAUSE);
+      }
     }
   }
 
-  // Slam circles that are already on the ground land on their own schedule.
-  for (let i = b.slams.length - 1; i >= 0; i--) {
-    const s = b.slams[i] as EnemyAttack;
-    s.t -= dt;
-    if (s.t > SIM.EPS) continue;
-    b.slams.splice(i, 1);
-    w.emit({ e: 'aoe', x: s.x, z: s.z, r: s.r, el: null, hostile: true });
-    landAttack(w, e, s, 'circle');
-  }
+  stepPending(w, e, b, dt);
+  if (e.kind === 'matron') { stepMatron(w, e, b, dt, rate); return; }
+  if (e.kind === 'stalker') { stepStalker(w, e, b, dt, rate); return; }
+
   if (b.repeats > 0) {
     b.repeatTimer -= dt;
     if (b.repeatTimer <= SIM.EPS) {

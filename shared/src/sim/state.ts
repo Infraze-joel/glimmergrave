@@ -42,6 +42,24 @@ export interface BoonStats {
   infusion: Record<AbilitySlot, Infusion | null>;
 }
 
+/** Everything a hero's permanent upgrades add up to (see data/meta.ts). Zero / false = no upgrade. */
+export interface MetaStats {
+  /** Flat maximum health. */
+  hp: number;
+  /** Fraction added to all damage the hero deals. */
+  might: number;
+  moveSpeed: number;
+  /** Secondary / dash recharge rate bonus (cooldown is divided by 1 + value). */
+  secondaryHaste: number;
+  dashHaste: number;
+  /** Draft rerolls per run. */
+  rerolls: number;
+  attunement: boolean;
+  /** Extra health fraction when revived; > 0 also grants META.RESOLVE_INVULNERABILITY. */
+  resolve: number;
+  fortune: number;
+}
+
 export interface PendingHit {
   def: AbilityDef;
   slot: AbilitySlot;
@@ -122,6 +140,17 @@ export interface Hero {
   revive: number;
   secondWindTimer: number;
   draft: BoonOffer[];
+  /** How the current draft was generated (needed to reroll it under the same rules). */
+  draftOpts: DraftOptions | null;
+  /** Draft rerolls left this run (insight upgrade). */
+  rerolls: number;
+  /** Sanitised permanent upgrade levels and what they add up to. */
+  metaLevels: number[];
+  meta: MetaStats;
+  /** Hazard afflictions: seconds of burn left, time to the next burn tick, seconds of chill left. */
+  burnTime: number;
+  burnTimer: number;
+  chillTime: number;
   inDoor: boolean;
   run: PlayerRunStats;
   /** Total incoming damage this run (before shields); balance telemetry only. */
@@ -132,7 +161,11 @@ export type AttackShape = 'arc' | 'circle' | 'line';
 
 /** A wound-up enemy attack; resolves when `t` reaches 0. */
 export interface EnemyAttack {
-  type: 'melee' | 'shoot' | 'blast' | 'sweep' | 'charge' | 'volley' | 'summon' | 'slam';
+  type: 'melee' | 'shoot' | 'blast' | 'sweep' | 'charge' | 'volley' | 'summon' | 'slam'
+    // matron
+    | 'ring' | 'spiral' | 'beam' | 'blasts' | 'wisp'
+    // stalker
+    | 'fan' | 'spear' | 'leap' | 'trap' | 'frenzy';
   t: number;
   /** Shape origin / centre. */
   x: number;
@@ -145,6 +178,19 @@ export interface EnemyAttack {
   damage: number;
   /** Target slot the attack was started against. */
   target: number;
+  /** Traps: pulses still to come after the next one, and the seconds between pulses. */
+  pulses?: number;
+  interval?: number;
+}
+
+export interface DraftOptions {
+  choices: number;
+  /** Cursed chambers: at least one offer is rare or better. */
+  guaranteeRare: boolean;
+  /** First draft of a run: at least one offer is an infusion. */
+  guaranteeInfusion: boolean;
+  /** Attunement draft: infusions only. */
+  infusionsOnly?: boolean;
 }
 
 export interface BossState {
@@ -164,12 +210,28 @@ export interface BossState {
   /** Follow-up volley waves / slam repeats still queued. */
   repeats: number;
   repeatTimer: number;
-  /** Extra slam circles that are winding up in parallel. */
+  /**
+   * Announced ground attacks that land on their own schedule, in parallel to whatever the boss does next:
+   * slam / blast circles, beam lines, trap circles (which re-announce themselves while they pulse) and queued shots.
+   */
   slams: EnemyAttack[];
   /** Seconds spent chasing without attacking (anti-kiting). */
   chase: number;
   retarget: number;
   pendingPhase: number;
+  /** Herald (second elite chamber): reduced health, locked to phase 1. */
+  herald: boolean;
+  /** Per-kind ability cooldowns (indices: MATRON_CD in matron.ts, STALKER_CD in stalker.ts). */
+  cd: number[];
+  /** A running sequence (beam steps, spiral shots, ring waves, blast waves, frenzy shots). */
+  seqType: EnemyAttack['type'] | null;
+  seqLeft: number;
+  seqTimer: number;
+  seqStep: number;
+  seqAngle: number;
+  seqDir: number;
+  /** Rotates through the heroes for multi-target attacks. */
+  cycle: number;
 }
 
 export interface Enemy {
@@ -218,6 +280,10 @@ export interface Enemy {
   boss: BossState | null;
   /** Summoned by a boss (does not count for wave pacing). */
   summoned: boolean;
+  /** Training dummy: no AI at all (tutorial). */
+  passive: boolean;
+  /** Walks straight through hazards instead of around them (tutorial chaser). */
+  reckless: boolean;
 }
 
 export interface Projectile {
@@ -244,6 +310,11 @@ export interface Projectile {
   stun: number;
   knockback: number;
   dead: boolean;
+  /** Homing turn rate in rad/s (0 = flies straight) towards the hero in `seek` (-1 = nearest). */
+  homing: number;
+  seek: number;
+  /** Hostile projectiles with `fragile` are destroyed by any hero attack that touches them. */
+  fragile: boolean;
 }
 
 export const emptyInput = (): InputCmd => ({ seq: 0, moveX: 0, moveZ: 0, aim: 0, aimDist: 0, buttons: 0 });

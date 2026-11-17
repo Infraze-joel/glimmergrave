@@ -2,7 +2,9 @@
 import { BOONS, BOON_BY_ID, BOON_TUNING, type BoonDef } from '../data/boons.ts';
 import type { AbilitySlot, BoonOffer, BoonStack, ElementId } from '../types.ts';
 import type { Rng } from './rng.ts';
-import type { BoonStats, Hero } from './state.ts';
+import type { BoonStats, DraftOptions, Hero } from './state.ts';
+
+export type { DraftOptions };
 
 /** Kinship boons that only do something once the owner can trigger Resonance. */
 const NEEDS_INFUSION: ReadonlySet<string> = new Set(['shared_vigor']);
@@ -95,7 +97,7 @@ export function applyBoon(h: Hero, id: string): number {
   h.stats = computeStats(h.boons);
   const hpGain = h.stats.bonusHp - before.bonusHp;
   if (hpGain !== 0) {
-    h.maxHp = h.def.maxHp + h.stats.bonusHp;
+    h.maxHp = h.def.maxHp + h.meta.hp + h.stats.bonusHp;
     if (h.state === 'alive') h.hp = Math.min(h.maxHp, h.hp + Math.max(0, hpGain));
     else h.hp = Math.min(h.hp, h.maxHp);
   }
@@ -121,28 +123,29 @@ export function isOfferable(h: Hero, def: BoonDef): boolean {
   return true;
 }
 
-export interface DraftOptions {
-  choices: number;
-  /** Cursed chambers: at least one offer is rare or better. */
-  guaranteeRare: boolean;
-  /** First draft of a run: at least one offer is an infusion. */
-  guaranteeInfusion: boolean;
-}
-
-export function generateDraft(rng: Rng, h: Hero, opts: DraftOptions): BoonOffer[] {
-  const pool = BOONS.filter((def) => isOfferable(h, def));
+/**
+ * `exclude` (rerolls): offers that were just shown. They are only offered again when there are not enough
+ * alternatives to fill the draft.
+ */
+export function generateDraft(rng: Rng, h: Hero, opts: DraftOptions, exclude?: ReadonlySet<string>): BoonOffer[] {
+  const offerable = BOONS.filter((def) => isOfferable(h, def) && (!opts.infusionsOnly || def.category === 'infusion'));
+  const pool = exclude ? offerable.filter((def) => !exclude.has(def.id)) : offerable;
   const picked: BoonDef[] = [];
-  const take = (candidates: BoonDef[]): void => {
+  const take = (from: BoonDef[], candidates: BoonDef[]): void => {
     if (candidates.length === 0) return;
     const index = rng.weighted(candidates.map((def) => BOON_TUNING.WEIGHTS[def.rarity]));
     const def = candidates[index];
     if (!def) return;
     picked.push(def);
-    pool.splice(pool.indexOf(def), 1);
+    from.splice(from.indexOf(def), 1);
   };
-  if (opts.guaranteeInfusion) take(pool.filter((def) => def.category === 'infusion'));
-  if (opts.guaranteeRare && !picked.some((def) => def.rarity !== 'common')) take(pool.filter((def) => def.rarity !== 'common'));
-  while (picked.length < opts.choices && pool.length > 0) take(pool);
+  if (opts.guaranteeInfusion) take(pool, pool.filter((def) => def.category === 'infusion'));
+  if (opts.guaranteeRare && !picked.some((def) => def.rarity !== 'common')) take(pool, pool.filter((def) => def.rarity !== 'common'));
+  while (picked.length < opts.choices && pool.length > 0) take(pool, pool);
+  if (exclude && picked.length < opts.choices) {
+    const again = offerable.filter((def) => exclude.has(def.id));
+    while (picked.length < opts.choices && again.length > 0) take(again, again);
+  }
   // Shuffle so the guaranteed offers are not always in the first position.
   for (let i = picked.length - 1; i > 0; i--) {
     const j = rng.int(0, i);

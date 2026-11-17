@@ -3,7 +3,7 @@ import { randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { NET, TICK_DT } from '../../shared/src/constants.ts';
 import { encodeSnapshot, encodeSnapshotBody, type ClientMsg, type ErrorCode, type ServerMsg } from '../../shared/src/protocol.ts';
 import { World } from '../../shared/src/sim/index.ts';
-import type { ClassId, InputCmd, RosterEntry } from '../../shared/src/types.ts';
+import type { ClassId, InputCmd, Loadout, Look, RosterEntry } from '../../shared/src/types.ts';
 import { SERVER } from './config.ts';
 import type { Logger } from './log.ts';
 
@@ -20,12 +20,14 @@ export interface Session {
   slot: number;
   name: string;
   cls: ClassId;
+  /** Cosmetic appearance (already sanitised); shown to everyone on the roster. */
+  look: Look;
   ready: boolean;
   /** Secret for rejoining this slot. Never logged, never sent to anyone but its owner. */
   token: string;
   peer: Peer | null;
   disconnectedAt: number;
-  /** Signature of the draft options last sent to this player. */
+  /** Signature of the draft message (options + rerolls left) last sent to this player. */
   draftSig: string;
 }
 
@@ -45,7 +47,7 @@ export interface RoomOptions {
 
 export type JoinResult = { ok: true; session: Session } | { ok: false; code: ErrorCode };
 
-const EMPTY_DRAFT = '[]';
+const EMPTY_DRAFT = '';
 
 function tokensEqual(a: string, b: string): boolean {
   const ba = Buffer.from(a);
@@ -73,9 +75,13 @@ export class Room {
   ticks = 0;
   droppedBacklogs = 0;
 
-  constructor(code: string, opts: RoomOptions) {
+  /** A training session: one player, starts at once, cannot be joined and never returns to a lobby. */
+  readonly tutorial: boolean;
+
+  constructor(code: string, opts: RoomOptions, tutorial = false) {
     this.code = code;
     this.opts = opts;
+    this.tutorial = tutorial;
     this.lastActivity = opts.now();
     this.emptySince = opts.now();
   }
@@ -106,7 +112,10 @@ export class Room {
     const out: RosterEntry[] = [];
     for (const s of this.sessions) {
       if (!s) continue;
-      out.push({ slot: s.slot, name: s.name, cls: s.cls, ready: s.ready, connected: s.peer !== null, host: s.slot === this.hostSlot, boons: this.world.getBoons(s.slot) });
+      out.push({
+        slot: s.slot, name: s.name, cls: s.cls, look: { ...s.look }, ready: s.ready, connected: s.peer !== null, host: s.slot === this.hostSlot,
+        boons: this.world.getBoons(s.slot),
+      });
     }
     return out;
   }
@@ -128,16 +137,20 @@ export class Room {
     this.broadcast({ t: 'run', state: this.world.getRunState() });
   }
 
-  /** Sends each player their private draft options whenever they changed. */
+  /** Sends one player their private draft: current options ([] = nothing to pick) and rerolls left this run. */
+  private sendDraft(s: Session, force: boolean): void {
+    if (!s.peer) return;
+    const options = this.world.getDraft(s.slot);
+    const rerolls = this.world.getRerolls(s.slot);
+    const sig = `${rerolls}:${JSON.stringify(options)}`;
+    if (!force && sig === s.draftSig) return;
+    s.draftSig = sig;
+    s.peer.sendJson({ t: 'draft', options, rerolls });
+  }
+
+  /** Sends each player their private draft whenever it changed (new offers, a pick, a reroll). */
   private syncDrafts(force = false): void {
-    for (const s of this.sessions) {
-      if (!s || !s.peer) continue;
-      const options = this.world.getDraft(s.slot);
-      const sig = options.length === 0 ? EMPTY_DRAFT : JSON.stringify(options);
-      if (!force && sig === s.draftSig) continue;
-      s.draftSig = sig;
-      s.peer.sendJson({ t: 'draft', options });
-    }
+    for (const s of this.sessions) if (s) this.sendDraft(s, force);
   }
 
   /** Full state for a peer that just (re)joined: welcome, roster, run, draft. */
@@ -146,9 +159,7 @@ export class Room {
     s.peer.sendJson({ t: 'welcome', code: this.code, slot: s.slot, token: s.token });
     s.peer.sendJson({ t: 'roster', players: this.roster(), oath: this.oath });
     s.peer.sendJson({ t: 'run', state: this.world.getRunState() });
-    const options = this.world.getDraft(s.slot);
-    s.draftSig = options.length === 0 ? EMPTY_DRAFT : JSON.stringify(options);
-    s.peer.sendJson({ t: 'draft', options });
+    this.sendDraft(s, true);
   }
 
   // ------------------------------------------------------------------ membership
@@ -177,19 +188,37 @@ export class Room {
     else if (this.emptySince === 0) this.emptySince = this.opts.now();
   }
 
-  join(peer: Peer, name: string, cls: ClassId): JoinResult {
-    if (this.phase !== 'lobby') return { ok: false, code: 'run_in_progress' };
+  /**
+   * `loadout` must already be sanitised (parseClientMsg does that); the simulation clamps the upgrade levels again.
+   * In a tutorial room the first join starts the training session at once and nobody else can ever join.
+   */
+  join(peer: Peer, name: string, cls: ClassId, loadout: Loadout): JoinResult {
+    if (this.phase !== 'lobby' || (this.tutorial && this.playerCount > 0)) return { ok: false, code: 'run_in_progress' };
     const slot = this.sessions.findIndex((s) => s === null);
     if (slot < 0) return { ok: false, code: 'room_full' };
-    if (!this.world.addPlayer(slot, cls, name)) return { ok: false, code: 'room_full' };
+    if (!this.world.addPlayer(slot, cls, name, loadout.meta)) return { ok: false, code: 'room_full' };
     const session: Session = {
-      slot, name, cls, ready: false, token: randomBytes(SERVER.TOKEN_BYTES).toString('hex'), peer, disconnectedAt: 0, draftSig: EMPTY_DRAFT,
+      slot, name, cls, look: { ...loadout.look }, ready: false, token: randomBytes(SERVER.TOKEN_BYTES).toString('hex'), peer,
+      disconnectedAt: 0, draftSig: EMPTY_DRAFT,
     };
     this.sessions[slot] = session;
     this.touch();
     this.updateEmpty();
     this.ensureHost();
-    this.opts.log('info', 'join', { room: this.code, slot, name, cls, players: this.playerCount });
+    this.opts.log('info', 'join', { room: this.code, slot, name, cls, players: this.playerCount, tutorial: this.tutorial });
+    if (this.tutorial) {
+      if (!this.world.startTutorial(this.opts.seed ?? randomInt(1, 0x7fffffff))) {
+        this.sessions[slot] = null;
+        this.world.removePlayer(slot);
+        return { ok: false, code: 'server_full' };
+      }
+      this.endedAt = 0;
+      this.sendState(session);
+      this.lastRunVersion = this.world.runVersion;
+      this.lastBoonVersion = this.world.boonVersion;
+      this.startLoop();
+      return { ok: true, session };
+    }
     this.sendState(session);
     this.broadcastRoster();
     return { ok: true, session };
@@ -255,6 +284,10 @@ export class Room {
           session.ready = msg.ready;
           changed = true;
         }
+        if (msg.loadout !== undefined && this.world.setMeta(session.slot, msg.loadout.meta)) {
+          session.look = { ...msg.loadout.look };
+          changed = true;
+        }
         let error: ErrorCode | null = null;
         if (msg.oath !== undefined && msg.oath !== this.oath) {
           if (session.slot === this.hostSlot) {
@@ -269,14 +302,18 @@ export class Room {
       }
       case 'start':
         if (session.slot !== this.hostSlot) return 'not_host';
-        if (this.phase !== 'lobby') return null;
+        if (this.phase !== 'lobby' || this.tutorial) return null;
         return this.start();
       case 'pick':
         if (this.world.pickBoon(session.slot, msg.index)) this.afterWorldChange();
         return null;
+      case 'reroll':
+        if (this.world.rerollDraft(session.slot)) this.afterWorldChange();
+        return null;
       case 'toLobby':
         if (session.slot !== this.hostSlot) return 'not_host';
-        if (this.phase !== 'victory' && this.phase !== 'defeat') return null;
+        // A training session has no lobby to return to: the client leaves it instead.
+        if (this.tutorial || (this.phase !== 'victory' && this.phase !== 'defeat')) return null;
         this.toLobby();
         return null;
       default:
