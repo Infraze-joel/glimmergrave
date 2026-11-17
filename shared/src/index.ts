@@ -4,4 +4,7 @@ export * from './protocol.ts';
 export * from './data/classes.ts';
 export * from './data/enemies.ts';
 export * from './data/boons.ts';
+export * from './data/meta.ts';
+export * from './data/tutorial.ts';
 export * from './sim/movement.ts';
+export * from './sim/hazards.ts';

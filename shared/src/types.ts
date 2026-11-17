@@ -6,8 +6,21 @@ export type ClassId = (typeof CLASS_IDS)[number];
 export const ELEMENT_IDS = ['ember', 'rime', 'storm'] as const;
 export type ElementId = (typeof ELEMENT_IDS)[number];
 
-export const ENEMY_KINDS = ['minion', 'warrior', 'archer', 'mage', 'champion', 'regent'] as const;
+/** Append only (wire codes). matron and stalker are bosses, like regent. */
+export const ENEMY_KINDS = ['minion', 'warrior', 'archer', 'mage', 'champion', 'regent', 'matron', 'stalker'] as const;
 export type EnemyKind = (typeof ENEMY_KINDS)[number];
+
+/** The final boss of a run is drawn from this pool (seeded), so consecutive runs end differently. */
+export const BOSS_KINDS = ['regent', 'matron', 'stalker'] as const;
+export type BossKind = (typeof BOSS_KINDS)[number];
+
+export const BIOME_IDS = ['crypt', 'flooded', 'forge'] as const;
+/**
+ * crypt   – torch-lit stone halls (the original look)
+ * flooded – drowned catacombs: teal light, shallow water, frost hazards
+ * forge   – the ember foundry below: red glow, vents that erupt in fire
+ */
+export type BiomeId = (typeof BIOME_IDS)[number];
 
 export const PROJECTILE_KINDS = [
   'arcBolt', // mage primary
@@ -15,6 +28,8 @@ export const PROJECTILE_KINDS = [
   'knife', // rogue secondary
   'boneArrow', // skeleton archer
   'hexOrb', // skeleton mage / regent volley
+  'boneSpear', // stalker heavy shot
+  'soulWisp', // matron slow homing orb
 ] as const;
 export type ProjectileKind = (typeof PROJECTILE_KINDS)[number];
 
@@ -25,8 +40,8 @@ export type PlayerAnim = (typeof PLAYER_ANIMS)[number];
 
 export const ENEMY_ANIMS = [
   'spawn', 'idle', 'move', 'windup', 'attack', 'cast', 'stun', 'death',
-  // boss / champion specials
-  'sweep', 'charge', 'volley', 'summon', 'slam',
+  // boss / champion specials (append only)
+  'sweep', 'charge', 'volley', 'summon', 'slam', 'beam', 'leap',
 ] as const;
 export type EnemyAnim = (typeof ENEMY_ANIMS)[number];
 
@@ -152,7 +167,26 @@ export interface Obstacle {
   /** Collision radius in metres. */
   r: number;
   /** Visual hint for the client. */
-  kind: 'pillar' | 'column' | 'barrels' | 'crates' | 'rubble' | 'brazier';
+  kind: 'pillar' | 'column' | 'barrels' | 'crates' | 'rubble' | 'brazier' | 'sarcophagus' | 'stalagmite' | 'anvil' | 'crystal';
+}
+
+/**
+ * A floor hazard that cycles forever: idle -> warn -> active. Its state is a pure function of the server tick
+ * (see sim/hazards.ts), so clients animate it from the layout alone and the server applies the effect.
+ *  spikes – damage while active
+ *  vent   – fire burst: damage and Burn while active
+ *  frost  – freezing mist: Chill (slow) while active, minor damage
+ * Hazards hurt heroes AND enemies, so luring foes into them is a tactic.
+ */
+export interface Hazard {
+  x: number;
+  z: number;
+  r: number;
+  kind: 'spikes' | 'vent' | 'frost';
+  /** Full cycle length in seconds. */
+  period: number;
+  /** Offset into the cycle, 0..1, so hazards in one room do not all fire together. */
+  phase: number;
 }
 
 export const DOOR_TYPES = ['boon', 'blessing', 'cursed', 'boss'] as const;
@@ -175,9 +209,11 @@ export interface Door {
 export interface RoomLayout {
   /** Deterministic seed for client-side decoration (props, floor variation). */
   seed: number;
+  biome: BiomeId;
   w: number;
   d: number;
   obstacles: Obstacle[];
+  hazards: Hazard[];
   /** Player spawn points (one per slot), near the south wall (+Z). */
   spawns: { x: number; z: number }[];
 }
@@ -187,10 +223,29 @@ export interface BoonStack {
   level: number;
 }
 
+/** Cosmetic appearance of a hero. Purely visual; validated and clamped by the server. */
+export interface Look {
+  /** Index into LOOK.COLORS (cloth / cape tint). */
+  color: number;
+  /** Show the helmet / hat. */
+  head: boolean;
+  cape: boolean;
+  /** Class-specific gear variant 0..LOOK.STYLES-1 (e.g. knight shield shape, mage wand vs staff). */
+  style: number;
+}
+
+/** What a client brings into a session: its look and its permanent upgrade levels (see data/meta.ts). */
+export interface Loadout {
+  look: Look;
+  /** Levels aligned with META_UPGRADES (index = upgrade). Missing entries count as 0. */
+  meta: number[];
+}
+
 export interface RosterEntry {
   slot: number;
   name: string;
   cls: ClassId;
+  look: Look;
   ready: boolean;
   connected: boolean;
   host: boolean;
@@ -240,6 +295,25 @@ export interface RunState {
   elapsed: number;
   stats: PlayerRunStats[];
   secondWinds: number;
+  /** Kind of the boss / champion fought in this chamber, or null in ordinary chambers. */
+  bossKind: EnemyKind | null;
+  /** The boss waiting at the end of this run (known from the start, shown on the chamber track). */
+  finalBoss: BossKind;
+  /** Glimmer earned per hero; filled in when the run ends (victory or defeat), empty before. */
+  rewards: { slot: number; glimmer: number }[];
+  /** Guided training session state, or null in a normal run. */
+  tutorial: TutorialState | null;
+}
+
+export interface TutorialState {
+  /** Current step id (see data/tutorial.ts). */
+  step: string;
+  index: number;
+  total: number;
+  /** 0..1 progress within the step where it makes sense (e.g. 2 of 3 dummies hit), else 0. */
+  progress: number;
+  /** Ground marker the player should walk to, if the step has one. */
+  marker: { x: number; z: number; r: number } | null;
 }
 
 export interface BoonOffer {
@@ -280,4 +354,6 @@ export type GameEvent =
   | { e: 'chamberClear' }
   | { e: 'bossPhase'; phase: number }
   | { e: 'boon'; slot: number; id: string; level: number }
-  | { e: 'doorChosen'; type: DoorType };
+  | { e: 'doorChosen'; type: DoorType }
+  | { e: 'tutorialStep'; step: string }
+  | { e: 'hazardHit'; target: TargetRef; kind: Hazard['kind'] };

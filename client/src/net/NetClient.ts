@@ -7,7 +7,7 @@ import { BIN, decodeSnapshot, encodeInput, type ClientMsg, type ServerMsg } from
 import type { ClassId, InputCmd, RunPhase, Snapshot } from '@shared/types.ts';
 import { SERVER_URL } from '../core/config.ts';
 import { bus, type ConnError } from '../core/EventBus.ts';
-import { resetSession, state, type Screen } from '../core/GameState.ts';
+import { loadoutFor, resetSession, selfRoster, state, type Screen } from '../core/GameState.ts';
 
 const SESSION_KEY = 'glimmergrave.session.v1';
 const CONNECT_TIMEOUT_MS = 8000;
@@ -18,7 +18,7 @@ const SILENCE_TIMEOUT_MS = 6000;
 const PING_SMOOTHING = 0.3;
 
 interface StoredSession { code: string; token: string }
-type Intent = { kind: 'create'; name: string; cls: ClassId } | { kind: 'join'; code: string; name: string; cls: ClassId } | { kind: 'rejoin' };
+type Intent = { kind: 'create'; name: string; cls: ClassId; tutorial: boolean } | { kind: 'join'; code: string; name: string; cls: ClassId } | { kind: 'rejoin' };
 
 function readSession(): StoredSession | null {
   try {
@@ -53,9 +53,15 @@ export class NetClient {
   private lastMessageAt = 0;
 
   constructor() {
-    bus.on('ui:create', ({ name, cls }) => this.begin({ kind: 'create', name, cls }));
+    bus.on('ui:create', ({ name, cls, tutorial }) => this.begin({ kind: 'create', name, cls, tutorial: tutorial === true }));
     bus.on('ui:join', ({ code, name, cls }) => this.begin({ kind: 'join', code, name, cls }));
-    bus.on('ui:lobby', (patch) => this.send({ t: 'lobby', ...patch }));
+    // A class change also switches to that class's look.
+    bus.on('ui:lobby', (patch) => this.send({ t: 'lobby', ...patch, ...(patch.cls ? { loadout: loadoutFor(patch.cls) } : {}) }));
+    bus.on('ui:loadout', () => {
+      const me = selfRoster();
+      if (me && state.run?.phase === 'lobby') this.send({ t: 'lobby', loadout: loadoutFor(me.cls) });
+    });
+    bus.on('ui:reroll', () => this.send({ t: 'reroll' }));
     bus.on('ui:start', () => this.send({ t: 'start' }));
     bus.on('ui:pick', ({ index }) => this.send({ t: 'pick', index }));
     bus.on('ui:toLobby', () => this.send({ t: 'toLobby' }));
@@ -110,8 +116,8 @@ export class NetClient {
     socket.onopen = () => {
       if (this.socket !== socket || !this.intent) return;
       const v = NET.PROTOCOL_VERSION;
-      if (this.intent.kind === 'create') this.send({ t: 'create', v, name: this.intent.name, cls: this.intent.cls });
-      else if (this.intent.kind === 'join') this.send({ t: 'join', v, code: this.intent.code, name: this.intent.name, cls: this.intent.cls });
+      if (this.intent.kind === 'create') this.send({ t: 'create', v, name: this.intent.name, cls: this.intent.cls, loadout: loadoutFor(this.intent.cls), tutorial: this.intent.tutorial });
+      else if (this.intent.kind === 'join') this.send({ t: 'join', v, code: this.intent.code, name: this.intent.name, cls: this.intent.cls, loadout: loadoutFor(this.intent.cls) });
       else if (this.session) this.send({ t: 'rejoin', v, code: this.session.code, token: this.session.token });
     };
     socket.onmessage = (ev) => {
@@ -255,6 +261,7 @@ export class NetClient {
       }
       case 'draft':
         state.draft = msg.options;
+        state.draftRerolls = msg.rerolls;
         bus.emit('state:draft');
         break;
       case 'ev':

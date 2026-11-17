@@ -28,7 +28,7 @@ export const NET = {
   PING_INTERVAL_MS: 2000,
   /** No message from a client for this long = treated as disconnected. */
   CLIENT_TIMEOUT_MS: 10_000,
-  PROTOCOL_VERSION: 1,
+  PROTOCOL_VERSION: 2,
 } as const;
 
 export const TICK_DT = 1 / NET.TICK_HZ;

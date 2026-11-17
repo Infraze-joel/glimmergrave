@@ -5,25 +5,29 @@
  * All multi-byte numbers are little-endian.
  */
 import { NET, WORLD } from './constants.ts';
+import { sanitizeLook, sanitizeMeta } from './data/meta.ts';
 import {
   CLASS_IDS, ENEMY_ANIMS, ENEMY_KINDS, PLAYER_ANIMS, PLAYER_STATES, PROJECTILE_KINDS,
-  type BoonOffer, type ClassId, type EnemySnap, type GameEvent, type InputCmd, type PlayerSnap,
+  type BoonOffer, type ClassId, type EnemySnap, type GameEvent, type InputCmd, type Loadout, type PlayerSnap,
   type ProjectileSnap, type RosterEntry, type RunState, type SelfState, type Snapshot,
 } from './types.ts';
 
 // ---------------------------------------------------------------- JSON messages
 
 export type ClientMsg =
-  | { t: 'create'; v: number; name: string; cls: ClassId }
-  | { t: 'join'; v: number; code: string; name: string; cls: ClassId }
+  /** `tutorial: true` creates a solo training session that cannot be joined. */
+  | { t: 'create'; v: number; name: string; cls: ClassId; loadout: Loadout; tutorial?: boolean }
+  | { t: 'join'; v: number; code: string; name: string; cls: ClassId; loadout: Loadout }
   /** Resume a slot after a disconnect or page reload. */
   | { t: 'rejoin'; v: number; code: string; token: string }
-  /** Lobby changes. `oath` is honoured for the host only. */
-  | { t: 'lobby'; cls?: ClassId; ready?: boolean; oath?: number }
+  /** Lobby changes. `oath` is honoured for the host only. `loadout` replaces look + upgrade levels (lobby only). */
+  | { t: 'lobby'; cls?: ClassId; ready?: boolean; oath?: number; loadout?: Loadout }
   /** Host only; requires every connected player to be ready. */
   | { t: 'start' }
   /** Draft choice: index into the last `draft` message's options. */
   | { t: 'pick'; index: number }
+  /** Spend one draft reroll (from the `insight` upgrade): replaces the current draft options. */
+  | { t: 'reroll' }
   /** Host only, after victory / defeat: reset the room to the lobby. */
   | { t: 'toLobby' }
   | { t: 'leave' }
@@ -42,8 +46,8 @@ export type ServerMsg =
   | { t: 'roster'; players: RosterEntry[]; oath: number }
   /** Full run state; sent on every structural change and ~4x per second during `draft` and `doors`. */
   | { t: 'run'; state: RunState }
-  /** Private: the receiving player's current draft options ([] = nothing to pick). */
-  | { t: 'draft'; options: BoonOffer[] }
+  /** Private: the receiving player's current draft options ([] = nothing to pick) and rerolls left this run. */
+  | { t: 'draft'; options: BoonOffer[]; rerolls: number }
   /** Gameplay events that happened up to `tick`. */
   | { t: 'ev'; tick: number; events: GameEvent[] }
   /** `c` echoes the client's timestamp, `s` is the server time (ms). */
@@ -72,6 +76,12 @@ export function normalizeRoomCode(raw: unknown): string | null {
   return code;
 }
 
+/** Untrusted loadout -> valid loadout. Never fails: anything malformed falls back to defaults / level 0. */
+export function sanitizeLoadout(raw: unknown): Loadout {
+  const r = isObj(raw) ? raw : {};
+  return { look: sanitizeLook(r.look), meta: sanitizeMeta(r.meta) };
+}
+
 /** Strict validation of an untrusted, already JSON-parsed client message. Returns null if invalid. */
 export function parseClientMsg(raw: unknown): ClientMsg | null {
   if (!isObj(raw) || typeof raw.t !== 'string') return null;
@@ -79,13 +89,13 @@ export function parseClientMsg(raw: unknown): ClientMsg | null {
     case 'create': {
       const name = sanitizeName(raw.name);
       if (!isInt(raw.v, 0, 1e6) || !name || !isClass(raw.cls)) return null;
-      return { t: 'create', v: raw.v, name, cls: raw.cls };
+      return { t: 'create', v: raw.v, name, cls: raw.cls, loadout: sanitizeLoadout(raw.loadout), tutorial: raw.tutorial === true };
     }
     case 'join': {
       const name = sanitizeName(raw.name);
       const code = normalizeRoomCode(raw.code);
       if (!isInt(raw.v, 0, 1e6) || !name || !code || !isClass(raw.cls)) return null;
-      return { t: 'join', v: raw.v, code, name, cls: raw.cls };
+      return { t: 'join', v: raw.v, code, name, cls: raw.cls, loadout: sanitizeLoadout(raw.loadout) };
     }
     case 'rejoin': {
       const code = normalizeRoomCode(raw.code);
@@ -97,10 +107,12 @@ export function parseClientMsg(raw: unknown): ClientMsg | null {
       if (raw.cls !== undefined) { if (!isClass(raw.cls)) return null; msg.cls = raw.cls; }
       if (raw.ready !== undefined) { if (typeof raw.ready !== 'boolean') return null; msg.ready = raw.ready; }
       if (raw.oath !== undefined) { if (!isInt(raw.oath, 0, 3)) return null; msg.oath = raw.oath; }
+      if (raw.loadout !== undefined) msg.loadout = sanitizeLoadout(raw.loadout);
       return msg;
     }
     case 'start': return { t: 'start' };
     case 'pick': return isInt(raw.index, 0, 7) ? { t: 'pick', index: raw.index } : null;
+    case 'reroll': return { t: 'reroll' };
     case 'toLobby': return { t: 'toLobby' };
     case 'leave': return { t: 'leave' };
     case 'ping': return typeof raw.c === 'number' && Number.isFinite(raw.c) ? { t: 'ping', c: raw.c } : null;
