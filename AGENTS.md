@@ -17,7 +17,5 @@ Read `docs/gameplan.md` and `docs/tech.md` first. They are the source of truth; 
 - Only CC0 / permissively licensed assets; record every source in `docs/ASSETS.md`.
 - Load files under `/assets/` only through `assetUrl()` (`client/src/core/assetVersion.ts`). They are cached as
   immutable; an unversioned URL would serve old files to new code after a release.
-- Load files under `/assets/` only through `assetUrl()` (`client/src/core/assetVersion.ts`). They are cached as
-  immutable; an unversioned URL would serve old files to new code after a release.
 - Never claim something works without running it. Write tests for gameplay rules before/with the code.
 - Update `docs/STATE.md` at the end of every work session.
