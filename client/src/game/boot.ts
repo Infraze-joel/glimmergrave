@@ -8,6 +8,7 @@ import { initAudio } from '../audio/index.ts';
 import { bus } from '../core/EventBus.ts';
 import { bookRewards, bookRunEnd, state } from '../core/GameState.ts';
 import { settings } from '../core/Settings.ts';
+import { applyCursor } from './Cursor.ts';
 import { NetClient } from '../net/NetClient.ts';
 import { Prediction } from '../net/Prediction.ts';
 import { SnapshotBuffer } from '../net/SnapshotBuffer.ts';
@@ -49,6 +50,7 @@ async function boot(): Promise<void> {
     view.setShake(settings.shake);
     view.setZoom(settings.zoom);
     view.setDamageNumbers(settings.damageNumbers);
+    applyCursor(canvas, settings.cursor, input.enabled);
   };
   applySettings();
   bus.on('settings:changed', applySettings);
@@ -83,6 +85,7 @@ async function boot(): Promise<void> {
     const enabled = state.screen === 'game' && !state.overlayOpen;
     if (input.enabled && !enabled) input.release();
     input.enabled = enabled;
+    applyCursor(canvas, settings.cursor, enabled);
   };
 
   net.onSnapshot = (snap: Snapshot, receivedAt: number): void => {
