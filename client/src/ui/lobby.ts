@@ -14,6 +14,8 @@ import { lookColor } from './wardrobe.ts';
 import type { View } from './view.ts';
 import { motes } from './menu.ts';
 
+const PERCENT = 100;
+
 export interface LobbyView extends View {
   /** Enter in the lobby: start when possible (host), otherwise toggle ready. */
   primaryAction(): void;
@@ -228,7 +230,7 @@ export function createLobby(openModal: (kind: ModalKind) => void, openPage: (pag
     }
     setText(oathTitle, oathName(level));
     setText(oathDesc, oathDescription(level));
-    const bonus = Math.round(REWARDS.OATH_BONUS * level * 100);
+    const bonus = Math.round(REWARDS.OATH_BONUS * level * PERCENT);
     const parts: string[] = [];
     if (bonus > 0) parts.push(t('lobby.oath.reward', { n: bonus }));
     if (level >= RUN.DEPTH.AFFIX_FROM_OATH) parts.push(t('lobby.oath.affix'));

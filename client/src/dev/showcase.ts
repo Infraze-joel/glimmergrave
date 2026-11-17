@@ -13,7 +13,7 @@
  *       &demo=NAME&at=1 (a calm stage where one thing happens at `at` seconds; combine with freeze= to capture it):
  *         art | ult | primary   every hero uses that ability at once
  *         zones                 consecrate, sanctuary, bolt storm, smoke, an armed and a sprung snare, the three buffs
- *         reactions             the six named reactions side by side (left to right: REACTION_IDS order)
+ *         reactions             the six named reactions in two rows of three (REACTION_IDS order, top left first)
  *         umbra                 withered enemies, umbra-tinted projectiles, umbra infusions
  *         affix                 four elites with the four affixes; the volatile one dies and announces its blast
  *         doors                 a descend and an ascend door
@@ -674,8 +674,8 @@ class Showcase {
       this.heroes.forEach((h, i) => { this.dummy(row[i % 4], h.homeX - 1.1, h.homeZ - 5.2); this.dummy(row[(i + 1) % 4], h.homeX + 1.3, h.homeZ - 6.6); });
     } else if (demo === 'reactions') {
       // one victim per reaction and a few bystanders the Void Arc can jump to
-      REACTIONS.forEach((_, i) => this.dummy(row[i % 4], -12.5 + i * 5, -1));
-      for (let i = 0; i < 3; i++) this.dummy('minion', 9.5 + i * 2.2, 2.6 - i * 0.4);
+      REACTIONS.forEach((_, i) => this.dummy(row[i % 4], -8.5 + (i % 3) * 8.5, i < 3 ? -4.6 : 2.2));
+      for (let i = 0; i < 3; i++) this.dummy('minion', 11.2 + (i % 2) * 1.6, 5 - i * 2.6);
       this.heroes.forEach((h) => { h.snap.z = hd - 1.5; h.homeZ = hd - 1.5; });
     } else if (demo === 'umbra') {
       row.forEach((kind, i) => this.dummy(kind, -6 + i * 4, -1.5, EF.WITHER | (i === 3 ? EF.BURN : 0) | (i === 1 ? EF.ELITE : 0)));

@@ -56,7 +56,7 @@ export const RUN = {
   DRAFT_TIMEOUT_SECONDS: 45,
   DRAFT_CHOICES: 3,
   /** Extra enemy health per additional player (multiplicative). */
-  HP_PER_EXTRA_PLAYER: 0.56,
+  HP_PER_EXTRA_PLAYER: 0.85,
   /** Extra enemy count per additional player (multiplicative). */
   COUNT_PER_EXTRA_PLAYER: 0.3,
   /** Enemy health / damage growth per chamber index. */
@@ -80,7 +80,7 @@ export const RUN = {
    * enemy is multiplied by 1 + STEP * depth on top of everything else. Elites carry an affix from AFFIX_FROM_DEPTH.
    */
   DEPTH: {
-    HP_STEP: 0.75, DAMAGE_STEP: 0.4, SPEED_STEP: 0.03, SPEED_CAP: 1.25, COUNT_STEP: 0.08, COUNT_CAP: 1.4,
+    HP_STEP: 1.4, DAMAGE_STEP: 0.8, SPEED_STEP: 0.03, SPEED_CAP: 1.25, COUNT_STEP: 0.08, COUNT_CAP: 1.4,
     AFFIX_FROM_DEPTH: 1,
     /** Oath level from which elites carry an affix even at depth 0. */
     AFFIX_FROM_OATH: 4,

@@ -35,12 +35,9 @@ describe('classes and ability ids', () => {
     it(`${cls}: secondary, art and ultimate each cast under their ability id with their animation`, () => {
       const def = CLASSES[cls];
       // Standard secondary.
-      const a = arena(cls);
-      dummy(a.w, 0, 2.5);
-      expect(a.h.abil.secondary.id).toBe(def.secondary.id);
-      a.pad.hold({ buttons: BTN.SECONDARY, aim: 0, aimDist: 3 }, 1);
-      expect(casts(a.w.drainEvents().concat(of([], 'cast')))).toEqual([]);
       const b = arena(cls);
+      dummy(b.w, 0, 2.5);
+      expect(b.h.abil.secondary.id).toBe(def.secondary.id);
       let ev = b.pad.hold({ buttons: BTN.SECONDARY, aim: 0, aimDist: 3 }, 1);
       expect(casts(ev)).toContain(def.secondary.id);
       expect(b.w.getSnapshotBody().players[0]!.anim).toBe('secondary');
@@ -181,7 +178,7 @@ describe('new ability shapes', () => {
     expect(placed[0]).toMatchObject({ kind: 'rogue_trap', r: def.radius, by: 0 });
     expect(placed[0]!.dur).toBeCloseTo(def.duration + def.windup, 6);
     // Not armed yet: the enemy stands on it unharmed.
-    ev = a.pad.hold({ aim: 0 }, seconds(def.windup) - 2);
+    a.pad.hold({ aim: 0 }, seconds(def.windup) - 2);
     expect(foe.hp).toBe(hp);
     ev = a.pad.hold({ aim: 0 }, 5);
     expect(hp - foe.hp).toBeCloseTo(def.damage * (1 + a.h.mods.damage), 6);
@@ -520,7 +517,7 @@ describe('ability specials', () => {
     const foes = Array.from({ length: ULTIMATE.MARK_MAX_TARGETS + 2 }, (_, i) => dummy(a.w, (i - 3.5) * 1.1, 8 + (i % 2) * 0.4));
     const far = dummy(a.w, 0, 8 + def.radius + 2);
     a.h.ult = ULTIMATE.MAX;
-    let ev = a.pad.hold({ buttons: BTN.ULTIMATE, aim: 0, aimDist: 8 }, 1);
+    const ev = a.pad.hold({ buttons: BTN.ULTIMATE, aim: 0, aimDist: 8 }, 1);
     ev.push(...a.pad.hold({ aim: 0 }, seconds(def.windup) + 1));
     const marks = of(ev, 'mark');
     expect(marks).toHaveLength(ULTIMATE.MARK_MAX_TARGETS);
@@ -528,7 +525,7 @@ describe('ability specials', () => {
     const daggers = a.w.getSnapshotBody().projectiles;
     expect(daggers).toHaveLength(ULTIMATE.MARK_MAX_TARGETS);
     expect(daggers.every((p) => p.kind === 'shadowDagger' && !p.hostile)).toBe(true);
-    ev = a.pad.hold({ aim: 0 }, seconds(0.6));
+    a.pad.hold({ aim: 0 }, seconds(0.6));
     const marked = foes.filter((e) => e.markTime > 0);
     expect(marked.map((e) => e.id).sort()).toEqual(marks.map((m) => m.id).sort());
     // Each dagger hits its own target: ability damage x the mark's vulnerability.

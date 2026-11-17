@@ -255,7 +255,7 @@ export const DIRECTOR = {
   /** Caps on simultaneously spawned ranged enemies per wave: base + per hero. */
   ARCHER_CAP_BASE: 2, ARCHER_CAP_PER_HERO: 1, MAGE_CAP_BASE: 1, MAGE_CAP_PER_HERO: 0.5,
   /** Extra enemy damage per additional hero (parties share the pressure and can revive each other). */
-  DAMAGE_PER_EXTRA_PLAYER: 0,
+  DAMAGE_PER_EXTRA_PLAYER: 0.15,
   CLEAR_DELAY: 0.8,
   /** Room generation details. */
   OBSTACLE_GRID: 0.25, CENTRED_OBSTACLE_CHANCE: 0.2, BOSS_PILLAR_INSET: 3, BOSS_PILLAR_RADIUS: 0.9,

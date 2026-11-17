@@ -174,7 +174,7 @@ async function boot(): Promise<void> {
     net.sendInput(cmd);
     const action = prediction.step(cmd, room, me, own?.cls ?? 'knight', own?.art ?? 0);
     if (action) {
-      bus.emit('game:localAction', { action });
+      bus.emit('game:localAction', action === 'denied' ? { action, slot: prediction.deniedSlot } : { action });
       if (action !== 'denied') view.localAction(action);
     }
   };

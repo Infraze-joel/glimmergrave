@@ -204,8 +204,8 @@ const BOSS2 = {
 } as const;
 
 const STATUS_VIS = {
-  BURN_TINT: 0.26, CHILL_TINT: 0.62, SHOCK_TINT: 0.22, WITHER_TINT: 0.6,
-  RIM: { burn: 2.2, chill: 1.5, shock: 2.6, wither: 2.0 },
+  BURN_TINT: 0.26, CHILL_TINT: 0.62, SHOCK_TINT: 0.22, WITHER_TINT: 0.7,
+  RIM: { burn: 2.2, chill: 1.5, shock: 2.6, wither: 1.0 },
   WISPS: 3,
   FROST: [0.78, 0.95, 1.0],
   FLICKER_HZ: 17,

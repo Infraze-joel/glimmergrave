@@ -180,8 +180,10 @@ export function createMastery(): View {
           h('b', null, t(`class.${id}.name`)),
           h('span', { class: 'gg-mastery-bar' }, fill),
         ),
-        h('span', { class: 'gg-mastery-class-level gg-num' }, t('common.lv', { n: p.level })),
-        news > 0 ? h('i', { class: 'gg-tab-badge gg-num' }, String(news)) : null,
+        h('span', { class: 'gg-mastery-class-end' },
+          news > 0 ? h('i', { class: 'gg-tab-badge gg-num' }, String(news)) : null,
+          h('span', { class: 'gg-mastery-class-level gg-num' }, t('common.lv', { n: p.level })),
+        ),
       ));
     }
     render(cls);

@@ -112,7 +112,7 @@ export const ENEMY_TUNING = {
    * Bosses and the champion gain this much health per additional hero instead of RUN.HP_PER_EXTRA_PLAYER
    * (a party focuses all its damage on them, so they need more than the rank and file to last as long).
    */
-  BOSS_HP_PER_EXTRA_PLAYER: 1.0,
+  BOSS_HP_PER_EXTRA_PLAYER: 1.3,
 } as const;
 
 /**

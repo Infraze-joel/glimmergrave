@@ -25,10 +25,12 @@ export interface StripView extends View {
 export function createStrip(): StripView {
   const chips = h('div', { class: 'gg-strip-chips' });
   const comboCount = h('b', { class: 'gg-combo-count gg-num' });
+  // The named reaction is the headline ("Shatter ×3"); the pair and who caused it follow below.
+  const comboLabel = h('span', { class: 'gg-combo-label' }, t('hud.resonance'));
   const comboPair = h('span', { class: 'gg-combo-pair' });
   const comboWho = h('span', { class: 'gg-combo-who' });
   const combo = h('div', { class: 'gg-combo', role: 'status' },
-    h('div', { class: 'gg-combo-main' }, icon('resonance'), h('span', { class: 'gg-combo-label' }, t('hud.resonance')), comboCount),
+    h('div', { class: 'gg-combo-main' }, icon('resonance'), comboLabel, comboCount),
     h('div', { class: 'gg-combo-sub' }, comboPair, comboWho),
   );
   const el = h('div', { class: 'gg-strip', 'data-testid': 'element-strip', 'data-elements': '0', 'aria-label': t('strip.label') }, combo, chips);
@@ -82,7 +84,8 @@ export function createStrip(): StripView {
     lastAt = now;
     const own = by === state.conn.slot;
     comboCount.textContent = count > 1 ? `×${count}` : '';
-    comboPair.replaceChildren(icon(a, `gg-el-${a}`), icon('arrow', 'gg-combo-arrow'), icon(b, `gg-el-${b}`), h('span', null, pairName(a, b)));
+    comboLabel.textContent = pairName(a, b) || t('hud.resonance');
+    comboPair.replaceChildren(icon(a, `gg-el-${a}`), icon('arrow', 'gg-combo-arrow'), icon(b, `gg-el-${b}`), h('span', null, t('hud.resonance')));
     comboWho.textContent = own ? t('hud.resonanceOwn') : by >= 0 ? nameOf(by) : '';
     combo.dataset.reaction = reactionOf(a, b)?.id ?? '';
     combo.classList.toggle('is-own', own);

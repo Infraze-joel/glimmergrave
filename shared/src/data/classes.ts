@@ -177,7 +177,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
       { ...base, id: 'rogue_trap', shape: 'trap', anim: 'art', cooldown: 6, windup: 0.6, lock: 0.3, moveMul: 0.6, damage: 34, range: 8, radius: 2.2, duration: 14, stun: 1.2, special: 'max3' },
     ],
     // Bolt Storm: bolts rain on an area for a few seconds.
-    ultimate: { ...base, id: 'rogue_volley', shape: 'zone', anim: 'ultimate', cooldown: 0, windup: 0.3, lock: 0.5, moveMul: 0.4, damage: 12, range: 14, radius: 4.5, duration: 3.5, tick: 0.25 },
+    ultimate: { ...base, id: 'rogue_volley', shape: 'zone', anim: 'ultimate', cooldown: 0, windup: 0.3, lock: 0.5, moveMul: 0.4, damage: 10, range: 14, radius: 4.5, duration: 3.5, tick: 0.25 },
   },
   // Two-handed zealot. Slow, wide, heavy swings; keeps the party standing.
   templar: {
@@ -194,7 +194,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
       { ...base, id: 'templar_judgement', shape: 'leap', anim: 'art', cooldown: 8, windup: 0.45, lock: 0.7, moveMul: 0, damage: 42, range: 7, radius: 2.8, stun: 1 },
     ],
     // Sanctuary: a large hallowed circle; downed heroes inside are raised after ULTIMATE.SANCTUARY_REVIVE_SECONDS (special).
-    ultimate: { ...base, id: 'templar_sanctuary', shape: 'zone', anim: 'ultimate', cooldown: 0, windup: 0.4, lock: 0.7, moveMul: 0, damage: 8, heal: 4, range: 0, radius: 5.5, duration: 6, tick: 0.5, special: 'revive' },
+    ultimate: { ...base, id: 'templar_sanctuary', shape: 'zone', anim: 'ultimate', cooldown: 0, windup: 0.4, lock: 0.7, moveMul: 0, damage: 8, heal: 3, range: 0, radius: 5.5, duration: 6, tick: 0.5, special: 'revive' },
   },
   // Sword in one hand, spellbook in the other: melee combo that ends in a ranged wave, blinks through foes.
   spellblade: {

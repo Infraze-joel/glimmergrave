@@ -56,7 +56,8 @@ export interface EventMap {
   /** Every authoritative gameplay event from the server, in order. */
   'game:event': GameEvent;
   /** Instant local feedback for the own hero's inputs, before the server confirms. */
-  'game:localAction': { action: 'primary' | 'secondary' | 'dash' | 'ultimate' | 'denied' };
+  /** `slot` names the ability a `denied` press was meant for. */
+  'game:localAction': { action: 'primary' | 'secondary' | 'dash' | 'ultimate' | 'denied'; slot?: 'secondary' | 'dash' | 'ultimate' };
   /**
    * The own profile gained something outside a purchase: emitted once per finished run after the rewards
    * were booked (levels gained, new relic ranks, feats that became claimable), for toasts and fanfares.

@@ -170,7 +170,8 @@ export function createReliquary(): View {
         h('span', { class: 'gg-mastery-bar' }, fill),
         isWorn ? h('i', { class: 'gg-relic-tile-worn' }, icon('check')) : null,
       );
-      tile.style.setProperty('--tint', relicTint(def));
+      // Unknown relics give nothing away, not even their colour.
+      if (rank > 0) tile.style.setProperty('--tint', relicTint(def));
       grid.append(tile);
     }
     found.textContent = owned > 0 ? t('reliquary.found', { n: formatInt(owned), m: formatInt(RELICS.length) }) : t('reliquary.none');

@@ -39,6 +39,8 @@ export class Prediction {
   private comboIndex = 0;
   private comboTime = 0;
   private predictedDashes = 0;
+  /** Ability the last `denied` action was meant for. */
+  deniedSlot: 'secondary' | 'dash' | 'ultimate' = 'dash';
 
   reset(): void {
     this.pending.length = 0;
@@ -82,6 +84,7 @@ export class Prediction {
           action = 'dash';
         } else {
           action = 'denied';
+          this.deniedSlot = 'dash';
         }
       } else if (pressed & BTN.ULTIMATE && this.lockTime <= 0 && this.body.dashTime <= 0) {
         if (me.ult >= 1) {
@@ -90,6 +93,7 @@ export class Prediction {
           action = 'ultimate';
         } else {
           action = 'denied';
+          this.deniedSlot = 'ultimate';
         }
       } else if (pressed & BTN.SECONDARY && this.lockTime <= 0 && this.body.dashTime <= 0) {
         if (me.cdSecondary <= 0) {
@@ -99,6 +103,7 @@ export class Prediction {
           action = 'secondary';
         } else {
           action = 'denied';
+          this.deniedSlot = 'secondary';
         }
       } else if (cmd.buttons & BTN.PRIMARY && this.lockTime <= 0 && this.primaryReady <= 0 && this.body.dashTime <= 0) {
         if (this.comboTime <= 0) this.comboIndex = 0;

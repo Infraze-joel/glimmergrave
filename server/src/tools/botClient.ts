@@ -23,7 +23,7 @@ import { MASTERY } from '../../../shared/src/data/mastery.ts';
 import { DEFAULT_LOOK, META_UPGRADES, PARAGON } from '../../../shared/src/data/meta.ts';
 import { decodeSnapshot, encodeInput, type ClientMsg, type ServerMsg } from '../../../shared/src/protocol.ts';
 import { BotBrain, type BotView } from '../../../shared/src/sim/bot.ts';
-import { CLASS_IDS, type BoonOffer, type ClassId, type Loadout, type RosterEntry, type RunState, type Snapshot } from '../../../shared/src/types.ts';
+import { CLASS_IDS, type BoonOffer, type ClassId, type GameEvent, type Loadout, type RosterEntry, type RunState, type Snapshot } from '../../../shared/src/types.ts';
 
 export interface BotClientOptions {
   url: string;
@@ -130,6 +130,8 @@ export class BotClient {
 
   onWelcome: (() => void) | null = null;
   onRunEnd: ((phase: 'victory' | 'defeat', run: RunState) => void) | null = null;
+  /** Every batch of gameplay events the server sent (tests, diagnostics). */
+  onEvents: ((events: GameEvent[]) => void) | null = null;
   onClose: ((expected: boolean) => void) | null = null;
   onError: ((code: string, fatal: boolean) => void) | null = null;
 
@@ -310,6 +312,7 @@ export class BotClient {
         break;
       case 'ev':
         this.brain.observe(msg.events, msg.tick);
+        this.onEvents?.(msg.events);
         break;
       case 'pong':
         this.rttMs = performance.now() - msg.c;

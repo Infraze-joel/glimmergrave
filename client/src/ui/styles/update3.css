@@ -3174,3 +3174,61 @@ button.gg-relic-slot {
   width: 2.4em;
   height: 2.4em;
 }
+
+/* ---------------------------------------------------------------- review pass 3: German lengths */
+.gg-armory-group {
+  grid-template-columns: 7.8em minmax(0, 1fr);
+}
+
+.gg-armory-group-head h3 {
+  font-size: 0.76em;
+  letter-spacing: 0.12em;
+  overflow-wrap: anywhere;
+}
+
+/* The name wins: the class label gives way first, then the name itself. */
+.gg-party-frame {
+  width: 15.5em;
+}
+
+.gg-party-name > span {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.gg-party-class {
+  flex: 0 100 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gg-relic-slot.is-locked .gg-relic-slot-name {
+  font-size: 0.86em;
+  font-weight: 400;
+  line-height: 1.15;
+  white-space: normal;
+}
+
+.gg-mastery-class-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  white-space: nowrap;
+}
+
+.gg-mastery-class .gg-mastery-class-end .gg-tab-badge {
+  margin: 0;
+  font-size: 0.66em;
+}
+
+/* Three long options (German: "Großes Fadenkreuz"): tighter than the other segmented rows. */
+[data-testid='settings-cursor'] button {
+  padding-right: 0.3em;
+  padding-left: 0.3em;
+  font-size: 0.6em;
+  letter-spacing: 0;
+  white-space: nowrap;
+}

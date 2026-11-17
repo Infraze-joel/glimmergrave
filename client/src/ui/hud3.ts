@@ -125,7 +125,9 @@ export function createBuffs(): BuffsView {
         h('i', { class: 'gg-buff-bar' }),
       );
       const now = performance.now();
-      chips.set(id, { el: chip, time, start: now, end: now + seconds * MS, shown: -1 });
+      const shown = Math.ceil(seconds);
+      time.textContent = `${shown} s`;
+      chips.set(id, { el: chip, time, start: now, end: now + seconds * MS, shown });
       el.append(chip);
     },
     tick: () => {

@@ -122,9 +122,9 @@ const DIORAMA_MOOD: Mood = {
  */
 const DESCENT = {
   MAX_STEPS: 5,
-  LIGHT: 0.86, SUN: 0.84, TORCH: 1.1,
-  SATURATION: 0.16, SURFACE_LIGHT: 0.93,
-  ABYSS: 0x2a0b52, ABYSS_MIX: 0.2, FOG_MIX: 0.24,
+  LIGHT: 0.82, SUN: 0.82, TORCH: 1.12,
+  SATURATION: 0.16, SURFACE_LIGHT: 0.9,
+  ABYSS: 0x180733, ABYSS_MIX: 0.26, FOG_MIX: 0.2,
 } as const;
 
 const _hsl = { h: 0, s: 0, l: 0 };

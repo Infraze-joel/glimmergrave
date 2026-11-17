@@ -48,7 +48,7 @@ const TUNE = {
   RAIN_HEIGHT: 9,
   RIM_COLUMNS: 8,
   PRISON_SHARDS: 7,
-  PRISON_ICE: 0x24468c,
+  PRISON_ICE: 0x121c46,
   PRISON_RIM: 0x7fd0ff,
   WARD_SHARDS: 3,
   RUNE: 0xa8ecff,
@@ -768,7 +768,7 @@ export class AbilityFx {
       const w = rgb(PALETTE.arcane);
       const d = m.r * 2;
       // for allies: an iris in the caster's blue-white closing on the point of impact, lit warmer as the star nears
-      decals.push(DECAL.WARN, m.x, 0.047, m.z, 0, d, d, w[0] * 1.5, w[1] * 1.5, w[2] * 1.5, 0.6, 0.35, k);
+      decals.push(DECAL.WARN, m.x, 0.047, m.z, 0, d, d, w[0] * 1.5, w[1] * 1.5, w[2] * 1.5, 0.45, 0.35, k);
       decals.push(DECAL.DISC, m.x, 0.034, m.z, 0, d * (0.5 + 0.7 * k), d * (0.5 + 0.7 * k), c[0], c[1], c[2], 0.1 + 0.4 * k * k, 1, 0.1);
       const fall = k * k;
       const sx = m.x + TUNE.STAR_FROM.x * (1 - fall);
@@ -783,7 +783,7 @@ export class AbilityFx {
       }
       fx.push(SPRITE.GLOW, sx, sy, sz, 4.4, 4.4, c[0] * 2.1, c[1] * 2.1, c[2] * 2.1, 1, 1, 1.8);
       fx.push(SPRITE.SPARK, sx, sy, sz, 1.5, 1.5, 2.6, 2.6, 2.6, 1, 1, 0, time * 6);
-      fx.push(SPRITE.GLOW, sx, sy, sz, 9, 9, w[0], w[1], w[2], 0.22, 1, 0);
+      fx.push(SPRITE.GLOW, sx, sy, sz, 6, 6, w[0], w[1], w[2], 0.14, 1, 0);
       m.acc += dt * 70 * vfx.density;
       while (m.acc >= 1) {
         m.acc -= 1;
@@ -814,7 +814,7 @@ export class AbilityFx {
         const h = (2.3 + 0.9 * hash1(k * 3.7 + p.seed * 50)) * pop;
         const lean = Math.sin(ang) * -0.22;
         fx.push(SPRITE.SHARD, p.x + Math.sin(ang) * p.r, h * 0.42, p.z + Math.cos(ang) * p.r, 0.78, h, ice[0] + rim[0] * 0.12, ice[1] + rim[1] * 0.12, ice[2] + rim[2] * 0.12,
-          0.94 * crack, 0.12, 1, lean);
+          0.96 * crack, 0.04, 0.7, lean);
       }
       fx.push(SPRITE.GLOW, p.x, 1.1, p.z, p.r * 3.4, p.r * 3.4, rim[0], rim[1], rim[2], 0.12, 1, 0);
     }

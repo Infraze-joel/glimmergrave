@@ -287,7 +287,7 @@ export function enemyDef(kind: EnemyKind): EnemyDef {
 }
 
 export const LIMITS = {
-  DECALS: 384,
+  DECALS: 512,
   FX_BILLBOARDS: 1536,
   UI_BILLBOARDS: 640,
   PARTICLES: 1100,
