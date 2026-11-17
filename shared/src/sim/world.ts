@@ -119,11 +119,16 @@ export class World {
 
   // ------------------------------------------------------------------ run lifecycle
 
-  /** Starts a run with the current roster. Deterministic for a given seed and input stream. */
-  start(oath: number, seed: number): boolean {
+  /**
+   * Starts a run with the current roster. Deterministic for a given seed and input stream.
+   * `startChamber` > 0 is a QA aid (server option `debugStartChamber`): the run begins in a later chamber.
+   */
+  start(oath: number, seed: number, startChamber = 0): boolean {
     if (this.run.phase !== 'lobby' || this.heroes.length === 0) return false;
     this.beginRun(oath, seed);
-    enterChamber(this, 0, 'boon');
+    const last = RUN.CHAMBERS.length - 1;
+    const index = Math.max(0, Math.min(last, Math.floor(startChamber)));
+    enterChamber(this, index, index === last ? 'boss' : 'boon');
     return true;
   }
 

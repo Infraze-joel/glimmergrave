@@ -19,6 +19,7 @@ import { Input, type InputSample } from './Input.ts';
 const MAX_FRAME_SECONDS = 0.1;
 const MAX_TICKS_PER_FRAME = 4;
 const MAX_OATH = 3;
+const FRAME_COST_SMOOTHING = 0.05;
 
 async function boot(): Promise<void> {
   const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -105,7 +106,13 @@ async function boot(): Promise<void> {
   bus.on('state:run', ({ previousPhase }) => {
     const run = state.run;
     if (!run) return;
-    if (run.phase === 'lobby' && previousPhase !== 'lobby') resetWorld();
+    if (run.phase === 'lobby' && previousPhase !== 'lobby') {
+      resetWorld();
+      state.players = [];
+      state.enemiesAlive = 0;
+      state.bossHp = null;
+      bus.emit('state:hud');
+    }
     syncRoom();
     const ended = (run.phase === 'victory' || run.phase === 'defeat') && previousPhase !== run.phase && previousPhase !== null;
     if (ended) {
@@ -184,7 +191,11 @@ async function boot(): Promise<void> {
       if (state.run?.phase === 'doors') view.setDoors(state.run.doors, state.run.doorProgress);
     }
     // Tests on machines without a GPU may draw only every n-th frame so the game logic keeps real-time pace.
-    view.update(dt, frameIndex++ % debug.renderEvery === 0);
+    const draw = frameIndex++ % debug.renderEvery === 0;
+    view.update(dt, draw);
+    const cost = performance.now() - now;
+    if (draw) debug.drawFrameMs += (cost - debug.drawFrameMs) * FRAME_COST_SMOOTHING;
+    else debug.logicFrameMs += (cost - debug.logicFrameMs) * FRAME_COST_SMOOTHING;
     requestAnimationFrame(frame);
   };
 
@@ -196,6 +207,9 @@ async function boot(): Promise<void> {
     interpDelayMs: NET.INTERP_DELAY_MS,
     renderEvery: 1,
     fps: 0,
+    /** Smoothed main-thread cost of a frame without / with the WebGL draw (ms). */
+    logicFrameMs: 0,
+    drawFrameMs: 0,
   };
   Object.assign(window, {
     __game: debug,

@@ -22,7 +22,8 @@ A full run takes 10–15 minutes. The first enemy is on screen within ~15 second
 ## Game rules
 
 - Top-down 3D camera. WASD move, mouse aims, LMB primary (combo chain), RMB secondary (cooldown),
-  Space dash (invulnerable), E hold to revive, Esc menu, Tab scoreboard/boons.
+  Space or Shift dash (invulnerable), F as an alternative for the secondary, Esc menu, Tab scoreboard/boons.
+  Reviving needs no key: stand next to a downed ally for 3 s.
 - Classes: Knight (sword & shield, bash stuns), Barbarian (axe, whirlwind), Mage (arc bolts, nova),
   Rogue (crossbow, knife fan, two dash charges). Data: `shared/src/data/classes.ts`.
 - Elements: Ember → Burn (damage over time), Rime → Chill (slow), Storm → Shock (takes more damage).

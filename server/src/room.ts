@@ -35,6 +35,8 @@ export interface RoomOptions {
   idleRoomTtlMs: number;
   /** >1 runs the simulation faster than real time (tests and soaks only). */
   timeScale: number;
+  /** QA aid: runs start in this chamber (0 = normal). */
+  debugStartChamber: number;
   /** Fixed run seed (tests); random when undefined. */
   seed?: number;
   log: Logger;
@@ -293,7 +295,7 @@ export class Room {
     // Players who are not connected right now do not take part in this run.
     for (const s of this.sessions) if (s && !s.peer) this.remove(s, 'absent_at_start');
     const seed = this.opts.seed ?? randomInt(1, 0x7fffffff);
-    if (!this.world.start(this.oath, seed)) return 'not_ready';
+    if (!this.world.start(this.oath, seed, this.opts.debugStartChamber)) return 'not_ready';
     this.endedAt = 0;
     this.opts.log('info', 'run_start', { room: this.code, players: this.playerCount, oath: this.oath });
     this.broadcastRoster();

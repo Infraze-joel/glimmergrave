@@ -17,6 +17,7 @@ async function main(): Promise<void> {
     port: envInt('PORT', SERVER.DEFAULT_PORT),
     allowedOrigins: parseOrigins(process.env.ALLOWED_ORIGINS),
     maxRooms: envInt('MAX_ROOMS', SERVER.DEFAULT_MAX_ROOMS),
+    debugStartChamber: envInt('DEBUG_START_CHAMBER', 0),
   });
   let stopping = false;
   const stop = (signal: string): void => {

@@ -57,7 +57,7 @@ function controlsReference(): HTMLElement {
     row([icon('mouseLeft', 'gg-controls-mouse')], t('controls.primary')),
     row([icon('mouseRight', 'gg-controls-mouse')], t('controls.secondary')),
     row([key('Space')], t('controls.dash')),
-    row([key('E')], t('controls.revive')),
+    row([key('3 s')], t('controls.revive')),
     row([key('Tab')], t('controls.scoreboard')),
     row([key('1'), key('–'), key('4')], t('controls.pick')),
     row([key('Esc')], t('controls.menu')),

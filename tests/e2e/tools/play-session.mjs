@@ -1,5 +1,5 @@
-// Exploratory session driver (lead): hosts a game in a real browser, lets bots join, plays and screenshots.
-// Usage: node tests/e2e/_play.mjs <clientUrl> <wsUrl> <outPrefix> [seconds] [bots] [cls]
+// Session driver: hosts a game in a real browser, lets bots join, plays and screenshots.
+// Usage: node tests/e2e/tools/play-session.mjs <clientUrl> <wsUrl> <outPrefix> [seconds] [bots] [cls]
 import puppeteer from 'puppeteer-core';
 import { spawn } from 'node:child_process';
 const [clientUrl, wsUrl, out, secondsArg, botsArg, cls = 'knight', renderEvery = '10'] = process.argv.slice(2);
@@ -38,7 +38,9 @@ try {
   await page.waitForFunction("document.body.dataset.screen === 'game'", { timeout: 20000 });
   await page.evaluate((n) => { window.__game.renderEvery = n; }, Number(renderEvery));
   const auto = clientUrl.includes('autopilot');
-  const shotEvery = seconds > 120 ? 16 : 6;
+  const shotEvery = Number(process.env.SHOT_EVERY ?? (seconds > 120 ? 16 : 6));
+  const heap0 = await page.evaluate(() => Math.round(performance.memory.usedJSHeapSize / 1048576));
+  console.log('heap at run start MB', heap0);
   const t0 = Date.now();
   let shot = 3;
   let phase = 0;
@@ -64,8 +66,16 @@ try {
     phase++;
   }
   await page.screenshot({ path: `${out}-${shot++}-end.png` });
+  if (await page.$(tid('summary-to-lobby'))) {
+    await page.click(tid('summary-to-lobby'));
+    await page.waitForFunction("document.body.dataset.screen === 'lobby'", { timeout: 15000 });
+    console.log('returned to lobby: ok');
+    await page.evaluate(() => { window.__game.renderEvery = 1; });
+    await sleep(1500);
+    await page.screenshot({ path: `${out}-${shot++}-lobby-again.png` });
+  }
   const text = JSON.parse(await page.evaluate('window.render_game_to_text()'));
-  console.log('fps', await page.evaluate('window.__game.fps')); console.log(JSON.stringify({ screen: text.screen, conn: text.conn, phase: text.run?.phase, chamber: text.run?.chamber, wave: text.run?.wave, enemies: text.enemiesAlive, self: text.players?.find((p) => p.slot === text.conn.slot), predicted: text.predicted, render: text.render, stats: text.run?.stats }));
+  console.log('perf', JSON.stringify(await page.evaluate(() => ({ loopFps: window.__game.fps, logicFrameMs: +window.__game.logicFrameMs.toFixed(2), drawFrameMs: +window.__game.drawFrameMs.toFixed(1), heapMB: Math.round(performance.memory.usedJSHeapSize / 1048576) })))); console.log(JSON.stringify({ screen: text.screen, conn: text.conn, phase: text.run?.phase, chamber: text.run?.chamber, wave: text.run?.wave, enemies: text.enemiesAlive, self: text.players?.find((p) => p.slot === text.conn.slot), predicted: text.predicted, render: text.render, stats: text.run?.stats }));
 } catch (e) {
   console.log('DRIVER ERROR', e.message);
   await page.screenshot({ path: `${out}-error.png` }).catch(() => {});

@@ -8,7 +8,7 @@ const MOVE_KEYS: Record<string, readonly [number, number]> = {
   KeyD: [1, 0], ArrowRight: [1, 0],
 };
 const KEY_BUTTONS: Record<string, number> = {
-  Space: BTN.DASH, ShiftLeft: BTN.DASH, KeyE: BTN.INTERACT, KeyF: BTN.SECONDARY,
+  Space: BTN.DASH, ShiftLeft: BTN.DASH, KeyF: BTN.SECONDARY,
 };
 const MOUSE_BUTTONS: Record<number, number> = { 0: BTN.PRIMARY, 2: BTN.SECONDARY };
 const MAX_AIM_DISTANCE = 25;

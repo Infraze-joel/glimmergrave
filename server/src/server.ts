@@ -33,6 +33,8 @@ export interface ServerOptions {
   maxMessagesPerSecond?: number;
   /** Simulation speed multiplier (>1 = faster than real time). */
   timeScale?: number;
+  /** QA aid: every run starts in this chamber index (0 = normal). Never set this in production. */
+  debugStartChamber?: number;
   /** Fixed run seed for every room. */
   seed?: number;
 }
@@ -111,6 +113,7 @@ export function startServer(opts: ServerOptions = {}): Promise<RunningServer> {
     emptyRoomTtlMs: opts.emptyRoomTtlMs ?? NET.EMPTY_ROOM_TTL_MS,
     idleRoomTtlMs: opts.idleRoomTtlMs ?? NET.IDLE_ROOM_TTL_MS,
     timeScale: Math.max(0.1, opts.timeScale ?? 1),
+    debugStartChamber: opts.debugStartChamber ?? 0,
     seed: opts.seed,
     log,
     now,
