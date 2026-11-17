@@ -1,9 +1,11 @@
 /** Shared domain types. Ordered `as const` arrays define the numeric wire codes (index = code). */
 
-export const CLASS_IDS = ['knight', 'barbarian', 'mage', 'rogue'] as const;
+/** Append only (profiles store class ids). templar, spellblade and shade arrived with update 3. */
+export const CLASS_IDS = ['knight', 'barbarian', 'mage', 'rogue', 'templar', 'spellblade', 'shade'] as const;
 export type ClassId = (typeof CLASS_IDS)[number];
 
-export const ELEMENT_IDS = ['ember', 'rime', 'storm'] as const;
+/** Append only (wire codes). umbra (status: Wither) arrived with update 3. */
+export const ELEMENT_IDS = ['ember', 'rime', 'storm', 'umbra'] as const;
 export type ElementId = (typeof ELEMENT_IDS)[number];
 
 /** Append only (wire codes). matron and stalker are bosses, like regent. */
@@ -30,11 +32,16 @@ export const PROJECTILE_KINDS = [
   'hexOrb', // skeleton mage / regent volley
   'boneSpear', // stalker heavy shot
   'soulWisp', // matron slow homing orb
+  'shieldDisc', // knight art: thrown shield
+  'bladeWave', // spellblade combo finisher
+  'shadowDagger', // shade ultimate follow-up / thrown daggers
 ] as const;
 export type ProjectileKind = (typeof PROJECTILE_KINDS)[number];
 
 export const PLAYER_ANIMS = [
   'idle', 'run', 'primary1', 'primary2', 'primary3', 'secondary', 'dash', 'hit', 'downed', 'cheer',
+  // update 3 (append only): the alternative secondary ("art") and the ultimate
+  'art', 'ultimate',
 ] as const;
 export type PlayerAnim = (typeof PLAYER_ANIMS)[number];
 
@@ -48,7 +55,7 @@ export type EnemyAnim = (typeof ENEMY_ANIMS)[number];
 export const PLAYER_STATES = ['alive', 'downed', 'dead'] as const;
 export type PlayerState = (typeof PLAYER_STATES)[number];
 
-export type AbilitySlot = 'primary' | 'secondary' | 'dash';
+export type AbilitySlot = 'primary' | 'secondary' | 'dash' | 'ultimate';
 
 /** Bit flags in PlayerSnap.flags */
 export const PF = {
@@ -68,6 +75,8 @@ export const EF = {
   STUNNED: 16,
   SHIELDED: 32,
   ENRAGED: 64,
+  /** Umbra status: deals less damage, attackers leech health (see STATUS.WITHER). */
+  WITHER: 128,
 } as const;
 
 /** Bit flags in InputCmd.buttons */
@@ -76,6 +85,8 @@ export const BTN = {
   SECONDARY: 2,
   DASH: 4,
   INTERACT: 8,
+  /** Ultimate ability (needs a full charge, see ULTIMATE in data/classes.ts). */
+  ULTIMATE: 16,
 } as const;
 
 /** One sampled input frame. `seq` increases by one per frame per client. */
@@ -107,6 +118,8 @@ export interface PlayerSnap {
   /** Remaining cooldown fraction 0..1 (0 = ready). */
   cdSecondary: number;
   cdDash: number;
+  /** Ultimate charge 0..1 (1 = ready). */
+  ult: number;
   dashCharges: number;
   /** 0..1 revive progress while downed. */
   revive: number;
@@ -132,7 +145,7 @@ export interface ProjectileSnap {
   x: number;
   z: number;
   rot: number;
-  /** 0 = neutral, 1..3 = ELEMENT_IDS index + 1 (tints the projectile). */
+  /** 0 = neutral, 1..4 = ELEMENT_IDS index + 1 (tints the projectile). */
   element: number;
   hostile: boolean;
 }
@@ -189,13 +202,15 @@ export interface Hazard {
   phase: number;
 }
 
-export const DOOR_TYPES = ['boon', 'blessing', 'cursed', 'boss'] as const;
+export const DOOR_TYPES = ['boon', 'blessing', 'cursed', 'boss', 'descend', 'ascend'] as const;
 /**
  * What the NEXT chamber grants once cleared:
  *  boon     – standard draft (1 of 3)
  *  blessing – heals the party 35 % and a standard draft
  *  cursed   – enemies in that chamber are empowered; draft has 4 choices and guarantees a rare or better
- *  boss     – leads to the Bone Regent
+ *  boss     – leads to the run's final boss
+ *  descend  – only after a final boss: go one depth deeper (8 more chambers, everything scales, rewards grow)
+ *  ascend   – only after a final boss: bank the run and end it as a victory
  */
 export type DoorType = (typeof DOOR_TYPES)[number];
 
@@ -239,6 +254,16 @@ export interface Loadout {
   look: Look;
   /** Levels aligned with META_UPGRADES (index = upgrade). Missing entries count as 0. */
   meta: number[];
+  /** Ascension ranks aligned with PARAGON (data/meta.ts); endless, clamped to PARAGON_TUNING.MAX_RANK. */
+  paragon: number[];
+  /** Mastery level of the class being played (1 = new). Gates `art` and `talents`, adds masteryMods(). */
+  mastery: number;
+  /** Secondary ability variant: 0 = the class's standard secondary, n = ClassDef.arts[n - 1]. */
+  art: number;
+  /** One choice per talent tier of the class: 0 = none, 1 or 2 = option (see data/mastery.ts). */
+  talents: number[];
+  /** Equipped relics (data/relics.ts), at most RELIC_TUNING.MAX_SLOTS and what `reliquary` allows. No duplicates. */
+  relics: { id: string; rank: number }[];
 }
 
 export interface RosterEntry {
@@ -246,6 +271,10 @@ export interface RosterEntry {
   name: string;
   cls: ClassId;
   look: Look;
+  /** Mastery level of `cls` (shown on name plates / lobby cards). */
+  mastery: number;
+  /** Active secondary variant (0 = standard), so every client shows the right ability. */
+  art: number;
   ready: boolean;
   connected: boolean;
   host: boolean;
@@ -269,7 +298,32 @@ export interface PlayerRunStats {
   resonances: number;
   revives: number;
   downs: number;
+  /** Elite enemies (cursed-chamber foes, champions) and bosses this hero landed the killing blow on. */
+  elites: number;
+  bosses: number;
+  /** Ultimates used. */
+  ultimates: number;
 }
+
+/** What one hero takes home when the run ends (computed by the server). */
+export interface RunReward {
+  slot: number;
+  glimmer: number;
+  /** Mastery experience for the class played. */
+  xp: number;
+  /** Relic shards found (ids from data/relics.ts; the same id may appear more than once). */
+  relics: string[];
+}
+
+export const AFFIX_IDS = ['swift', 'armored', 'volatile', 'vampiric'] as const;
+/**
+ * Extra trait of an elite enemy from depth 1 on (and at high Oath levels):
+ *  swift    – moves and attacks faster
+ *  armored  – takes less damage until its guard is broken by a Resonance
+ *  volatile – explodes shortly after dying (telegraphed)
+ *  vampiric – heals when it hurts a hero
+ */
+export type AffixId = (typeof AFFIX_IDS)[number];
 
 export interface RunState {
   phase: RunPhase;
@@ -299,8 +353,14 @@ export interface RunState {
   bossKind: EnemyKind | null;
   /** The boss waiting at the end of this run (known from the start, shown on the chamber track). */
   finalBoss: BossKind;
-  /** Glimmer earned per hero; filled in when the run ends (victory or defeat), empty before. */
-  rewards: { slot: number; glimmer: number }[];
+  /** Rewards per hero; filled in when the run ends (victory or defeat), empty before. */
+  rewards: RunReward[];
+  /** 0 = the first descent. Each `descend` door adds 1; enemies and rewards scale with it (RUN.DEPTH). */
+  depth: number;
+  /** Final bosses slain in this run so far. > 0 means the run counts as won even if the party falls deeper down. */
+  cleared: number;
+  /** Chambers cleared in this run across all depths. */
+  chambersCleared: number;
   /** Guided training session state, or null in a normal run. */
   tutorial: TutorialState | null;
 }
@@ -349,11 +409,27 @@ export type GameEvent =
   | { e: 'down'; slot: number }
   | { e: 'revived'; slot: number; by: number }
   | { e: 'shieldBreak'; id: number }
-  | { e: 'spawn'; id: number; kind: EnemyKind; x: number; z: number; elite: boolean }
+  | { e: 'spawn'; id: number; kind: EnemyKind; x: number; z: number; elite: boolean; affix?: AffixId }
   | { e: 'wave'; wave: number; waveCount: number }
   | { e: 'chamberClear' }
   | { e: 'bossPhase'; phase: number }
   | { e: 'boon'; slot: number; id: string; level: number }
   | { e: 'doorChosen'; type: DoorType }
   | { e: 'tutorialStep'; step: string }
-  | { e: 'hazardHit'; target: TargetRef; kind: Hazard['kind'] };
+  | { e: 'hazardHit'; target: TargetRef; kind: Hazard['kind'] }
+  /**
+   * A lasting ground effect made by a hero ability (consecrated ground, smoke, a trap, a bolt volley, a sanctuary).
+   * `kind` is the ability id. It ends after `dur` seconds or earlier with `zoneEnd` (e.g. a sprung trap).
+   */
+  | { e: 'zone'; id: number; kind: string; x: number; z: number; r: number; dur: number; el: ElementId | null; by: number }
+  | { e: 'zoneEnd'; id: number; x: number; z: number; sprung: boolean }
+  /** A timed effect on a hero started (`id` from BUFFS in data/classes.ts). */
+  | { e: 'buff'; slot: number; id: string; dur: number }
+  /** An enemy was marked for death (shade ultimate): takes more damage, bursts when it dies. */
+  | { e: 'mark'; id: number; dur: number }
+  /** A hero's ultimate became ready. */
+  | { e: 'ultReady'; slot: number }
+  /** The party went one depth deeper. */
+  | { e: 'descend'; depth: number }
+  /** A set bonus became active for a hero (data/boons.ts SETS). */
+  | { e: 'set'; slot: number; id: string; tier: number };

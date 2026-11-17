@@ -8,9 +8,9 @@ const MOVE_KEYS: Record<string, readonly [number, number]> = {
   KeyD: [1, 0], ArrowRight: [1, 0],
 };
 const KEY_BUTTONS: Record<string, number> = {
-  Space: BTN.DASH, ShiftLeft: BTN.DASH, KeyF: BTN.SECONDARY,
+  Space: BTN.DASH, ShiftLeft: BTN.DASH, KeyF: BTN.SECONDARY, KeyQ: BTN.ULTIMATE, KeyR: BTN.ULTIMATE,
 };
-const MOUSE_BUTTONS: Record<number, number> = { 0: BTN.PRIMARY, 2: BTN.SECONDARY };
+const MOUSE_BUTTONS: Record<number, number> = { 0: BTN.PRIMARY, 2: BTN.SECONDARY, 1: BTN.ULTIMATE };
 const MAX_AIM_DISTANCE = 25;
 
 export interface InputSample {

@@ -138,6 +138,8 @@ export const STATUS = {
   CHILL: { SLOW: 0.35, DURATION: 3 },
   /** Shock: the target takes extra damage from all sources. */
   SHOCK: { VULNERABILITY: 0.2, DURATION: 4 },
+  /** Wither (umbra): the target deals less damage and every hit on it heals the attacker a little. */
+  WITHER: { WEAKEN: 0.2, LEECH: 1, DURATION: 4 },
   /**
    * Resonance: hitting an enemy that carries status A with element B (B != A) consumes A and bursts.
    * The burst damages all enemies within RADIUS and applies B to them.
