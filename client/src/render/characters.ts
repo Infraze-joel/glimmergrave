@@ -6,8 +6,9 @@ import { AnimationMixer, Color, LoopOnce, LoopRepeat } from 'three';
 import type { AnimationAction, AnimationClip, Object3D, SkinnedMesh } from 'three';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import { EF, ENEMY_KINDS, PF } from '@shared/types.ts';
-import type { ClassId, ElementId, EnemyAnim, EnemyKind, EnemySnap, Look, PlayerAnim, PlayerSnap, PlayerState } from '@shared/types.ts';
+import type { AffixId, ClassId, ElementId, EnemyAnim, EnemyKind, EnemySnap, Look, PlayerAnim, PlayerSnap, PlayerState } from '@shared/types.ts';
 import { CLASSES, DASH } from '@shared/data/classes.ts';
+import type { BuffId } from '@shared/data/classes.ts';
 import { ENEMY_TUNING } from '@shared/data/enemies.ts';
 import { DEFAULT_LOOK, LOOK } from '@shared/data/meta.ts';
 import { NET } from '@shared/constants.ts';
@@ -16,7 +17,7 @@ import type { Assets, CharacterTemplate, ShadowRange } from './assets.ts';
 import type { Atlas, IconName } from './atlas.ts';
 import { DECAL, SPRITE } from './batches.ts';
 import type { BillboardBatch, DecalBatch } from './batches.ts';
-import { BOSS_AURA, CAMERA, ELEMENT_COLOR, ENEMY_VIS, EYE_COLOR, HERO_VIS, PALETTE, SLOT_COLORS, enemyDef, isBigEnemy, lookKey } from './config.ts';
+import { AFFIX_COLOR, BOSS_AURA, CAMERA, ELEMENT_COLOR, ENEMY_VIS, EYE_COLOR, HERO_OUTFIT, HERO_VIS, PALETTE, SLOT_COLORS, enemyDef, isBigEnemy, lookKey } from './config.ts';
 import { rgb } from './vfx.ts';
 import { createCharacterMaterial } from './materials.ts';
 import type { CharacterMaterial } from './materials.ts';
@@ -48,6 +49,11 @@ const HERO_COMMON: Record<'run' | 'dash' | 'hit' | 'downed' | 'cheer', ClipDef> 
   cheer: { clip: 'Cheer', loop: true },
 };
 
+/**
+ * Clip per class and PlayerAnim. `impact` is the clip time of the visible hit: the clip is time-scaled so that frame
+ * lands when the ability does (its windup). Leaps (barbarian / templar art) use the overhead chop: the blade is raised
+ * while the hero arcs through the air and comes down on landing.
+ */
 const HERO_ANIMS: Record<ClassId, Record<PlayerAnim, ClipDef>> = {
   knight: {
     ...HERO_COMMON,
@@ -56,6 +62,8 @@ const HERO_ANIMS: Record<ClassId, Record<PlayerAnim, ClipDef>> = {
     primary2: { clip: '1H_Melee_Attack_Slice_Horizontal', impact: 0.25 },
     primary3: { clip: '1H_Melee_Attack_Chop', impact: 0.58 },
     secondary: { clip: 'Block_Attack', impact: 0.35 },
+    art: { clip: 'Throw', impact: 0.72 },
+    ultimate: { clip: 'Spellcast_Raise', impact: 0.42 },
   },
   barbarian: {
     ...HERO_COMMON,
@@ -64,6 +72,8 @@ const HERO_ANIMS: Record<ClassId, Record<PlayerAnim, ClipDef>> = {
     primary2: { clip: '2H_Melee_Attack_Slice', impact: 0.38 },
     primary3: { clip: '2H_Melee_Attack_Chop', impact: 0.78 },
     secondary: { clip: '2H_Melee_Attack_Spinning', loop: true, speed: 1.5, fade: 0.08 },
+    art: { clip: '2H_Melee_Attack_Chop', impact: 0.78 },
+    ultimate: { clip: 'Cheer', speed: 1.7, fade: 0.06 },
   },
   mage: {
     ...HERO_COMMON,
@@ -72,6 +82,8 @@ const HERO_ANIMS: Record<ClassId, Record<PlayerAnim, ClipDef>> = {
     primary2: { clip: 'Spellcast_Shoot', impact: 0.12 },
     primary3: { clip: 'Spellcast_Shoot', impact: 0.12 },
     secondary: { clip: 'Spellcast_Raise', impact: 0.42 },
+    art: { clip: '2H_Ranged_Shoot', impact: 0.13 },
+    ultimate: { clip: 'Spellcast_Long', impact: 1.35 },
   },
   rogue: {
     ...HERO_COMMON,
@@ -80,6 +92,38 @@ const HERO_ANIMS: Record<ClassId, Record<PlayerAnim, ClipDef>> = {
     primary2: { clip: '2H_Ranged_Shoot', impact: 0.13 },
     primary3: { clip: '2H_Ranged_Shoot', impact: 0.13 },
     secondary: { clip: 'Throw', impact: 0.72 },
+    art: { clip: 'PickUp', impact: 0.6 },
+    ultimate: { clip: '2H_Ranged_Aiming', speed: 1.4, fade: 0.06 },
+  },
+  templar: {
+    ...HERO_COMMON,
+    idle: { clip: '2H_Melee_Idle', loop: true },
+    primary1: { clip: '2H_Melee_Attack_Slice', impact: 0.38 },
+    primary2: { clip: '2H_Melee_Attack_Chop', impact: 0.78 },
+    primary3: { clip: '2H_Melee_Attack_Spin', impact: 1.17 },
+    secondary: { clip: 'Spellcast_Raise', impact: 0.42 },
+    art: { clip: '2H_Melee_Attack_Chop', impact: 0.78 },
+    ultimate: { clip: 'Spellcast_Long', impact: 1.35 },
+  },
+  spellblade: {
+    ...HERO_COMMON,
+    idle: { clip: 'Idle', loop: true },
+    primary1: { clip: '1H_Melee_Attack_Slice_Diagonal', impact: 0.38 },
+    primary2: { clip: '1H_Melee_Attack_Slice_Horizontal', impact: 0.25 },
+    primary3: { clip: '1H_Melee_Attack_Chop', impact: 0.58 },
+    secondary: { clip: '1H_Melee_Attack_Stab', impact: 0.38 },
+    art: { clip: 'Spellcasting', loop: true, speed: 1.2, fade: 0.08 },
+    ultimate: { clip: 'Spellcast_Raise', impact: 0.42 },
+  },
+  shade: {
+    ...HERO_COMMON,
+    idle: { clip: 'Idle', loop: true },
+    primary1: { clip: 'Dualwield_Melee_Attack_Stab', impact: 0.38 },
+    primary2: { clip: 'Dualwield_Melee_Attack_Slice', impact: 0.55 },
+    primary3: { clip: 'Dualwield_Melee_Attack_Chop', impact: 0.55 },
+    secondary: { clip: 'Dualwield_Melee_Attack_Slice', impact: 0.55 },
+    art: { clip: 'Use_Item', impact: 0.18 },
+    ultimate: { clip: 'Throw', impact: 0.72 },
   },
 };
 
@@ -160,8 +204,9 @@ const BOSS2 = {
 } as const;
 
 const STATUS_VIS = {
-  BURN_TINT: 0.26, CHILL_TINT: 0.62, SHOCK_TINT: 0.22,
-  RIM: { burn: 2.2, chill: 1.5, shock: 2.6 },
+  BURN_TINT: 0.26, CHILL_TINT: 0.62, SHOCK_TINT: 0.22, WITHER_TINT: 0.6,
+  RIM: { burn: 2.2, chill: 1.5, shock: 2.6, wither: 2.0 },
+  WISPS: 3,
   FROST: [0.78, 0.95, 1.0],
   FLICKER_HZ: 17,
   FLAMES: 3,
@@ -178,8 +223,21 @@ const _color = new Color();
 const ELITE_RGB = rgb(PALETTE.hostile);
 const STATUS_COLORS = {
   burn: new Color(ELEMENT_COLOR.ember), chill: new Color(ELEMENT_COLOR.rime), shock: new Color(ELEMENT_COLOR.storm),
+  wither: new Color(ELEMENT_COLOR.umbra), witherBody: new Color(PALETTE.umbraDeep),
 };
+const ANY_STATUS = EF.BURN | EF.CHILL | EF.SHOCK | EF.WITHER;
+
+/** Elite affix dressing (spawn.affix). */
+const AFFIX_VIS = {
+  ICON_SIZE: 0.5,
+  SWIFT_TRAILS: 3,
+  ARMOR_PLATES: 3,
+  VAMP_MOTES: 4,
+  MARK_RING: 1.9,
+} as const;
 const SLOT = SLOT_COLORS.map((c) => new Color(c));
+const UMBRA_CORE = rgb(PALETTE.umbraCore);
+const OVERLOAD_ORDER: readonly ElementId[] = ['ember', 'rime', 'storm', 'umbra'];
 
 /** Shared machinery of a skinned, animated character instance. */
 class Actor {
@@ -400,6 +458,23 @@ class HeroView extends Actor {
   look: Look;
   /** Weapon hand, for the infusion glow. */
   readonly hand: Object3D | null;
+  /** Ultimate charge 0..1 from the snapshot. */
+  ult = 0;
+  /** Seconds since the charge became full (drives the "ready" shimmer), -1 while not ready. */
+  ultReadyFor = -1;
+  /** Leap in flight (barbarian / templar art): the arc is purely visual. */
+  leapT = -1;
+  leapDur = 0;
+  leapHeight = 0;
+  leapFromX = 0; leapFromZ = 0; leapToX = 0; leapToZ = 0;
+  leapGlide = false;
+  /** Visual offset from the snapshot position (the leap's glide), eased out after landing. */
+  offX = 0; offZ = 0;
+  /** Set for one frame when a leap touches down. */
+  landed = false;
+  /** Remaining / total seconds of the timed effects on this hero (BUFFS), indexed like BUFF_IDS. */
+  readonly buffLeft: number[] = [0, 0, 0];
+  readonly buffTotal: number[] = [1, 1, 1];
 
   constructor(template: CharacterTemplate, clips: Map<string, AnimationClip>, cls: ClassId, look: Look) {
     super(template, clips);
@@ -408,20 +483,55 @@ class HeroView extends Actor {
     this.look = look;
     this.hand = this.root.getObjectByName('handslotr') ?? null;
     this.flashTime = HERO_VIS.FLASH_TIME;
+    this.baseScale = HERO_OUTFIT[cls].scale ?? 1;
     this.applyColor(look);
   }
 
   /** Cloth tint is a uniform: changing only the colour never rebakes. Index 0 keeps the class's own palette. */
+  /** The body wash of the classes that wear another class's body (also the state a reconnect returns to). */
+  applyWash(): void {
+    const wash = HERO_OUTFIT[this.cls].tint;
+    if (!wash) { this.mat.uniforms.uTint.value.w = 0; return; }
+    const w = rgb(wash[0]);
+    this.mat.uniforms.uTint.value.set(w[0], w[1], w[2], wash[1]);
+  }
+
   applyColor(look: Look): void {
     this.look = look;
+    this.applyWash();
     const index = Math.max(0, Math.min(LOOK.COLORS.length - 1, Math.floor(look.color)));
-    const c = rgb(LOOK.COLORS[index]);
-    this.mat.uniforms.uCloth.value.set(c[0], c[1], c[2], index === 0 ? 0 : HERO_VIS.CLOTH_TINT);
+    // the classes that borrow a body (templar, spellblade, shade) have a cloth colour of their own at index 0
+    const base = HERO_OUTFIT[this.cls].baseCloth;
+    const c = rgb(index === 0 ? base ?? 0 : LOOK.COLORS[index]);
+    this.mat.uniforms.uCloth.value.set(c[0], c[1], c[2], index === 0 && base === undefined ? 0 : HERO_VIS.CLOTH_TINT);
   }
 }
 
-export interface RosterInfo { slot: number; cls: ClassId; name: string; look?: Look }
-export interface Infusions { primary: ElementId | null; secondary: ElementId | null; dash: ElementId | null }
+export interface RosterInfo { slot: number; cls: ClassId; name: string; look?: Look; art?: number }
+export interface Infusions { primary: ElementId | null; secondary: ElementId | null; dash: ElementId | null; ultimate?: ElementId | null }
+
+export const BUFF_IDS: readonly BuffId[] = ['bloodrage', 'bulwark', 'overload'];
+
+const HERO_FX = {
+  LEAP_HEIGHT: 2.5,
+  LEAP_LEAN: 0.5,
+  /** A cast whose target is closer than this to the hero does not move it visually (the snapshots do). */
+  LEAP_MIN_GLIDE: 0.6,
+  OFFSET_DECAY: 16,
+  READY_FLARE: 0.9,
+  RAGE_FLAMES: 3,
+  OVERLOAD_ORBS: 4,
+  OVERLOAD_PERIOD: 0.45,
+} as const;
+
+const SWING: Record<ClassId, number> = {
+  knight: 0xdce8ff, barbarian: 0xffcf9a, mage: PALETTE.arcane, rogue: 0xe9ffe0,
+  templar: PALETTE.holy, spellblade: 0xa8ecff, shade: PALETTE.mark,
+};
+/** Signature colour of a class's own effects (swing arcs, ultimate shimmer). */
+export function classColor(cls: ClassId): number {
+  return SWING[cls];
+}
 
 function createHero(assets: Assets, cls: ClassId, look: Look): HeroView {
   return new HeroView(assets.heroTemplate(cls, look), assets.heroClips, cls, look);
@@ -454,7 +564,7 @@ export class Heroes {
     for (const e of entries) {
       if (e.slot < 0 || e.slot >= this.roster.length) continue;
       const look = e.look ?? DEFAULT_LOOK;
-      this.roster[e.slot] = { slot: e.slot, cls: e.cls, name: e.name, look };
+      this.roster[e.slot] = { slot: e.slot, cls: e.cls, name: e.name, look, art: e.art ?? 0 };
       this.atlas.setName(e.slot, e.name);
       const view = this.views[e.slot];
       if (!view) continue;
@@ -466,10 +576,10 @@ export class Heroes {
 
   setInfusions(slot: number, infusions: Infusions): void {
     if (slot < 0 || slot >= this.infusions.length) return;
-    this.infusions[slot] = { primary: infusions.primary, secondary: infusions.secondary, dash: infusions.dash };
+    this.infusions[slot] = { primary: infusions.primary, secondary: infusions.secondary, dash: infusions.dash, ultimate: infusions.ultimate ?? null };
   }
 
-  infusion(slot: number, ability: 'primary' | 'secondary' | 'dash'): ElementId | null {
+  infusion(slot: number, ability: 'primary' | 'secondary' | 'dash' | 'ultimate'): ElementId | null {
     return this.infusions[slot]?.[ability] ?? null;
   }
 
@@ -490,6 +600,7 @@ export class Heroes {
       view.gen = this.gen;
       view.place(p.x, p.z, p.rot);
       view.rot = p.rot;
+      view.ult = p.ult ?? 0;
       view.hp = p.maxHp > 0 ? p.hp / p.maxHp : 0;
       view.shield = p.shield;
       view.revive = p.revive;
@@ -525,14 +636,16 @@ export class Heroes {
       return;
     }
     if (def.impact !== undefined) {
-      view.playTimed(def, this.windupOf(view.cls, anim), false);
+      view.playTimed(def, this.windupOf(view.cls, anim, view.slot), false);
       return;
     }
     view.play(def.clip, false, def.fade ?? ANIM.FADE_ACTION, def.speed ?? 1);
   }
 
-  private windupOf(cls: ClassId, anim: PlayerAnim): number {
+  private windupOf(cls: ClassId, anim: PlayerAnim, slot: number): number {
     const c = CLASSES[cls];
+    if (anim === 'ultimate') return c.ultimate.windup;
+    if (anim === 'art') return (c.arts[(this.roster[slot]?.art ?? 1) - 1] ?? c.arts[0] ?? c.secondary).windup;
     if (c.secondary.anim === anim) return c.secondary.windup;
     for (const a of c.primary) if (a.anim === anim) return a.windup;
     return c.primary[0].windup;
@@ -560,6 +673,141 @@ export class Heroes {
     v.ringPulse = 1;
   }
 
+  /**
+   * Starts the visual arc of a leap that lands at (toX, toZ) in `dur` seconds. The hero is carried there along a
+   * parabola whatever the snapshots do meanwhile; afterwards the view eases back onto the snapshot position.
+   */
+  leap(slot: number, toX: number, toZ: number, dur: number, height: number = HERO_FX.LEAP_HEIGHT): void {
+    const v = this.get(slot);
+    if (!v) return;
+    v.leapT = 0;
+    v.leapDur = Math.max(0.1, dur);
+    v.leapHeight = height;
+    v.leapFromX = v.x + v.offX; v.leapFromZ = v.z + v.offZ;
+    v.leapToX = toX; v.leapToZ = toZ;
+    v.leapGlide = Math.hypot(toX - v.leapFromX, toZ - v.leapFromZ) > HERO_FX.LEAP_MIN_GLIDE;
+  }
+
+  /** `buff` event: a timed effect (BUFFS) started on a hero. */
+  buff(slot: number, id: string, dur: number): void {
+    const v = this.get(slot);
+    const i = BUFF_IDS.indexOf(id as BuffId);
+    if (!v || i < 0) return;
+    v.buffLeft[i] = dur;
+    v.buffTotal[i] = Math.max(0.1, dur);
+  }
+
+  buffLeft(slot: number, id: BuffId): number {
+    return this.get(slot)?.buffLeft[BUFF_IDS.indexOf(id)] ?? 0;
+  }
+
+  /** The leap arc and the glide to its landing point; returns the visual ground position in v.offX / v.offZ. */
+  private elevate(v: HeroView, dt: number): void {
+    if (v.leapT >= 0) {
+      v.leapT += dt;
+      const k = v.leapT / v.leapDur;
+      if (k < 1 && v.state === 'alive') {
+        v.lift = v.leapHeight * 4 * k * (1 - k);
+        v.root.rotation.x = HERO_FX.LEAP_LEAN * (k - 0.35);
+        if (v.leapGlide) {
+          v.offX = v.leapFromX + (v.leapToX - v.leapFromX) * k - v.x;
+          v.offZ = v.leapFromZ + (v.leapToZ - v.leapFromZ) * k - v.z;
+        }
+      } else {
+        if (v.leapGlide) { v.offX = v.leapToX - v.x; v.offZ = v.leapToZ - v.z; }
+        v.leapT = -1;
+        v.lift = 0;
+        v.root.rotation.x = 0;
+        v.landed = v.state === 'alive';
+        v.punch = 0.16;
+      }
+    } else if (v.offX !== 0 || v.offZ !== 0) {
+      const keep = Math.exp(-HERO_FX.OFFSET_DECAY * dt);
+      v.offX *= keep; v.offZ *= keep;
+      if (Math.abs(v.offX) + Math.abs(v.offZ) < 0.01) { v.offX = 0; v.offZ = 0; }
+    }
+    v.root.position.set(v.x + v.offX, v.lift, v.z + v.offZ);
+  }
+
+  /** Bloodrage, the bulwark dome and the overload afterglow, drawn on whoever carries them. */
+  private buffFx(v: HeroView, dt: number, time: number, x: number, z: number, decals: DecalBatch, fx: BillboardBatch): void {
+    const u = v.mat.uniforms;
+    let er = 0; let eg = 0; let eb = 0;
+    let rr = 0; let rg = 0; let rb = 0;
+    for (let i = 0; i < BUFF_IDS.length; i++) {
+      if (v.buffLeft[i] <= 0) continue;
+      v.buffLeft[i] = Math.max(0, v.buffLeft[i] - dt);
+      if (v.state !== 'alive') continue;
+      // fades in fast, out over the last half second
+      const k = Math.min(1, (v.buffTotal[i] - v.buffLeft[i]) * 5, v.buffLeft[i] * 2);
+      const id = BUFF_IDS[i];
+      if (id === 'bloodrage') {
+        const c = rgb(PALETTE.rage);
+        const beat = 0.7 + 0.3 * Math.sin(time * 12 + v.slot);
+        er += c[0] * 0.3 * k * beat; eg += c[1] * 0.16 * k * beat;
+        rr += c[0] * 2.4 * k; rg += c[1] * 2.4 * k; rb += c[2] * 2.4 * k;
+        decals.push(DECAL.DISC, x, 0.034, z, 0, 4.2, 4.2, c[0], c[1] * 0.8, c[2], (0.3 + 0.1 * beat) * k, 1, 0.1);
+        decals.push(DECAL.CRACKLE, x, 0.046, z, time * 1.7, 2.9, 2.9, c[0] * 1.6, c[1] * 1.6, c[2] * 1.6, 0.8 * k, 1, 0.5, 0.7);
+        for (let n = 0; n < HERO_FX.RAGE_FLAMES; n++) {
+          const a = time * 1.9 + n * 2.094 + v.slot;
+          const flick = 0.8 + 0.4 * hash1(Math.floor(time * 10 + n * 3) + v.slot * 7);
+          const h = (0.8 + 0.25 * n) * flick * k;
+          fx.push(SPRITE.FLAME, x + Math.sin(a) * 0.55, v.lift + 0.35 + 0.42 * n + h * 0.4, z + Math.cos(a) * 0.55, h * 0.6, h,
+            c[0] * 2, c[1] * 2, c[2] * 2, 0.9 * k, 0.85, v.slot + n * 0.37);
+        }
+        fx.push(SPRITE.GLOW, x, v.lift + 1.1, z, 3.6, 3.6, c[0], c[1], c[2], 0.2 * k * beat, 1, 0);
+      } else if (id === 'bulwark') {
+        const c = rgb(PALETTE.shield);
+        const g = rgb(PALETTE.holy);
+        er += c[0] * 0.06 * k; eg += c[1] * 0.06 * k; eb += c[2] * 0.08 * k;
+        rr += g[0] * 1.3 * k; rg += g[1] * 1.3 * k; rb += g[2] * 1.3 * k;
+        // a dome read from above: a bright rim on the floor, a soft bubble and two shield plates circling
+        decals.push(DECAL.PROGRESS, x, 0.048, z, time * 1.2, 3.0, 3.0, g[0] * 1.5, g[1] * 1.5, g[2] * 1.5, 0.9 * k, 0.5, 0.3);
+        decals.push(DECAL.PROGRESS, x, 0.048, z, time * 1.2 + Math.PI, 3.0, 3.0, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, 0.9 * k, 0.5, 0.3);
+        fx.push(SPRITE.GLOW, x, v.lift + 1.15, z, 3.5, 3.5, c[0], c[1], c[2], 0.15 * k, 0.8, 0);
+        for (let n = 0; n < 2; n++) {
+          const a = time * 2.2 + n * Math.PI;
+          fx.push(SPRITE.SHARD, x + Math.sin(a) * 1.15, v.lift + 1.2, z + Math.cos(a) * 1.15, 0.5, 0.7, g[0] * 1.6, g[1] * 1.6, g[2] * 1.6, 0.9 * k, 0.6, 1);
+        }
+      } else {
+        // overload: the hero's elements chase each other around the body
+        const step = Math.floor(time / HERO_FX.OVERLOAD_PERIOD);
+        const el = ELEMENT_COLOR[OVERLOAD_ORDER[step % OVERLOAD_ORDER.length]];
+        const c = rgb(el);
+        rr += c[0] * 2.2 * k; rg += c[1] * 2.2 * k; rb += c[2] * 2.2 * k;
+        er += c[0] * 0.08 * k; eg += c[1] * 0.08 * k; eb += c[2] * 0.08 * k;
+        for (let n = 0; n < HERO_FX.OVERLOAD_ORBS; n++) {
+          const oc = rgb(ELEMENT_COLOR[OVERLOAD_ORDER[n]]);
+          const a = time * 3.4 + n * (Math.PI / 2);
+          const ox = x + Math.sin(a) * 0.95;
+          const oz = z + Math.cos(a) * 0.95;
+          const oy = v.lift + 1.1 + 0.35 * Math.sin(time * 2.6 + n * 1.7);
+          fx.push(SPRITE.GLOW, ox, oy, oz, 0.62, 0.62, oc[0] * 1.8, oc[1] * 1.8, oc[2] * 1.8, 0.95 * k, 1, 1.4);
+          decals.push(DECAL.DISC, ox, 0.035, oz, 0, 1.1, 1.1, oc[0], oc[1], oc[2], 0.2 * k, 1, 0);
+        }
+        decals.push(DECAL.RUNE, x, 0.046, z, -time * 1.4, 2.6, 2.6, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, 0.7 * k, 0.8, 0.3);
+      }
+    }
+    u.uEmissive.value.setRGB(er, eg, eb);
+    u.uRim.value.set(rr, rg, rb, rr + rg + rb > 0 ? 1 : 0);
+  }
+
+  /** A hero whose ultimate is charged: a quiet turning arc in its class colour and a flare the moment it fills. */
+  private readyFx(v: HeroView, dt: number, time: number, x: number, z: number, decals: DecalBatch, fx: BillboardBatch): void {
+    if (v.ult < 0.999 || v.state !== 'alive') { v.ultReadyFor = -1; return; }
+    v.ultReadyFor = v.ultReadyFor < 0 ? 0 : v.ultReadyFor + dt;
+    const c = rgb(SWING[v.cls]);
+    const flare = Math.max(0, 1 - v.ultReadyFor / HERO_FX.READY_FLARE);
+    const breathe = 0.6 + 0.4 * Math.sin(time * 2.4 + v.slot * 1.3);
+    const d = HERO_VIS.RING_RADIUS * 2 + 0.75;
+    decals.push(DECAL.PROGRESS, x, 0.047, z, -time * 0.9, d, d, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, 0.55 * breathe + 0.4 * flare, 0.7, 0.22);
+    decals.push(DECAL.PROGRESS, x, 0.047, z, -time * 0.9 + Math.PI, d, d, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, 0.55 * breathe + 0.4 * flare, 0.7, 0.22);
+    fx.push(SPRITE.GLOW, x, v.lift + 1.2, z, 2.2 + flare * 2.5, 2.2 + flare * 2.5, c[0], c[1], c[2], 0.07 * breathe + 0.4 * flare, 1, 0);
+    const a = time * 1.6 + v.slot;
+    fx.push(SPRITE.SPARK, x + Math.sin(a) * 0.6, v.lift + 0.5 + ((time * 0.7 + v.slot * 0.3) % 1) * 1.8, z + Math.cos(a) * 0.6, 0.16, 0.16,
+      c[0] * 2, c[1] * 2, c[2] * 2, 0.8 * breathe, 1, 0, time * 3);
+  }
+
   update(dt: number, time: number, decals: DecalBatch, ui: BillboardBatch, fx: BillboardBatch, blobShadows: boolean): void {
     for (const v of this.views) {
       if (!v) continue;
@@ -571,51 +819,59 @@ export class Heroes {
       const invulnerable = (v.flags & PF.INVULNERABLE) !== 0 && v.state === 'alive';
       const connected = (v.flags & PF.CONNECTED) !== 0;
       u.uFade.value = invulnerable ? 0.62 : 1;
-      u.uTint.value.set(0.45, 0.5, 0.6, connected ? 0 : 0.7);
+      if (!connected) u.uTint.value.set(0.45, 0.5, 0.6, 0.7);
+      else v.applyWash();
       v.update(dt);
       v.ringPulse = Math.max(0, v.ringPulse - dt * 5);
       v.downTime += dt;
+      this.elevate(v, dt);
+      // everything below is anchored where the hero is drawn (a leap carries it away from the snapshot position)
+      const hx = v.x + v.offX;
+      const hz = v.z + v.offZ;
+      this.buffFx(v, dt, time, hx, hz, decals, fx);
+      this.readyFx(v, dt, time, hx, hz, decals, fx);
 
       const c = SLOT[v.slot];
       const local = v.slot === this.localSlot;
       const downed = v.state !== 'alive';
-      if (blobShadows) decals.push(DECAL.SHADOW, v.x, 0.02, v.z, 0, 1.5, 1.5, 0, 0, 0, 0.5);
+      const air = v.lift > 0.2 ? Math.max(0.5, 1 - v.lift * 0.16) : 1;
+      if (blobShadows || v.lift > 0.2) decals.push(DECAL.SHADOW, hx, 0.02, hz, 0, 1.5 * air, 1.5 * air, 0, 0, 0, 0.5 * air);
       if ((v.flags & PF.KINDRED_AURA) !== 0 && !downed) {
-        decals.push(DECAL.DISC, v.x, 0.03, v.z, 0, 3.6, 3.6, c.r, c.g, c.b, 0.16 + 0.05 * Math.sin(time * 3), 1, 0);
+        decals.push(DECAL.DISC, hx, 0.03, hz, 0, 3.6, 3.6, c.r, c.g, c.b, 0.16 + 0.05 * Math.sin(time * 3), 1, 0);
       }
       const ring = HERO_VIS.RING_RADIUS * 2 * (1 + v.ringPulse * 0.25);
       const bright = local ? 1.35 : 0.9;
       if (!downed) {
-        decals.push(DECAL.RING, v.x, 0.045, v.z, v.rot, ring, ring, c.r * bright, c.g * bright, c.b * bright, local ? 1 : 0.8, 0, local ? 1 : 0);
+        decals.push(DECAL.RING, hx, 0.045, hz, v.rot, ring, ring, c.r * bright, c.g * bright, c.b * bright, local ? 1 : 0.8, 0, local ? 1 : 0);
         if (v.shield > 0) {
           const sc = PALETTE.shield;
           _color.setHex(sc);
-          decals.push(DECAL.PROGRESS, v.x, 0.05, v.z, time * 1.5, ring + 0.5, ring + 0.5, _color.r, _color.g, _color.b, 0.85, 0.4, 1);
+          decals.push(DECAL.PROGRESS, hx, 0.05, hz, time * 1.5, ring + 0.5, ring + 0.5, _color.r, _color.g, _color.b, 0.85, 0.4, 1);
         }
       } else {
         // downed: pulsing glimmer ring that fills while an ally revives
         _color.setHex(PALETTE.glimmer);
         const pulse = 0.7 + 0.3 * Math.sin(time * 5);
-        decals.push(DECAL.DISC, v.x, 0.035, v.z, 0, 3.2, 3.2, c.r, c.g, c.b, 0.2 * pulse, 0.6, 0);
-        decals.push(DECAL.PROGRESS, v.x, 0.05, v.z, 0, 2.5, 2.5, _color.r * 1.4, _color.g * 1.4, _color.b * 1.4, 1, 0.3, v.revive);
+        decals.push(DECAL.DISC, hx, 0.035, hz, 0, 3.2, 3.2, c.r, c.g, c.b, 0.2 * pulse, 0.6, 0);
+        decals.push(DECAL.PROGRESS, hx, 0.05, hz, 0, 2.5, 2.5, _color.r * 1.4, _color.g * 1.4, _color.b * 1.4, 1, 0.3, v.revive);
         const bob = Math.sin(time * 3.2) * 0.1;
         const uv = this.atlas.icons.down;
         const s = 0.8 + 0.08 * pulse;
-        ui.push(SPRITE.ATLAS, v.x, 1.7 + bob, v.z, s, s, _color.r, _color.g, _color.b, 1, 0, 0, 0, 0, 0, uv[0], uv[1], uv[2], uv[3]);
+        ui.push(SPRITE.ATLAS, hx, 1.7 + bob, hz, s, s, _color.r, _color.g, _color.b, 1, 0, 0, 0, 0, 0, uv[0], uv[1], uv[2], uv[3]);
         if ((v.flags & PF.BEING_REVIVED) !== 0) {
-          fx.push(SPRITE.GLOW, v.x, 0.9, v.z, 3.4, 3.4, _color.r, _color.g, _color.b, 0.25 + 0.2 * v.revive, 1, 0.3);
+          fx.push(SPRITE.GLOW, hx, 0.9, hz, 3.4, 3.4, _color.r, _color.g, _color.b, 0.25 + 0.2 * v.revive, 1, 0.3);
         }
       }
       // name label + slim health bar
-      const labelY = downed ? 2.35 : HERO_VIS.LABEL_Y;
+      const labelY = (downed ? 2.35 : HERO_VIS.LABEL_Y) + v.lift;
       const nameUv = this.atlas.names[v.slot];
       const lh = local ? 0.46 : 0.4;
       const la = connected ? 1 : 0.45;
-      ui.push(SPRITE.ATLAS, v.x, labelY, v.z, lh * this.atlas.nameAspect, lh, c.r, c.g, c.b, la, 0, 0, 0, 0, 0.12, nameUv[0], nameUv[1], nameUv[2], nameUv[3]);
+      ui.push(SPRITE.ATLAS, hx, labelY, hz, lh * this.atlas.nameAspect, lh, c.r, c.g, c.b, la, 0, 0, 0, 0, 0.12, nameUv[0], nameUv[1], nameUv[2], nameUv[3]);
       if (!downed) {
         const hpFrac = Math.max(0, Math.min(1, v.hp));
         _color.setRGB(hpFrac < 0.35 ? 1 : 0.42, hpFrac < 0.35 ? 0.3 : 0.92, hpFrac < 0.35 ? 0.25 : 0.5);
-        ui.push(SPRITE.BAR, v.x, labelY, v.z, 1.15, 0.13, _color.r, _color.g, _color.b, la, 0, hpFrac, 0, 0, -0.2);
+        ui.push(SPRITE.BAR, hx, labelY, hz, 1.15, 0.13, _color.r, _color.g, _color.b, la, 0, hpFrac, 0, 0, -0.2);
         // infused weapon: a faint element glow in the weapon hand (primary first, else the secondary's element)
         const inf = this.infusions[v.slot];
         const el = inf ? inf.primary ?? inf.secondary : null;
@@ -623,6 +879,8 @@ export class Heroes {
           const e = v.hand.matrixWorld.elements;
           const ec = rgb(ELEMENT_COLOR[el]);
           const breathe = 0.75 + 0.25 * Math.sin(time * 5 + v.slot);
+          // umbra glows from a dark heart
+          if (el === 'umbra') fx.push(SPRITE.GLOW, e[12], e[13] + 0.1, e[14], 0.7, 0.7, UMBRA_CORE[0], UMBRA_CORE[1], UMBRA_CORE[2], 0.85, 0, 0);
           fx.push(SPRITE.GLOW, e[12], e[13] + 0.1, e[14], 1.25, 1.25, ec[0], ec[1], ec[2], 0.34 * breathe, 1, 0.5);
           fx.push(SPRITE.SPARK, e[12], e[13] + 0.1, e[14], 0.24, 0.24, ec[0] * 2, ec[1] * 2, ec[2] * 2, 0.8 * breathe, 1, 0, time * 3);
         }
@@ -650,6 +908,7 @@ export class Heroes {
 // ---------------------------------------------------------------------------------------------- wardrobe preview
 
 const PREVIEW = { SPIN: 0.42, FLOURISH_EVERY: 5.2, FACE: 0.35 } as const;
+const FLOURISHES: readonly PlayerAnim[] = ['primary1', 'cheer', 'ultimate', 'primary3'];
 
 /** The single hero shown on the menu / wardrobe diorama: idle, slow turntable, an occasional flourish. */
 export class HeroPreview {
@@ -707,7 +966,8 @@ export class HeroPreview {
       this.wait -= dt;
       if (this.wait <= 0) {
         this.wait = PREVIEW.FLOURISH_EVERY;
-        const def = this.count++ % 2 === 0 ? HERO_ANIMS[v.cls].primary1 : HERO_ANIMS[v.cls].cheer;
+        const pick = this.count++ % FLOURISHES.length;
+        const def = HERO_ANIMS[v.cls][FLOURISHES[pick]];
         const action = v.play(def.clip, false, 0.15, 1);
         this.busy = action ? Math.min(1.6, action.getClip().duration) - 0.2 : 0;
       }
@@ -752,6 +1012,12 @@ class EnemyView extends Actor {
   /** Set for one frame when a leap touches down (the world adds dust). */
   landed = false;
   readonly hand: Object3D | null;
+  /** Elite trait from the spawn event; armoured elites lose the plating when their guard breaks. */
+  affix: AffixId | null = null;
+  guardBroken = false;
+  /** Death Mark (shade ultimate): seconds left / total. */
+  markLeft = 0;
+  markTotal = 1;
 
   constructor(template: CharacterTemplate, clips: Map<string, AnimationClip>, kind: EnemyKind) {
     super(template, clips);
@@ -774,6 +1040,8 @@ export class Enemies {
   private readonly dying: EnemyView[] = [];
   private readonly pool = Object.fromEntries(ENEMY_KINDS.map((kind) => [kind, [] as EnemyView[]])) as Record<EnemyKind, EnemyView[]>;
   private readonly killed = new Map<number, number>();
+  /** Affixes announced by `spawn` before the first snapshot row of that enemy arrived. */
+  private readonly affixes = new Map<number, AffixId>();
   private gen = 0;
   private time = 0;
   private readonly expire = (until: number, id: number): void => {
@@ -818,6 +1086,9 @@ export class Enemies {
     view.specialAt = -10;
     view.airborne = false;
     view.landed = false;
+    view.affix = this.affixes.get(snap.id) ?? null;
+    view.guardBroken = false;
+    view.markLeft = 0;
     view.x = snap.x;
     view.z = snap.z;
     view.seed = (snap.id * 0.61803398875) % 1;
@@ -828,6 +1099,7 @@ export class Enemies {
   }
 
   private release(view: EnemyView): void {
+    this.affixes.delete(view.id);
     view.root.removeFromParent();
     view.reset();
     view.id = -1;
@@ -1101,6 +1373,27 @@ export class Enemies {
     return this.byId.get(id) ?? null;
   }
 
+  /** `spawn.affix`: remembered until the enemy's view exists (events run ahead of the interpolated snapshots). */
+  setAffix(id: number, affix: AffixId): void {
+    this.affixes.set(id, affix);
+    const v = this.byId.get(id);
+    if (v) v.affix = affix;
+  }
+
+  /** `shieldBreak` on an armoured elite: the plating is gone for good. */
+  breakGuard(id: number): void {
+    const v = this.byId.get(id);
+    if (v) v.guardBroken = true;
+  }
+
+  /** `mark` event (shade ultimate). */
+  mark(id: number, dur: number): void {
+    const v = this.byId.get(id);
+    if (!v) return;
+    v.markLeft = dur;
+    v.markTotal = Math.max(0.1, dur);
+  }
+
   hit(id: number, r: number, g: number, b: number): void {
     const v = this.byId.get(id);
     if (!v) return;
@@ -1118,6 +1411,7 @@ export class Enemies {
 
     for (const v of this.active) {
       v.age += dt;
+      if (v.markLeft > 0) v.markLeft = Math.max(0, v.markLeft - dt);
       const look = ENEMY_LOOK[v.kind];
       if (v.anim === 'move' && !look.glide) {
         const natural = (look.walk ? ENEMY_VIS.WALK_SPEED : ENEMY_VIS.RUN_SPEED) * v.baseScale;
@@ -1180,6 +1474,14 @@ export class Enemies {
       tr += c.r * amount; tg += c.g * amount; tb += c.b * amount; ta += amount;
       rr += c.r * STATUS_VIS.RIM.shock * jolt; rg += c.g * STATUS_VIS.RIM.shock * jolt; rb += c.b * STATUS_VIS.RIM.shock * jolt;
     }
+    if (f & EF.WITHER) {
+      // Wither: the body darkens to violet-black, only a pale green edge still catches light, slowly breathing
+      const body = STATUS_COLORS.witherBody;
+      const c = STATUS_COLORS.wither;
+      const breathe = 0.7 + 0.3 * Math.sin(time * 2.6 + v.seed * 9);
+      tr += body.r * 0.35 * STATUS_VIS.WITHER_TINT; tg += body.g * 0.35 * STATUS_VIS.WITHER_TINT; tb += body.b * 0.35 * STATUS_VIS.WITHER_TINT; ta += STATUS_VIS.WITHER_TINT;
+      rr += c.r * STATUS_VIS.RIM.wither * breathe; rg += c.g * STATUS_VIS.RIM.wither * breathe; rb += c.b * STATUS_VIS.RIM.wither * breathe;
+    }
     if (ta > 0) u.uTint.value.set(tr / ta, tg / ta, tb / ta, Math.min(0.7, ta));
     else u.uTint.value.w = 0;
     u.uRim.value.set(rr, rg, rb, ta > 0 ? 1 : 0);
@@ -1191,6 +1493,8 @@ export class Enemies {
     let eb = _color.b;
     if (ta > 0) { er += rr * 0.03; eg += rg * 0.03; eb += rb * 0.03; }
     if (v.elite) { er += 0.1; eg += 0.008; eb += 0.004; }
+    if (v.affix === 'volatile') { const p = 0.1 + 0.1 * Math.sin(time * 7 + v.seed * 5); er += p; eg += p * 0.55; }
+    if (v.markLeft > 0) { er += 0.05; eg += 0.02; eb += 0.09; }
     if (f & EF.ENRAGED) { const p = 0.14 + 0.1 * Math.sin(time * 9); er += p; eg += p * 0.12; }
     if (f & EF.SHIELDED) { er += 0.02; eg += 0.05; eb += 0.09; }
     u.uEmissive.value.setRGB(er, eg, eb);
@@ -1238,6 +1542,8 @@ export class Enemies {
         fx.push(SPRITE.GLOW, v.x + Math.sin(v.root.rotation.y) * 0.4, v.lift + v.height * 0.55, v.z + Math.cos(v.root.rotation.y) * 0.4, 1.3, 1.3, c[0], c[1], c[2], 0.3 * pulse, 1, 0.7);
       }
     }
+    if (v.affix && !spawning && v.root.visible) this.affixFx(v, time, decals, fx);
+    if (v.markLeft > 0) this.markFx(v, time, decals, ui);
     if (v.anim === 'beam') this.channel(v, time, decals, fx);
     if (f & EF.SHIELDED) {
       _color.setHex(PALETTE.shield);
@@ -1255,14 +1561,19 @@ export class Enemies {
     if (f & EF.BURN) n++;
     if (f & EF.CHILL) n++;
     if (f & EF.SHOCK) n++;
+    if (f & EF.WITHER) n++;
     if (f & EF.SHIELDED) n++;
     if (f & EF.ENRAGED) n++;
+    const affix = spawning ? null : v.affix;
+    if (affix) n++;
     if (n > 0) {
       const size = bossy ? 0.66 : 0.48;
       let ox = -(n - 1) * size * 0.5;
+      if (affix) { this.icon(ui, v, top, affix, AFFIX_COLOR[affix], size, ox); ox += size; }
       if (f & EF.BURN) { this.pip(ui, v, top, 'burn', ELEMENT_COLOR.ember, size, ox); ox += size; }
       if (f & EF.CHILL) { this.pip(ui, v, top, 'chill', ELEMENT_COLOR.rime, size, ox); ox += size; }
       if (f & EF.SHOCK) { this.pip(ui, v, top, 'shock', ELEMENT_COLOR.storm, size, ox); ox += size; }
+      if (f & EF.WITHER) { this.pip(ui, v, top, 'wither', PALETTE.umbraDeep, size, ox, ELEMENT_COLOR.umbra); ox += size; }
       if (f & EF.SHIELDED) { this.icon(ui, v, top, 'shield', PALETTE.shield, size, ox); ox += size; }
       if (f & EF.ENRAGED) this.icon(ui, v, top, 'enrage', PALETTE.hostile, size, ox);
     }
@@ -1279,7 +1590,7 @@ export class Enemies {
   /** World-space status dressing: flames licking up (Burn), a frost plate (Chill), crackling arcs (Shock). */
   private statusFx(v: EnemyView, time: number, decals: DecalBatch, fx: BillboardBatch): void {
     const f = v.flags;
-    if ((f & (EF.BURN | EF.CHILL | EF.SHOCK)) === 0) return;
+    if ((f & ANY_STATUS) === 0) return;
     const s = v.baseScale;
     const base = v.lift;
     if (f & EF.BURN) {
@@ -1311,6 +1622,92 @@ export class Enemies {
       }
       decals.push(DECAL.DISC, v.x, 0.033, v.z, 0, v.radius * 4.6, v.radius * 4.6, c.r, c.g, c.b, 0.12 + 0.2 * hash1(tick + v.seed), 1, 0);
     }
+    if (f & EF.WITHER) {
+      // a pool of shadow with a pale rim, and wisps of the victim's strength sinking out of it
+      const c = STATUS_COLORS.wither;
+      decals.push(DECAL.SMOKE, v.x, 0.031, v.z, v.seed * 6.283 + time * 0.3, v.radius * 5.2, v.radius * 5.2, UMBRA_CORE[0], UMBRA_CORE[1], UMBRA_CORE[2], 0.92, 0, 0.9,
+        c.r * 0.9, c.g * 0.9, c.b * 0.9);
+      for (let k = 0; k < STATUS_VIS.WISPS; k++) {
+        const ph = (time * 0.55 + k / STATUS_VIS.WISPS + v.seed) % 1;
+        const a = v.seed * 6.283 + k * 2.094 + Math.sin(time * 1.3 + k) * 0.5;
+        const d = v.radius * (0.5 + 0.9 * ph);
+        fx.push(SPRITE.GLOW, v.x + Math.sin(a) * d, base + v.height * (0.85 - 0.75 * ph), v.z + Math.cos(a) * d, 0.5 * s * (1 - ph * 0.5), 0.9 * s * (1 - ph * 0.5),
+          c.r * 1.5, c.g * 1.5, c.b * 1.5, 0.75 * Math.sin(ph * Math.PI), 1, 0.8);
+      }
+      fx.push(SPRITE.GLOW, v.x, base + v.height * 0.55, v.z, v.height * 0.9, v.height * 1.1, UMBRA_CORE[0], UMBRA_CORE[1], UMBRA_CORE[2], 0.4, 0, 0);
+    }
+  }
+
+  /** Elite affixes: each trait has its own silhouette of light around the body, readable without the icon. */
+  private affixFx(v: EnemyView, time: number, decals: DecalBatch, fx: BillboardBatch): void {
+    const c = rgb(AFFIX_COLOR[v.affix as AffixId]);
+    const s = v.baseScale;
+    const mid = v.lift + v.height * 0.5;
+    switch (v.affix) {
+      case 'swift': {
+        // wind: streaks trailing behind the direction it faces and a fast thin ring
+        const sin = Math.sin(v.root.rotation.y);
+        const cos = Math.cos(v.root.rotation.y);
+        for (let k = 0; k < AFFIX_VIS.SWIFT_TRAILS; k++) {
+          const side = (k - 1) * 0.42 * s;
+          const flick = 0.6 + 0.4 * Math.sin(time * 16 + k * 2.1 + v.seed * 9);
+          const len = (1.5 + 0.5 * k) * s * (0.6 + Math.min(1, v.speed * 0.2));
+          decals.push(DECAL.STREAK, v.x - sin * len * 0.55 + cos * side, v.lift + 0.3 + 0.45 * k * s, v.z - cos * len * 0.55 - sin * side, v.root.rotation.y,
+            0.22 * s, len, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, 0.6 * flick, 1);
+        }
+        decals.push(DECAL.PROGRESS, v.x, 0.046, v.z, time * 7, v.radius * 3.6, v.radius * 3.6, c[0] * 1.4, c[1] * 1.4, c[2] * 1.4, 0.8, 0.6, 0.16);
+        decals.push(DECAL.PROGRESS, v.x, 0.046, v.z, time * 7 + Math.PI, v.radius * 3.6, v.radius * 3.6, c[0] * 1.4, c[1] * 1.4, c[2] * 1.4, 0.8, 0.6, 0.16);
+        break;
+      }
+      case 'armored': {
+        if (v.guardBroken) break;
+        // plating: steel shards slowly circling the torso and a heavy segmented ring
+        for (let k = 0; k < AFFIX_VIS.ARMOR_PLATES; k++) {
+          const a = time * 1.1 + (k / AFFIX_VIS.ARMOR_PLATES) * Math.PI * 2 + v.seed * 6;
+          fx.push(SPRITE.SHARD, v.x + Math.sin(a) * v.radius * 1.5, mid + 0.12 * Math.sin(time * 2 + k), v.z + Math.cos(a) * v.radius * 1.5, 0.5 * s, 0.72 * s,
+            c[0] * 1.2, c[1] * 1.2, c[2] * 1.2, 0.95, 0.15, 1);
+        }
+        for (let k = 0; k < 3; k++) {
+          decals.push(DECAL.PROGRESS, v.x, 0.047, v.z, -time * 0.6 + k * 2.094, v.radius * 4.4, v.radius * 4.4, c[0] * 1.3, c[1] * 1.3, c[2] * 1.3, 0.95, 0.25, 0.24);
+        }
+        break;
+      }
+      case 'volatile': {
+        // a lit fuse: an unstable core in the chest that beats faster and a flickering ground glow
+        const beat = Math.pow(0.5 + 0.5 * Math.sin(time * 9 + v.seed * 4), 3);
+        fx.push(SPRITE.GLOW, v.x, mid + 0.1 * s, v.z, (0.9 + 0.7 * beat) * s, (0.9 + 0.7 * beat) * s, c[0] * 2, c[1] * 1.7, c[2] * 1.2, 0.85, 1, 1.6);
+        fx.push(SPRITE.SPARK, v.x, mid + 0.1 * s, v.z, 0.34 * s, 0.34 * s, 2.4, 2.2, 1.6, 0.9, 1, 0, time * 5);
+        decals.push(DECAL.CRACKLE, v.x, 0.046, v.z, time, v.radius * 4.6, v.radius * 4.6, c[0] * 1.5, c[1] * 1.3, c[2], 0.5 + 0.4 * beat, 1, 0.35, 1);
+        break;
+      }
+      case 'vampiric': {
+        // blood drawn inwards: motes spiralling into the body over a dark crimson pool
+        for (let k = 0; k < AFFIX_VIS.VAMP_MOTES; k++) {
+          const ph = (time * 0.7 + k / AFFIX_VIS.VAMP_MOTES + v.seed) % 1;
+          const a = k * 1.571 + ph * 3.2 + v.seed * 6;
+          const d = v.radius * (2.6 - 2.2 * ph);
+          fx.push(SPRITE.GLOW, v.x + Math.sin(a) * d, v.lift + 0.25 + ph * v.height * 0.55, v.z + Math.cos(a) * d, 0.42 * (1.2 - ph), 0.42 * (1.2 - ph),
+            c[0] * 2, c[1] * 2, c[2] * 2, 0.9 * Math.min(1, ph * 5), 1, 1.2);
+        }
+        decals.push(DECAL.SMOKE, v.x, 0.036, v.z, time * 0.4, v.radius * 5, v.radius * 5, c[0] * 0.35, c[1] * 0.35, c[2] * 0.35, 0.75, 0.1, 0.9, c[0], c[1], c[2]);
+        break;
+      }
+    }
+  }
+
+  /** Death Mark: a reticle on the floor that tightens as the mark runs out and the mark icon over the head. */
+  private markFx(v: EnemyView, time: number, decals: DecalBatch, ui: BillboardBatch): void {
+    const c = rgb(PALETTE.mark);
+    const k = v.markLeft / v.markTotal;
+    const blink = v.markLeft < 1.5 ? 0.6 + 0.4 * Math.sin(time * 14) : 1;
+    const d = v.radius * 2 * AFFIX_VIS.MARK_RING;
+    decals.push(DECAL.ZONE, v.x, 0.05, v.z, 0, d * 1.6, d * 1.6, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, 0.9 * blink, 0.5, 0);
+    decals.push(DECAL.PROGRESS, v.x, 0.052, v.z, 0, d * 1.25, d * 1.25, c[0] * 1.8, c[1] * 1.8, c[2] * 1.8, blink, 0.6, k);
+    const uv = this.atlas.icons.mark;
+    const bob = Math.sin(time * 3 + v.seed * 6) * 0.07;
+    const y = v.lift + v.height + 0.95 + bob;
+    ui.push(SPRITE.GLOW, v.x, y, v.z, 1.1, 1.1, 0.04, 0.01, 0.08, 0.8 * blink);
+    ui.push(SPRITE.ATLAS, v.x, y, v.z, 0.62, 0.62, c[0] * 1.2, c[1] * 1.2, c[2] * 1.2, blink, 0, 0, 0, 0, 0, uv[0], uv[1], uv[2], uv[3]);
   }
 
   /** The Matron's channel: light gathers at the raised staff and a pillar burns over her while the rays turn. */
@@ -1329,11 +1726,12 @@ export class Enemies {
     decals.push(DECAL.RUNE, v.x, 0.05, v.z, time * 1.6, v.radius * 9 * charge, v.radius * 9 * charge, b[0] * 1.5, b[1] * 1.5, b[2] * 1.5, 0.7 * charge, 0.8, charge);
   }
 
-  private pip(ui: BillboardBatch, v: EnemyView, top: number, name: IconName, hex: number, size: number, ox: number): void {
+  private pip(ui: BillboardBatch, v: EnemyView, top: number, name: IconName, hex: number, size: number, ox: number, iconHex: number = PALETTE.white): void {
     const uv = this.atlas.icons[name];
     const c = rgb(hex);
+    const ic = rgb(iconHex);
     ui.push(SPRITE.PIP, v.x, top, v.z, size * 0.92, size * 0.92, c[0], c[1], c[2], 1, 0, 0, 0, ox, 0.4);
-    ui.push(SPRITE.ATLAS, v.x, top, v.z, size * 0.66, size * 0.66, 1, 1, 1, 1, 0, 0, 0, ox, 0.4, uv[0], uv[1], uv[2], uv[3]);
+    ui.push(SPRITE.ATLAS, v.x, top, v.z, size * 0.66, size * 0.66, ic[0], ic[1], ic[2], 1, 0, 0, 0, ox, 0.4, uv[0], uv[1], uv[2], uv[3]);
   }
 
   private icon(ui: BillboardBatch, v: EnemyView, top: number, name: IconName, hex: number, size: number, ox: number): void {
@@ -1363,6 +1761,7 @@ export class Enemies {
     this.dying.length = 0;
     this.byId.clear();
     this.killed.clear();
+    this.affixes.clear();
   }
 }
 

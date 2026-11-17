@@ -1,8 +1,10 @@
 /** Internal, mutable simulation state. Only the contract types in ../types.ts ever leave the sim. */
 import type { AbilityDef, ClassDef } from '../data/classes.ts';
 import type { EnemyDef } from '../data/enemies.ts';
+import type { Mods } from '../data/mods.ts';
+import type { ReactionId } from '../data/reactions.ts';
 import type {
-  AbilitySlot, BoonOffer, BoonStack, ClassId, ElementId, EnemyAnim, EnemyKind, InputCmd, PlayerAnim,
+  AbilitySlot, AffixId, BoonOffer, BoonStack, ClassId, ElementId, EnemyAnim, EnemyKind, InputCmd, PlayerAnim,
   PlayerRunStats, PlayerState, ProjectileKind,
 } from '../types.ts';
 import type { MoveBody } from './movement.ts';
@@ -39,7 +41,77 @@ export interface BoonStats {
   sharedVigor: number;
   lifeline: number;
   oathbond: number;
+  // update 3
+  momentum: number;
+  giantSlayer: number;
+  overkill: number;
+  firstBlood: number;
+  brutality: number;
+  thorns: number;
+  mending: number;
+  crystalWard: number;
+  slipstream: number;
+  afterimage: number;
+  catalyst: number;
+  chainReaction: boolean;
+  crescendo: number;
+  encore: number;
+  openingAct: number;
+  covenant: number;
+  rally: number;
+  creepingDark: number;
+  /** Duo boons: burst damage bonus per reaction (0 = not owned). */
+  duo: Record<ReactionId, number>;
+  /** Passive bonuses of boons that are plain Mods (stoneskin, zealot, any boon with `mods`). */
+  mods: Mods;
   infusion: Record<AbilitySlot, Infusion | null>;
+}
+
+/** What a hero brings into a run besides the look: sanitised Loadout fields (see sim/build.ts). */
+export interface HeroBuild {
+  meta: number[];
+  paragon: number[];
+  mastery: number;
+  art: number;
+  talents: number[];
+  relics: { id: string; rank: number }[];
+}
+
+/** The hero's abilities after class boons and the `area` mod. Rebuilt whenever boons or mods change. */
+export interface HeroAbilities {
+  primary: AbilityDef[];
+  secondary: AbilityDef;
+  ultimate: AbilityDef;
+}
+
+/** Talent specials (data/mastery.ts) the hero has chosen. */
+export interface TalentFlags {
+  riposte: boolean;
+  rampage: boolean;
+  arcaneEcho: boolean;
+  poisonTips: boolean;
+  martyr: boolean;
+  spellweave: boolean;
+  ambush: boolean;
+}
+
+/** Relic specials (data/relics.ts): 0 = not equipped, else rankScale(rank). */
+export interface RelicFlags {
+  emberHeart: number;
+  frostCore: number;
+  stormCoil: number;
+  voidLantern: number;
+  phoenix: number;
+  bell: number;
+  hourglass: number;
+  compass: number;
+}
+
+/** Remaining seconds of the timed hero effects (BUFFS in data/classes.ts). */
+export interface BuffTimes {
+  bloodrage: number;
+  bulwark: number;
+  overload: number;
 }
 
 /** Everything a hero's permanent upgrades add up to (see data/meta.ts). Zero / false = no upgrade. */
@@ -58,6 +130,10 @@ export interface MetaStats {
   /** Extra health fraction when revived; > 0 also grants META.RESOLVE_INVULNERABILITY. */
   resolve: number;
   fortune: number;
+  /** Extra draft choices (foresight). */
+  foresight: number;
+  /** One more solo Second Wind; revived faster in a party. */
+  tenacity: boolean;
 }
 
 export interface PendingHit {
@@ -69,16 +145,22 @@ export interface PendingHit {
   /** Ground target (circle abilities). */
   tx: number;
   tz: number;
+  /** Leap: the flight (a dash towards tx / tz) has started. */
+  launched?: boolean;
+  /** Arcane Echo: this is the repeated volley (it does not count towards the next echo). */
+  echo?: boolean;
 }
 
 export interface SpinState {
   def: AbilityDef;
+  slot: AbilitySlot;
   pulsesLeft: number;
   timer: number;
 }
 
 export interface LungeState {
   def: AbilityDef;
+  slot: AbilitySlot;
   hit: Set<number>;
 }
 
@@ -112,6 +194,7 @@ export interface Hero {
   pressPrimary: number;
   pressSecondary: number;
   pressDash: number;
+  pressUltimate: number;
 
   lockTime: number;
   lockMoveMul: number;
@@ -127,8 +210,18 @@ export interface Hero {
   pending: PendingHit[];
   spin: SpinState | null;
   lunge: LungeState | null;
+  /** In the air (leap): the dash that carries the hero strikes nothing on its way. */
+  flight: boolean;
   /** Seconds of invulnerability left (dash, post-hit, revive, last stand). */
   invuln: number;
+  /** Ultimate charge 0..ULTIMATE.MAX. Kept between chambers. */
+  ult: number;
+  buffs: BuffTimes;
+  /** Seconds enemies near this hero are forced to target it (own bulwark banner). */
+  taunt: number;
+  /** Overload: elements applied in turn by every hit, and the next index. */
+  overloadEls: ElementId[];
+  overloadIndex: number;
 
   boons: BoonStack[];
   stats: BoonStats;
@@ -147,6 +240,34 @@ export interface Hero {
   /** Sanitised permanent upgrade levels and what they add up to. */
   metaLevels: number[];
   meta: MetaStats;
+  /** Sanitised loadout (upgrades, Ascension, mastery, art, talents, relics). */
+  build: HeroBuild;
+  /** Sum of all permanent sources (uncapped) and the capped total incl. set bonuses and boon mods. */
+  perm: Mods;
+  mods: Mods;
+  abil: HeroAbilities;
+  talent: TalentFlags;
+  relic: RelicFlags;
+  /** Active tier per set (aligned with SETS) and the set specials that are switched on. */
+  setTiers: number[];
+  setSpread: ElementId[];
+  setOverflow: boolean;
+  setBond: boolean;
+  momentum: number;
+  momentumTime: number;
+  rampage: number;
+  rampageTime: number;
+  riposte: boolean;
+  spellweave: boolean;
+  echoCount: number;
+  /** Hits since the last storm coil strike. */
+  coilHits: number;
+  phoenixUsed: boolean;
+  slipstreamTime: number;
+  /** Seconds spent downed inside a sanctuary. */
+  sanctuary: number;
+  /** Relic shards found so far this run. */
+  shards: string[];
   /** Hazard afflictions: seconds of burn left, time to the next burn tick, seconds of chill left. */
   burnTime: number;
   burnTimer: number;
@@ -284,6 +405,57 @@ export interface Enemy {
   passive: boolean;
   /** Walks straight through hazards instead of around them (tutorial chaser). */
   reckless: boolean;
+  // update 3
+  affix: AffixId | null;
+  /** `armored` affix: guard still up. */
+  armored: boolean;
+  /** Death Mark: seconds left and the slot that marked. */
+  markTime: number;
+  markBy: number;
+  /** Sunder (Superconduct): extra damage taken and seconds left. */
+  sunder: number;
+  sunderTime: number;
+  /** Cannot move (Entomb). */
+  rootTime: number;
+  /** Generic slow (bell relic): fraction and seconds left. */
+  slow: number;
+  slowTime: number;
+  /** Seconds the smoke bomb's slow / weaken still applies (refreshed while inside). */
+  smokeTime: number;
+  /** Strength of the current status (1 + elementPotency of the applier). */
+  statusPower: number;
+  /** Extra outgoing-damage cut while the current status lasts (frost core). */
+  statusWeaken: number;
+  /** Bit per hero slot that has already struck this enemy (ambush talent). */
+  struckBy: number;
+}
+
+/** A lasting ground effect of a hero ability (zone / trap shapes). */
+export interface Zone {
+  id: number;
+  def: AbilityDef;
+  owner: number;
+  slot: AbilitySlot;
+  x: number;
+  z: number;
+  r: number;
+  /** Seconds left. */
+  time: number;
+  /** Seconds to the next pulse. */
+  timer: number;
+  /** Traps: seconds until armed. */
+  arm: number;
+  dead: boolean;
+}
+
+/** A delayed hostile explosion (volatile affix). */
+export interface PendingBlast {
+  x: number;
+  z: number;
+  r: number;
+  t: number;
+  damage: number;
+  by: number;
 }
 
 export interface Projectile {
@@ -315,6 +487,10 @@ export interface Projectile {
   seek: number;
   /** Hostile projectiles with `fragile` are destroyed by any hero attack that touches them. */
   fragile: boolean;
+  /** Hero projectiles: only this enemy id can be hit (-1 = anything). */
+  only: number;
+  /** Hero projectiles: damage multiplier bonus decided at release (spellweave). */
+  bonus: number;
 }
 
 export const emptyInput = (): InputCmd => ({ seq: 0, moveX: 0, moveZ: 0, aim: 0, aimDist: 0, buttons: 0 });

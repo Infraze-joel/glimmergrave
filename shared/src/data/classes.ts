@@ -69,7 +69,7 @@ export interface AbilityDef {
  *  overload  – spellblade ultimate afterglow: every hit applies the hero's next infused element in turn
  */
 export const BUFFS = {
-  bloodrage: { damage: 0.35, attackSpeed: 0.3, moveSpeed: 0.2, lifeOnKill: 6 },
+  bloodrage: { damage: 0.3, attackSpeed: 0.25, moveSpeed: 0.2, lifeOnKill: 4 },
   bulwark: { damageTaken: 0.5, tauntRadius: 9 },
   overload: { potency: 1.5 },
 } as const;
@@ -81,8 +81,8 @@ export type BuffId = keyof typeof BUFFS;
  */
 export const ULTIMATE = {
   MAX: 100,
-  PER_DAMAGE_DEALT: 0.055,
-  PER_DAMAGE_TAKEN: 0.35,
+  PER_DAMAGE_DEALT: 0.04,
+  PER_DAMAGE_TAKEN: 0.3,
   PER_RESONANCE: 4,
   /** Largest charge a single hit can give (one huge blast must not fill the bar). */
   MAX_PER_HIT: 6,
@@ -177,35 +177,35 @@ export const CLASSES: Record<ClassId, ClassDef> = {
       { ...base, id: 'rogue_trap', shape: 'trap', anim: 'art', cooldown: 6, windup: 0.6, lock: 0.3, moveMul: 0.6, damage: 34, range: 8, radius: 2.2, duration: 14, stun: 1.2, special: 'max3' },
     ],
     // Bolt Storm: bolts rain on an area for a few seconds.
-    ultimate: { ...base, id: 'rogue_volley', shape: 'zone', anim: 'ultimate', cooldown: 0, windup: 0.3, lock: 0.5, moveMul: 0.4, damage: 15, range: 14, radius: 4.5, duration: 3.5, tick: 0.25 },
+    ultimate: { ...base, id: 'rogue_volley', shape: 'zone', anim: 'ultimate', cooldown: 0, windup: 0.3, lock: 0.5, moveMul: 0.4, damage: 12, range: 14, radius: 4.5, duration: 3.5, tick: 0.25 },
   },
   // Two-handed zealot. Slow, wide, heavy swings; keeps the party standing.
   templar: {
-    id: 'templar', maxHp: 135, moveSpeed: 5.3, dashCharges: 1,
+    id: 'templar', maxHp: 128, moveSpeed: 5.3, dashCharges: 1,
     primary: [
-      { ...base, id: 'templar_swing1', shape: 'arc', anim: 'primary1', cooldown: 0.6, windup: 0.22, lock: 0.5, damage: 32, range: 3.4, arc: 150, moveMul: 0.4 },
-      { ...base, id: 'templar_swing2', shape: 'arc', anim: 'primary2', cooldown: 0.6, windup: 0.22, lock: 0.5, damage: 32, range: 3.4, arc: 150, moveMul: 0.4 },
-      { ...base, id: 'templar_swing3', shape: 'arc', anim: 'primary3', cooldown: 0.85, windup: 0.32, lock: 0.7, damage: 54, range: 3.7, arc: 200, moveMul: 0.3, knockback: 2.5, stun: 0.3 },
+      { ...base, id: 'templar_swing1', shape: 'arc', anim: 'primary1', cooldown: 0.6, windup: 0.22, lock: 0.5, damage: 29, range: 3.4, arc: 150, moveMul: 0.4 },
+      { ...base, id: 'templar_swing2', shape: 'arc', anim: 'primary2', cooldown: 0.6, windup: 0.22, lock: 0.5, damage: 29, range: 3.4, arc: 150, moveMul: 0.4 },
+      { ...base, id: 'templar_swing3', shape: 'arc', anim: 'primary3', cooldown: 0.85, windup: 0.32, lock: 0.7, damage: 48, range: 3.7, arc: 200, moveMul: 0.3, knockback: 2.5, stun: 0.3 },
     ],
     // Consecrate: hallowed ground around the templar hurts enemies and mends heroes.
-    secondary: { ...base, id: 'templar_consecrate', shape: 'zone', anim: 'secondary', cooldown: 9, windup: 0.3, lock: 0.5, moveMul: 0.3, damage: 7, heal: 3, range: 0, radius: 3.6, duration: 5, tick: 0.5 },
+    secondary: { ...base, id: 'templar_consecrate', shape: 'zone', anim: 'secondary', cooldown: 9, windup: 0.3, lock: 0.5, moveMul: 0.3, damage: 7, heal: 1.5, range: 0, radius: 3.6, duration: 5, tick: 0.5 },
     arts: [
       // Judgement: leap and smite.
       { ...base, id: 'templar_judgement', shape: 'leap', anim: 'art', cooldown: 8, windup: 0.45, lock: 0.7, moveMul: 0, damage: 42, range: 7, radius: 2.8, stun: 1 },
     ],
     // Sanctuary: a large hallowed circle; downed heroes inside are raised after ULTIMATE.SANCTUARY_REVIVE_SECONDS (special).
-    ultimate: { ...base, id: 'templar_sanctuary', shape: 'zone', anim: 'ultimate', cooldown: 0, windup: 0.4, lock: 0.7, moveMul: 0, damage: 8, heal: 8, range: 0, radius: 5.5, duration: 6, tick: 0.5, special: 'revive' },
+    ultimate: { ...base, id: 'templar_sanctuary', shape: 'zone', anim: 'ultimate', cooldown: 0, windup: 0.4, lock: 0.7, moveMul: 0, damage: 8, heal: 4, range: 0, radius: 5.5, duration: 6, tick: 0.5, special: 'revive' },
   },
   // Sword in one hand, spellbook in the other: melee combo that ends in a ranged wave, blinks through foes.
   spellblade: {
-    id: 'spellblade', maxHp: 105, moveSpeed: 5.8, dashCharges: 1,
+    id: 'spellblade', maxHp: 112, moveSpeed: 5.8, dashCharges: 1,
     primary: [
-      { ...base, id: 'spell_cut1', shape: 'arc', anim: 'primary1', cooldown: 0.32, windup: 0.09, lock: 0.26, damage: 15, range: 2.7, arc: 110, moveMul: 0.55 },
-      { ...base, id: 'spell_cut2', shape: 'arc', anim: 'primary2', cooldown: 0.32, windup: 0.09, lock: 0.26, damage: 15, range: 2.7, arc: 110, moveMul: 0.55 },
-      { ...base, id: 'spell_wave', shape: 'projectile', anim: 'primary3', cooldown: 0.5, windup: 0.16, lock: 0.38, moveMul: 0.4, damage: 24, range: 10, arc: 0, radius: 1.1, speed: 18, pierce: 3, projectile: 'bladeWave' },
+      { ...base, id: 'spell_cut1', shape: 'arc', anim: 'primary1', cooldown: 0.32, windup: 0.09, lock: 0.26, damage: 16, range: 2.7, arc: 110, moveMul: 0.55 },
+      { ...base, id: 'spell_cut2', shape: 'arc', anim: 'primary2', cooldown: 0.32, windup: 0.09, lock: 0.26, damage: 16, range: 2.7, arc: 110, moveMul: 0.55 },
+      { ...base, id: 'spell_wave', shape: 'projectile', anim: 'primary3', cooldown: 0.5, windup: 0.16, lock: 0.38, moveMul: 0.4, damage: 27, range: 10, arc: 0, radius: 1.1, speed: 18, pierce: 3, projectile: 'bladeWave' },
     ],
     // Blink Strike: flash through enemies along the aim.
-    secondary: { ...base, id: 'spell_blink', shape: 'lunge', anim: 'secondary', cooldown: 5, windup: 0.05, lock: 0.3, moveMul: 0, damage: 30, range: 6.5, radius: 1.4 },
+    secondary: { ...base, id: 'spell_blink', shape: 'lunge', anim: 'secondary', cooldown: 5, windup: 0.05, lock: 0.3, moveMul: 0, damage: 30, range: 6.5, radius: 1.4, selfShield: 14 },
     arts: [
       // Rune Ward: spinning runes shield the spellblade and cut what comes close.
       { ...base, id: 'spell_ward', shape: 'spin', anim: 'art', cooldown: 8, windup: 0.1, lock: 0.3, moveMul: 0.9, damage: 9, radius: 2.8, duration: 2.4, tick: 0.3, selfShield: 22 },
@@ -216,14 +216,14 @@ export const CLASSES: Record<ClassId, ClassDef> = {
   },
   // Twin daggers. Fragile and fast; rewards flanking (special `backstab`: +40 % from behind) and marks targets.
   shade: {
-    id: 'shade', maxHp: 88, moveSpeed: 6.3, dashCharges: 2,
+    id: 'shade', maxHp: 98, moveSpeed: 6.3, dashCharges: 2,
     primary: [
-      { ...base, id: 'shade_stab1', shape: 'arc', anim: 'primary1', cooldown: 0.2, windup: 0.05, lock: 0.15, damage: 10, range: 2.3, arc: 90, moveMul: 0.75, special: 'backstab' },
-      { ...base, id: 'shade_stab2', shape: 'arc', anim: 'primary2', cooldown: 0.2, windup: 0.05, lock: 0.15, damage: 10, range: 2.3, arc: 90, moveMul: 0.75, special: 'backstab' },
-      { ...base, id: 'shade_stab3', shape: 'arc', anim: 'primary3', cooldown: 0.34, windup: 0.09, lock: 0.26, damage: 19, range: 2.6, arc: 120, moveMul: 0.6, special: 'backstab' },
+      { ...base, id: 'shade_stab1', shape: 'arc', anim: 'primary1', cooldown: 0.2, windup: 0.05, lock: 0.15, damage: 11.5, range: 2.3, arc: 90, moveMul: 0.75, special: 'backstab' },
+      { ...base, id: 'shade_stab2', shape: 'arc', anim: 'primary2', cooldown: 0.2, windup: 0.05, lock: 0.15, damage: 11.5, range: 2.3, arc: 90, moveMul: 0.75, special: 'backstab' },
+      { ...base, id: 'shade_stab3', shape: 'arc', anim: 'primary3', cooldown: 0.34, windup: 0.09, lock: 0.26, damage: 22, range: 2.6, arc: 120, moveMul: 0.6, special: 'backstab' },
     ],
     // Shadowstep: dash through foes; the hit is always critical (special).
-    secondary: { ...base, id: 'shade_step', shape: 'lunge', anim: 'secondary', cooldown: 5, windup: 0.04, lock: 0.25, moveMul: 0, damage: 26, range: 7, radius: 1.2, special: 'crit' },
+    secondary: { ...base, id: 'shade_step', shape: 'lunge', anim: 'secondary', cooldown: 5, windup: 0.04, lock: 0.25, moveMul: 0, damage: 26, range: 7, radius: 1.2, selfShield: 10, special: 'crit' },
     arts: [
       // Smoke Bomb: a cloud around the shade; enemies inside are slowed and deal less damage (special).
       { ...base, id: 'shade_smoke', shape: 'zone', anim: 'art', cooldown: 9, windup: 0.15, lock: 0.3, moveMul: 0.8, damage: 5, range: 0, radius: 3.6, duration: 4.5, tick: 0.5, special: 'smoke' },

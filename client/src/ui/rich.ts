@@ -1,13 +1,13 @@
 /**
  * Inline markup for i18n strings, rendered as DOM nodes (never innerHTML):
- *   [[ember|text]] [[rime|text]] [[storm|text]] [[res|text]]   element-coloured keywords
+ *   [[ember|text]] [[rime|text]] [[storm|text]] [[umbra|text]] [[res|text]]   element-coloured keywords
  *   [[b|text]] bold     [[key|W]] key cap     [[lmb]] [[rmb]] mouse buttons
  */
 import { h, icon, key } from './dom.ts';
 import { t } from './i18n.ts';
 
 const MARKUP = /\[\[(\w+)(?:\|([^\]]*))?\]\]/g;
-const TONES = new Set(['ember', 'rime', 'storm', 'res']);
+const TONES = new Set(['ember', 'rime', 'storm', 'umbra', 'res']);
 
 function node(tag: string, content: string): Node {
   if (TONES.has(tag)) return h('span', { class: `gg-kw gg-kw--${tag}` }, content);
@@ -76,6 +76,6 @@ export function richEl<K extends keyof HTMLElementTagNameMap>(tag: K, cls: strin
 }
 
 /** Wraps a value in keyword markup so it can be passed as a parameter into a rich string. */
-export function mark(tone: 'ember' | 'rime' | 'storm' | 'res' | 'b', text: string): string {
+export function mark(tone: 'ember' | 'rime' | 'storm' | 'umbra' | 'res' | 'b', text: string): string {
   return `[[${tone}|${text}]]`;
 }

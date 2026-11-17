@@ -31,6 +31,7 @@ export const MUSIC = {
   BARS_PER_CYCLE: 16,
   MAX_BOSS_PHASE: 3,
   STINGER_SECONDS: 4.6,
+  STINGER_BELLS_MAX: 4,
   /** Fundamental the sampled drum / bell are tuned from (measured, Hz). */
   DRUM_HZ: 100,
   BELL_HZ: 240,
@@ -134,6 +135,19 @@ const BASS_SHAPE = 2.5;
 /** Stereo placement of the score: detuned pad voices spread by SPREAD, light percussion sits slightly off-centre. */
 const STEREO = { SPREAD: 0.55, HAT: 0.22, BONE: -0.28, ANVIL: 0.32, GLASS: 0.18 } as const;
 
+/**
+ * The endless descent: every depth below the first transposes the score a semitone down and adds a layer of
+ * the overlay in `depthLayer` (denser pulse, more dissonance). Everything is derived from bar and step numbers,
+ * so the deeper versions loop over the same 16-bar cycle as the pieces they sit on.
+ */
+export const DEPTH = {
+  /** Depths beyond this sound like this one. */
+  MAX: 5,
+  SEMITONES_PER_DEPTH: -1,
+  /** Chance of an extra ghost hat per odd step, per depth. */
+  GHOST_HATS: 0.14,
+} as const;
+
 /** How a biome colours the score. */
 interface Tint { cutoff: number; send: number; drive: number; post: number; anvil: boolean; drip: boolean }
 const TINTS: Record<BiomeId, Tint> = {
@@ -148,6 +162,8 @@ interface KitEnv {
   /** Reverb send of the track. */
   send: AudioNode;
   tint(): Tint;
+  /** Transposition of the track in semitones (0 or negative: deeper = lower). */
+  shift(): number;
 }
 
 type Kit = ReturnType<typeof createKit>;
@@ -155,6 +171,8 @@ type Kit = ReturnType<typeof createKit>;
 function createKit(g: AudioGraph, player: Player | null, env: KitEnv) {
   const { ctx } = g;
   const { out, send } = env;
+  /** Every pitched voice of the kit goes through here, so a track can sit lower the deeper the party is. */
+  const hz = (midi: number): number => midiToHz(midi + env.shift());
   const T = (t: number, o: ToneOpts): void => tone(g, out, t, o, send);
   const N = (t: number, o: NoiseOpts): void => noise(g, out, t, o, send);
   const S = (group: SampleGroup, t: number, gain: number, o: Omit<VoiceOpts, 'gain'> = {}): boolean =>
@@ -243,7 +261,7 @@ function createKit(g: AudioGraph, player: Player | null, env: KitEnv) {
       if (open) N(t, { dur: 0.12, gain: gain * 0.7, filter: 'bandpass', freq: 10500, q: 2, pan: STEREO.HAT });
     },
     tom(t: number, midi: number, gain: number): void {
-      const f = midiToHz(midi);
+      const f = hz(midi);
       if (S('drum.low', t, gain * 2.4, { rate: f / MUSIC.DRUM_HZ, send: 0.25 })) {
         T(t, { freq: f * 1.3, freqEnd: f * 0.8, dur: 0.22, gain: gain * 0.5 });
       } else {
@@ -270,11 +288,11 @@ function createKit(g: AudioGraph, player: Player | null, env: KitEnv) {
     },
     /** Water drop for the flooded biome. */
     drop(t: number, midi: number, gain: number): void {
-      const f = midiToHz(midi);
+      const f = hz(midi);
       T(t, { freq: f * 1.5, freqEnd: f, dur: 0.1, gain, send: 0.7 });
     },
     bass(t: number, midi: number, dur: number, gain: number, cutoff: number): void {
-      const f = midiToHz(midi);
+      const f = hz(midi);
       tone(g, bassIn, t, { type: 'sawtooth', freq: f, dur, gain, lpf: cutoff * 3.6, lpfEnd: cutoff * 1.3, q: 3 }, send);
       tone(g, bassIn, t, { type: 'square', freq: f, detune: 9, dur: dur * 0.8, gain: gain * 0.25, lpf: cutoff * 1.6, lpfEnd: cutoff * 0.8 }, send);
       tone(g, bassIn, t, { freq: f, dur, gain: gain * 0.5 }, send);
@@ -283,8 +301,8 @@ function createKit(g: AudioGraph, player: Player | null, env: KitEnv) {
     pad(t: number, midis: number[], dur: number, gain: number, cutoff: number): void {
       const attack = Math.min(1.2, dur * 0.35);
       const c = cutoff * PAD_BRIGHTNESS;
-      stack(t, midis.map(midiToHz), [-8, 7], 'sawtooth', dur * 1.25, gain * 1.2, attack, dur * 0.4, c * 0.55, c, c * 0.7, 0.8, 0.35);
-      T(t, { type: 'triangle', freq: midiToHz(midis[0] + OCTAVE), dur: dur * 1.2, gain: gain * 0.6, attack, hold: dur * 0.4, send: 0.35 });
+      stack(t, midis.map(hz), [-8, 7], 'sawtooth', dur * 1.25, gain * 1.2, attack, dur * 0.4, c * 0.55, c, c * 0.7, 0.8, 0.35);
+      T(t, { type: 'triangle', freq: hz(midis[0] + OCTAVE), dur: dur * 1.2, gain: gain * 0.6, attack, hold: dur * 0.4, send: 0.35 });
     },
     /** Wordless choir: saws with vibrato through two vowel formants. */
     choir(t: number, midis: number[], dur: number, gain: number, vowel: 'ah' | 'oo'): void {
@@ -318,7 +336,7 @@ function createKit(g: AudioGraph, player: Player | null, env: KitEnv) {
         for (const detune of [-11, 10]) {
           const osc = ctx.createOscillator();
           osc.type = 'sawtooth';
-          osc.frequency.value = midiToHz(midi);
+          osc.frequency.value = hz(midi);
           osc.detune.value = detune;
           depth.connect(osc.detune);
           osc.connect(pre);
@@ -333,23 +351,23 @@ function createKit(g: AudioGraph, player: Player | null, env: KitEnv) {
       amp.connect(tap).connect(send);
     },
     lead(t: number, midi: number, dur: number, gain: number, bright: number): void {
-      const f = midiToHz(midi);
+      const f = hz(midi);
       T(t, { type: 'sawtooth', freq: f, detune: -6, dur, gain: gain * 0.7, lpf: bright * 1.3, lpfEnd: bright * 0.6, q: 2.5, attack: 0.01, vib: 10, send: 0.3 });
       T(t, { type: 'triangle', freq: f, detune: 6, dur, gain: gain * 1.2, attack: 0.01, vib: 10, send: 0.3 });
       T(t, { freq: f * 2, dur: dur * 0.6, gain: gain * 0.2, attack: 0.01 });
     },
     /** Sustained, breathy voice for slow melodies. */
     wail(t: number, midi: number, dur: number, gain: number): void {
-      const f = midiToHz(midi);
+      const f = hz(midi);
       T(t, { type: 'triangle', freq: f, dur: dur * 1.1, gain, attack: Math.min(0.25, dur * 0.3), hold: dur * 0.4, vib: 22, vibHz: 5.6, send: 0.6 });
       T(t, { type: 'sawtooth', freq: f, detune: 8, dur: dur * 1.1, gain: gain * 0.3, lpf: 1500, attack: Math.min(0.3, dur * 0.35), hold: dur * 0.4, vib: 22, vibHz: 5.6, send: 0.5 });
     },
     /** Bowed tremolo for tension. */
     tremolo(t: number, midis: number[], dur: number, gain: number): void {
-      for (const m of midis) T(t, { type: 'sawtooth', freq: midiToHz(m), dur: dur * 1.05, gain, lpf: 2400, attack: 0.06, hold: dur * 0.7, am: 0.85, amHz: 13, send: 0.4 });
+      for (const m of midis) T(t, { type: 'sawtooth', freq: hz(m), dur: dur * 1.05, gain, lpf: 2400, attack: 0.06, hold: dur * 0.7, am: 0.85, amHz: 13, send: 0.4 });
     },
     bell(t: number, midi: number, gain: number): void {
-      const f = midiToHz(midi);
+      const f = hz(midi);
       T(t, { freq: f, dur: 2.6, gain, send: 0.6 });
       T(t, { freq: f * 2.76, dur: 1.1, gain: gain * 0.28, send: 0.4 });
       T(t, { freq: f * 5.4, dur: 0.5, gain: gain * 0.1 });
@@ -357,23 +375,23 @@ function createKit(g: AudioGraph, player: Player | null, env: KitEnv) {
     },
     /** Small glassy bell for arpeggios. */
     glass(t: number, midi: number, gain: number): void {
-      const f = midiToHz(midi);
+      const f = hz(midi);
       T(t, { freq: f, dur: 0.7, gain: gain * 1.2, send: 0.6 });
       T(t, { freq: f * 2.76, dur: 0.25, gain: gain * 0.3, send: 0.4 });
       T(t, { type: 'triangle', freq: f * 2, dur: 0.12, gain: gain * 0.25 });
     },
     pluck(t: number, midi: number, gain: number): void {
-      const f = midiToHz(midi);
+      const f = hz(midi);
       T(t, { type: 'triangle', freq: f, dur: 0.34, gain, lpf: 2600, lpfEnd: 500, send: 0.35 });
       T(t, { type: 'sawtooth', freq: f, detune: 5, dur: 0.2, gain: gain * 0.25, lpf: 3000, lpfEnd: 400, q: 2 });
     },
     stab(t: number, midis: number[], gain: number): void {
-      stack(t, midis.map(midiToHz), [-9, 9], 'sawtooth', 0.17, gain, 0.004, 0, 2600, 2600, 500, 2, 0.2);
+      stack(t, midis.map(hz), [-9, 9], 'sawtooth', 0.17, gain, 0.004, 0, 2600, 2600, 500, 2, 0.2);
     },
     drone(t: number, midi: number, dur: number, gain: number): void {
       const attack = Math.min(0.8, dur * 0.3);
-      T(t, { freq: midiToHz(midi), dur: dur * 1.15, gain: gain * 0.7, attack, hold: dur * 0.5 });
-      T(t, { type: 'triangle', freq: midiToHz(midi), dur: dur * 1.15, gain: gain * 0.35, attack, hold: dur * 0.5, lpf: 400 });
+      T(t, { freq: hz(midi), dur: dur * 1.15, gain: gain * 0.7, attack, hold: dur * 0.5 });
+      T(t, { type: 'triangle', freq: hz(midi), dur: dur * 1.15, gain: gain * 0.35, attack, hold: dur * 0.5, lpf: 400 });
     },
     noise: N,
     tone: T,
@@ -408,6 +426,29 @@ interface TrackDef {
 }
 
 const chordPad = (chord: Chord, octave: number): number[] => TRIAD.map((o) => note(chord, o, octave));
+
+/** What the depth adds on top of a piece (d = 1..DEPTH.MAX). `drive` is false for the calm interlude. */
+function depthLayer({ kit, bar, s, t, sd, barLen, chord }: StepCtx, d: number, steps: number, stepsPerBeat: number, drive: boolean): void {
+  const idx = bar * steps + s;
+  if (s === 0) {
+    // the flat second under everything: the further down, the louder it grinds against the tonic
+    kit.drone(t, TONIC + 1, barLen, 0.016 + 0.007 * d);
+    if (d >= 2 && bar % 2 === 1) kit.tremolo(t, [note(chord, 0, 2) + 6], barLen, 0.005 + 0.002 * d);
+  }
+  if (!drive) return;
+  // a sub pulse between the beats thickens the low end
+  if (s % stepsPerBeat === Math.floor(stepsPerBeat / 2)) kit.tone(t, { freq: 55, freqEnd: 41, dur: sd * 1.5, gain: 0.05 + 0.012 * d });
+  if (d >= 2 && s % 2 === 1 && rnd(idx, 21) < DEPTH.GHOST_HATS * d) kit.hat(t, 0.022);
+  if (d >= 3) {
+    if ((s * 5 + bar) % 7 === 0) kit.bone(t, 0.8 + 0.1 * (bar % 3), 0.03 + 0.004 * d);
+    if (bar % 4 === 3 && s === steps - 2) {
+      const root = note(chord, 0, 2);
+      kit.stab(t, [root, root + 1, root + 6], 0.03); // cluster
+    }
+  }
+  if (d >= 4 && s === steps / 2) kit.war(t, 0.07 + 0.01 * d, 0.75);
+  if (d >= DEPTH.MAX && bar % 2 === 0 && s === steps - 1) kit.tom(t, TONIC + 1, 0.11);
+}
 
 const DEFS: Record<TrackKey, TrackDef> = {
   // -------------------------------------------------------------- menu / lobby: sparse, atmospheric
@@ -648,6 +689,8 @@ interface Track {
   next: number;
   /** Time at which the faded-out track is dropped. */
   dieAt: number;
+  /** Depth the track is playing at (taken over at bar lines only). */
+  pitch: { depth: number };
 }
 
 export type Music = ReturnType<typeof createMusic>;
@@ -659,6 +702,7 @@ export function createMusic(g: AudioGraph, player: Player | null = null) {
   let bossPhase = 1;
   let bossKind: BossKind = 'regent';
   let biome: BiomeId = 'crypt';
+  let depth = 0;
 
   const tint = (): Tint => TINTS[biome];
 
@@ -698,8 +742,10 @@ export function createMusic(g: AudioGraph, player: Player | null = null) {
     send.gain.linearRampToValueAtTime(tint().send, now + fade);
     input.connect(filter).connect(out).connect(g.musicIn);
     send.connect(g.musicReverbIn);
-    const kit = createKit(g, player, { out: input, send, tint });
-    tracks.push({ key, input, filter, out, send, kit, step: 0, next: now + MUSIC.START_DELAY, dieAt: Infinity });
+    // the menu is not part of a descent and always plays at home
+    const pitch = { depth: key === 'menu' ? 0 : depth };
+    const kit = createKit(g, player, { out: input, send, tint, shift: () => pitch.depth * DEPTH.SEMITONES_PER_DEPTH });
+    tracks.push({ key, input, filter, out, send, kit, step: 0, next: now + MUSIC.START_DELAY, dieAt: Infinity, pitch });
   };
 
   /** Schedules every active track up to `until` (defaults to now + look-ahead). */
@@ -722,11 +768,15 @@ export function createMusic(g: AudioGraph, player: Player | null = null) {
       const end = Math.min(until, track.dieAt);
       while (track.next < end) {
         const bar = Math.floor(track.step / def.steps);
-        def.step({
-          kit: track.kit, bar, s: track.step % def.steps, t: track.next, sd, barLen: sd * def.steps,
+        const s = track.step % def.steps;
+        if (s === 0 && track.key !== 'menu') track.pitch.depth = depth;
+        const c: StepCtx = {
+          kit: track.kit, bar, s, t: track.next, sd, barLen: sd * def.steps,
           chord: PROGRESSION[track.key][bar % MUSIC.BARS_PER_CYCLE],
           section: Math.floor(bar / MUSIC.BARS_PER_CYCLE) % 2, phase: bossPhase, tint: tint(),
-        });
+        };
+        def.step(c);
+        if (track.pitch.depth > 0) depthLayer(c, track.pitch.depth, def.steps, def.stepsPerBeat, track.key !== 'calm');
         track.next += sd;
         track.step++;
       }
@@ -742,6 +792,11 @@ export function createMusic(g: AudioGraph, player: Player | null = null) {
     bossKind = kind;
   };
 
+  /** How deep the party is (RunState.depth). Running tracks follow at their next bar line. */
+  const setDepth = (next: number): void => {
+    depth = Math.min(DEPTH.MAX, Math.max(0, Math.floor(next)));
+  };
+
   /** Tints running and future tracks for a biome. */
   const setBiome = (next: BiomeId): void => {
     if (next === biome) return;
@@ -755,10 +810,14 @@ export function createMusic(g: AudioGraph, player: Player | null = null) {
     }
   };
 
-  /** One-shot victory / defeat cue. Fades the running state out first. */
-  const stinger = (kind: 'victory' | 'defeat'): void => {
+  /**
+   * One-shot victory / defeat cue. Fades the running state out first. `cleared` = final bosses slain in the run:
+   * a victory after one or more descents gets a second, higher phrase and a bell per boss; a defeat in the deep
+   * (cleared > 0 — the run still counts as won) ends its lament on a major chord.
+   */
+  const stinger = (kind: 'victory' | 'defeat', cleared = kind === 'victory' ? 1 : 0): void => {
     setState('none', MUSIC.STINGER_FADE);
-    const kit = createKit(g, player, { out: g.musicIn, send: g.musicReverbIn, tint });
+    const kit = createKit(g, player, { out: g.musicIn, send: g.musicReverbIn, tint, shift: () => 0 });
     const t = g.ctx.currentTime + 0.12;
     const D = TONIC + OCTAVE; // D3
     if (kind === 'victory') {
@@ -778,6 +837,13 @@ export function createMusic(g: AudioGraph, player: Player | null = null) {
       kit.bell(last, D + 12, 0.07);
       kit.glass(last + 0.12, D + 43, 0.04);
       kit.noise(last, { dur: 2.2, gain: 0.08, filter: 'highpass', freq: 5500, send: 0.5 });
+      if (cleared > 1) {
+        // back from the deep: the call again, a fourth higher and home, and the Last Bell once per boss slain
+        const again: [number, number, number][] = [[0.9, 41, 0.2], [1.12, 43, 0.2], [1.34, 48, 1.4]];
+        for (const [at, semi, dur] of again) kit.lead(last + at, D + semi, dur, 0.06, 3600);
+        kit.choir(last + 1.34, [D + 24, D + 28, D + 31], 1.4, 0.014, 'ah');
+        for (let i = 0; i < Math.min(cleared, MUSIC.STINGER_BELLS_MAX); i++) kit.bell(last + 0.6 + i * 0.42, D + 12, 0.06);
+      }
     } else {
       kit.tone(t, { freq: 72, freqEnd: 30, dur: 1.2, gain: 0.34 });
       kit.sample('drum.fill', t, 0.5, { variant: 2, rate: 0.7, send: 0.5 });
@@ -788,11 +854,18 @@ export function createMusic(g: AudioGraph, player: Player | null = null) {
       const lament: [number, number, number][] = [[0.5, 15, 0.9], [1.3, 14, 0.9], [2.1, 12, 2.3]];
       for (const [at, semi, dur] of lament) kit.wail(t + at, D + semi, dur, 0.085);
       kit.bell(t + 2.1, D, 0.11);
+      if (cleared > 0) {
+        // fallen below, but the boss is dead: the last chord turns to major
+        kit.pad(t + 3, [D, D + 4, D + 7, D + 12], 1.6, 0.03, 1600);
+        kit.glass(t + 3.1, D + 28, 0.045);
+        kit.glass(t + 3.3, D + 31, 0.04);
+      }
     }
   };
 
   return {
-    setState, schedule, setBossPhase, setBossKind, setBiome, stinger,
+    setState, schedule, setBossPhase, setBossKind, setBiome, setDepth, stinger,
+    depth: (): number => depth,
     state: (): MusicState => current,
     key: (): string | null => currentKey,
     trackCount: (): number => tracks.length,

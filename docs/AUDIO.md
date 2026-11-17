@@ -62,6 +62,12 @@ The same record ships with the files as `client/public/assets/audio/credits.json
 | `ui.toggle.2.mp3` | Kenney Interface Sounds | `addons/kenney_interface_sounds/toggle_002.wav` | `4596a49eaf` |
 | `ui.drop.1.mp3` | Kenney Interface Sounds | `addons/kenney_interface_sounds/drop_002.wav` | `4596a49eaf` |
 | `ui.drop.2.mp3` | Kenney Interface Sounds | `addons/kenney_interface_sounds/drop_003.wav` | `4596a49eaf` |
+| `pluck.1.mp3` | Kenney Interface Sounds | `addons/kenney_interface_sounds/pluck_001.wav` | `4596a49eaf` |
+| `pluck.2.mp3` | Kenney Interface Sounds | `addons/kenney_interface_sounds/pluck_002.wav` | `4596a49eaf` |
+| `ui.book.1.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/book_place_1.ogg` | `22eb79bb84` |
+| `ui.book.2.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/book_open.ogg` | `22eb79bb84` |
+| `ui.rise.1.mp3` | Kenney Interface Sounds | `addons/kenney_interface_sounds/maximize_004.wav` | `4596a49eaf` |
+| `ui.rise.2.mp3` | Kenney Interface Sounds | `addons/kenney_interface_sounds/maximize_006.wav` | `4596a49eaf` |
 | `swing.blade.1.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/knife_slice.ogg` | `22eb79bb84` |
 | `swing.blade.2.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/knife_slice_2.ogg` | `22eb79bb84` |
 | `swing.draw.1.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/draw_knife_1.ogg` | `22eb79bb84` |
@@ -159,6 +165,12 @@ The same record ships with the files as `client/public/assets/audio/credits.json
 | `ping.2.mp3` | Kenney Interface Sounds | `addons/kenney_interface_sounds/glass_003.wav` | `4596a49eaf` |
 | `ping.3.mp3` | Kenney Interface Sounds | `addons/kenney_interface_sounds/glass_006.wav` | `4596a49eaf` |
 | `tex.fire.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/thruster_fire_004.ogg` | `c094967fe9` |
+| `hit.iron.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/impact_metal_000.ogg` | `c094967fe9` |
+| `hit.iron.2.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/impact_metal_003.ogg` | `c094967fe9` |
+| `arcane.1.mp3` | Kenney Digital Audio | `addons/kenney digital audio/power_up_3.ogg` | `185a77e7c6` |
+| `arcane.2.mp3` | Kenney Digital Audio | `addons/kenney digital audio/power_up_11.ogg` | `185a77e7c6` |
+| `zap.chain.1.mp3` | Kenney Digital Audio | `addons/kenney digital audio/zap_three_tone_down.ogg` | `185a77e7c6` |
+| `tex.void.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/space_engine_low_001.ogg` | `c094967fe9` |
 | `tex.fireLow.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/thruster_fire_003.ogg` | `c094967fe9` |
 | `door.open.1.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/door_open_1.ogg` | `22eb79bb84` |
 | `door.open.2.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/door_open_2.ogg` | `22eb79bb84` |
@@ -180,6 +192,8 @@ The same record ships with the files as `client/public/assets/audio/credits.json
 | `drum.fill.2.mp3` | Kenney Music Jingles | `addons/kenney music jingles/Hit jingles/jingles_hit_9.ogg` | `1312c1a8ab` |
 | `drum.fill.3.mp3` | Kenney Music Jingles | `addons/kenney music jingles/Hit jingles/jingles_hit_3.ogg` | `1312c1a8ab` |
 | `slime.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/slime_000.ogg` | `c094967fe9` |
+| `sub.drop.1.mp3` | Kenney Digital Audio | `addons/kenney digital audio/low_down.ogg` | `185a77e7c6` |
+| `bong.1.mp3` | Kenney Interface Sounds | `addons/kenney_interface_sounds/bong_001.wav` | `4596a49eaf` |
 | `bed.drone.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/space_engine_low_002.ogg` | `c094967fe9` |
 | `bed.rumble.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/space_engine_large_000.ogg` | `c094967fe9` |
 <!-- sources:end -->

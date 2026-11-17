@@ -354,12 +354,20 @@ describe('whole run flow (forced)', () => {
     const version = w.runVersion;
     w.step();
     const ev = w.drainEvents();
-    expect(w.run.phase).toBe('victory');
+    // The final boss is dead: the run goes on with a draft and the descend / ascend doors (update 3).
+    expect(w.run.phase).toBe('draft');
     expect(w.runVersion).toBeGreaterThan(version);
     expect(w.enemies.every((e) => e.dead)).toBe(true);
     expect(ev.filter((e) => e.e === 'kill')).toHaveLength(2);
     expect(ev).toContainEqual({ e: 'chamberClear' });
     expect(w.hero(1)!.state).toBe('alive');
+    expect(w.getRunState()).toMatchObject({ cleared: 1, depth: 0, chambersCleared: RUN.CHAMBERS.length, rewards: [] });
+    draftAll(w);
+    expect(w.run.phase).toBe('doors');
+    expect(w.getRunState().doors.map((d) => d.type)).toEqual(['descend', 'ascend']);
+    expect(takeDoor(w, 1)).toContainEqual({ e: 'doorChosen', type: 'ascend' });
+    expect(w.run.phase).toBe('victory');
+    expect(w.getRunState().rewards).toHaveLength(2);
     stepN(w, seconds(1));
     expect(w.getSnapshotBody().players.every((p) => p.anim === 'cheer')).toBe(true);
     expect(w.getRunState().stats).toHaveLength(2);
@@ -384,8 +392,9 @@ describe('whole run flow (forced)', () => {
     expect(w.addPlayer(-1, 'mage', 'oob')).toBe(false);
     expect(w.setClass(0, 'rogue')).toBe(true);
     expect(w.hero(0)!.cls).toBe('rogue');
-    expect(w.start(9, 1)).toBe(true);
-    expect(w.getRunState().oath).toBe(RUN.OATH.length - 1);
+    // Oath levels are clamped to 0..RUN.OATH_MAX (levels above the table are extrapolated by oathScale).
+    expect(w.start(RUN.OATH_MAX + 9, 1)).toBe(true);
+    expect(w.getRunState().oath).toBe(RUN.OATH_MAX);
     expect(w.start(0, 1)).toBe(false);
     expect(w.addPlayer(1, 'mage', 'late')).toBe(false);
     expect(w.setClass(0, 'knight')).toBe(false);

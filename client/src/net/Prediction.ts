@@ -3,7 +3,7 @@
  * Uses the exact movement code the server runs (shared/sim/movement.ts) at the same fixed timestep.
  */
 import { TICK_DT } from '@shared/constants.ts';
-import { CLASSES, COMBO_WINDOW } from '@shared/data/classes.ts';
+import { CLASSES, COMBO_WINDOW, secondaryOf } from '@shared/data/classes.ts';
 import { startDash, stepMovement, type MoveBody } from '@shared/sim/movement.ts';
 import { BTN, type ClassId, type InputCmd, type PlayerSnap, type RoomLayout, type SelfState } from '@shared/types.ts';
 
@@ -20,7 +20,7 @@ interface Pending {
   rooted: boolean;
 }
 
-export type LocalAction = 'primary' | 'secondary' | 'dash' | 'denied';
+export type LocalAction = 'primary' | 'secondary' | 'dash' | 'ultimate' | 'denied';
 
 export class Prediction {
   private readonly body: MoveBody = { x: 0, z: 0, dashTime: 0, dashDirX: 0, dashDirZ: 1, rootTime: 0, moveSpeed: 0 };
@@ -60,7 +60,7 @@ export class Prediction {
    * Advances the prediction by one fixed tick with a freshly sampled input.
    * Returns the action that was started locally (for instant feedback), if any.
    */
-  step(cmd: InputCmd, room: RoomLayout, me: PlayerSnap | null, cls: ClassId): LocalAction | null {
+  step(cmd: InputCmd, room: RoomLayout, me: PlayerSnap | null, cls: ClassId, art = 0): LocalAction | null {
     if (!this.hasState) return null;
     const alive = me !== null && me.state === 'alive';
     const pressed = cmd.buttons & ~this.prevButtons;
@@ -83,10 +83,19 @@ export class Prediction {
         } else {
           action = 'denied';
         }
+      } else if (pressed & BTN.ULTIMATE && this.lockTime <= 0 && this.body.dashTime <= 0) {
+        if (me.ult >= 1) {
+          this.lockTime = def.ultimate.lock;
+          this.lockMoveMul = def.ultimate.moveMul;
+          action = 'ultimate';
+        } else {
+          action = 'denied';
+        }
       } else if (pressed & BTN.SECONDARY && this.lockTime <= 0 && this.body.dashTime <= 0) {
         if (me.cdSecondary <= 0) {
-          this.lockTime = def.secondary.lock;
-          this.lockMoveMul = def.secondary.moveMul;
+          const secondary = secondaryOf(def, art);
+          this.lockTime = secondary.lock;
+          this.lockMoveMul = secondary.moveMul;
           action = 'secondary';
         } else {
           action = 'denied';

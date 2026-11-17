@@ -6,16 +6,21 @@
  *
  *   npx tsx server/src/tools/botClient.ts --tutorial --cls mage --once
  *
- * Flags: --url, --code, --create, --bots N, --cls a,b,c, --name prefix, --oath 0-3, --wait N (players needed before
- * the hosting bot starts; default = --bots), --latency ms / --jitter ms (one-way delay applied to every message in
- * BOTH directions, so the round trip is about twice that), --once (exit after the first run), --quiet,
- * --meta max (every bot claims fully upgraded permanent upgrades; default: none), --tutorial (one bot plays the
- * training session instead of a run; implies --create --bots 1).
+ * Flags: --url, --code, --create, --bots N, --cls a,b,c (any of the seven classes), --name prefix, --oath 0-20,
+ * --wait N (players needed before the hosting bot starts; default = --bots), --latency ms / --jitter ms (one-way
+ * delay applied to every message in BOTH directions, so the round trip is about twice that), --once (exit after
+ * the first run), --quiet, --meta max (every bot claims all permanent upgrades and a mastered class: level 10, the
+ * art, the first talent of every tier; default: none), --descend [N] (after a final boss take the descend door,
+ * always or until depth N; default: ascend), --tutorial (one bot plays the training session instead of a run;
+ * implies --create --bots 1).
  */
 import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
 import { NET, TICK_DT } from '../../../shared/src/constants.ts';
-import { DEFAULT_LOOK, META_UPGRADES } from '../../../shared/src/data/meta.ts';
+import { RUN } from '../../../shared/src/constants.ts';
+import { CLASSES } from '../../../shared/src/data/classes.ts';
+import { MASTERY } from '../../../shared/src/data/mastery.ts';
+import { DEFAULT_LOOK, META_UPGRADES, PARAGON } from '../../../shared/src/data/meta.ts';
 import { decodeSnapshot, encodeInput, type ClientMsg, type ServerMsg } from '../../../shared/src/protocol.ts';
 import { BotBrain, type BotView } from '../../../shared/src/sim/bot.ts';
 import { CLASS_IDS, type BoonOffer, type ClassId, type Loadout, type RosterEntry, type RunState, type Snapshot } from '../../../shared/src/types.ts';
@@ -29,8 +34,10 @@ export interface BotClientOptions {
   create?: boolean;
   /** Create a solo training session instead of a lobby (implies `create`). */
   tutorial?: boolean;
-  /** Look and permanent upgrade levels sent with create / join (default: default look, no upgrades). */
+  /** Loadout sent with create / join (default: default look, nothing unlocked). */
   loadout?: Loadout;
+  /** After a final boss: take the `descend` door while the depth is below this (default 0 = ascend at once). */
+  descendTo?: number;
   /** Host only: start once this many players are connected and everyone else is ready. */
   startWhenPlayers?: number;
   /** Host only: oath level to set. */
@@ -48,9 +55,20 @@ export interface BotClientOptions {
   log?: (line: string) => void;
 }
 
-export const defaultLoadout = (): Loadout => ({ look: { ...DEFAULT_LOOK }, meta: META_UPGRADES.map(() => 0) });
-/** A loadout that claims the highest level of every permanent upgrade. */
-export const maxLoadout = (): Loadout => ({ look: { ...DEFAULT_LOOK }, meta: META_UPGRADES.map((def) => def.costs.length) });
+export const defaultLoadout = (): Loadout => ({
+  look: { ...DEFAULT_LOOK }, meta: META_UPGRADES.map(() => 0), paragon: PARAGON.map(() => 0), mastery: 1, art: 0,
+  talents: MASTERY.TALENT_LEVELS.map(() => 0), relics: [],
+});
+/** Mastery level claimed by `maxLoadout`: every talent tier and the art are unlocked. */
+export const MAX_LOADOUT_MASTERY = 10;
+/**
+ * A loadout that claims the highest level of every permanent upgrade and a mastered class: level 10, the art
+ * (if `cls` has one) and the first talent of every tier. No Ascension ranks and no relics.
+ */
+export const maxLoadout = (cls: ClassId = 'knight'): Loadout => ({
+  ...defaultLoadout(), meta: META_UPGRADES.map((def) => def.costs.length), mastery: MAX_LOADOUT_MASTERY,
+  art: CLASSES[cls].arts.length > 0 ? 1 : 0, talents: MASTERY.TALENT_LEVELS.map(() => 1),
+});
 
 const BOT_CLIENT = {
   PICK_DELAY_MS: 700,
@@ -141,7 +159,7 @@ export class BotClient {
     };
     this.inbound = new DelayLine(opts.latencyMs ?? 0, opts.jitterMs ?? 0, rand);
     this.outbound = new DelayLine(opts.latencyMs ?? 0, opts.jitterMs ?? 0, rand);
-    this.brain = new BotBrain(0, opts.cls, opts.seed ?? 1);
+    this.brain = new BotBrain(0, opts.cls, opts.seed ?? 1, { descendTo: opts.descendTo });
   }
 
   private log(line: string): void {
@@ -273,7 +291,7 @@ export class BotClient {
         this.reconnects = 0;
         this.seq = 0;
         this.maxAck = 0;
-        this.brain = new BotBrain(msg.slot, this.opts.cls, this.opts.seed ?? 1);
+        this.brain = new BotBrain(msg.slot, this.opts.cls, this.opts.seed ?? 1, { descendTo: this.opts.descendTo });
         this.startLoops();
         welcomed();
         this.onWelcome?.();
@@ -311,7 +329,8 @@ export class BotClient {
     const oath = this.roomOath;
     const me = this.roster.find((p) => p.slot === this.slot);
     if (!me || !this.run || this.run.phase !== 'lobby') return;
-    if (me.cls !== this.opts.cls) this.send({ t: 'lobby', cls: this.opts.cls });
+    // A class change brings the loadout of that class along (mastery, art and talents belong to the class).
+    if (me.cls !== this.opts.cls) this.send({ t: 'lobby', cls: this.opts.cls, loadout: this.opts.loadout ?? defaultLoadout() });
     if (!me.ready) this.send({ t: 'lobby', ready: true });
     if (!me.host) return;
     if (this.opts.oath !== undefined && this.opts.oath !== oath) this.send({ t: 'lobby', oath: this.opts.oath });
@@ -388,7 +407,8 @@ export class BotClient {
     const run = this.run;
     const snap = this.snapshot;
     if (!run || !snap || run.phase === 'lobby' || run.phase === 'victory' || run.phase === 'defeat') return;
-    const view: BotView = { tick: snap.tick, slot: this.slot, cls: this.opts.cls, players: snap.players, enemies: snap.enemies, projectiles: snap.projectiles, run };
+    const art = this.roster.find((p) => p.slot === this.slot)?.art ?? 0;
+    const view: BotView = { tick: snap.tick, slot: this.slot, cls: this.opts.cls, players: snap.players, enemies: snap.enemies, projectiles: snap.projectiles, run, art };
     const cmd = this.brain.think(view);
     // The client owns the sequence numbers (monotonic per connection).
     cmd.seq = ++this.seq;
@@ -415,10 +435,15 @@ interface Args {
   timeScale: number;
   metaMax: boolean;
   tutorial: boolean;
+  /** Depth the bots descend to after a final boss (0 = ascend at once). */
+  descendTo: number;
 }
 
+/** `--descend` without a number: keep descending for as long as the party lives (soak tests). */
+const DESCEND_FOREVER = 1e9;
+
 function parseArgs(argv: string[]): Args {
-  const args: Args = { url: 'ws://localhost:8787', code: '', create: false, bots: 1, classes: [], name: 'Bot', latency: 0, jitter: 0, once: false, quiet: false, timeScale: 1, metaMax: false, tutorial: false };
+  const args: Args = { url: 'ws://localhost:8787', code: '', create: false, bots: 1, classes: [], name: 'Bot', latency: 0, jitter: 0, once: false, quiet: false, timeScale: 1, metaMax: false, tutorial: false, descendTo: 0 };
   const num = (v: string | undefined, name: string): number => {
     const n = Number(v);
     if (v === undefined || !Number.isFinite(n)) throw new Error(`--${name} needs a number`);
@@ -441,7 +466,13 @@ function parseArgs(argv: string[]): Args {
         break;
       }
       case '--name': args.name = (value ?? 'Bot').slice(0, NET.MAX_NAME_LENGTH - 2); i++; break;
-      case '--oath': args.oath = Math.max(0, Math.min(3, Math.floor(num(value, 'oath')))); i++; break;
+      case '--oath': args.oath = Math.max(0, Math.min(RUN.OATH_MAX, Math.floor(num(value, 'oath')))); i++; break;
+      case '--descend': {
+        // `--descend` alone: always take the descend door; `--descend N`: descend until depth N, then ascend.
+        const depth = Number(value);
+        if (value !== undefined && Number.isFinite(depth)) { args.descendTo = Math.max(0, Math.floor(depth)); i++; } else args.descendTo = DESCEND_FOREVER;
+        break;
+      }
       case '--wait': args.wait = Math.max(1, Math.min(NET.MAX_PLAYERS, Math.floor(num(value, 'wait')))); i++; break;
       case '--latency': args.latency = Math.max(0, num(value, 'latency')); i++; break;
       case '--jitter': args.jitter = Math.max(0, num(value, 'jitter')); i++; break;
@@ -482,12 +513,16 @@ async function cli(): Promise<void> {
       startWhenPlayers: hosting ? (args.wait ?? args.bots) : undefined, oath: hosting ? args.oath : undefined,
       relobbyAfterMs: hosting && !args.once ? 6000 : undefined, latencyMs: args.latency, jitterMs: args.jitter,
       timeScale: args.timeScale, seed: 1 + i, reconnect: true, log, tutorial: args.tutorial,
-      loadout: args.metaMax ? maxLoadout() : defaultLoadout(),
+      loadout: args.metaMax ? maxLoadout(cls) : defaultLoadout(), descendTo: args.descendTo,
     });
     bot.onRunEnd = (phase, run) => {
-      const glimmer = run.rewards.find((r) => r.slot === bot.slot)?.glimmer ?? 0;
-      const what = run.tutorial ? `tutorial ${phase === 'victory' ? 'completed' : 'failed'} (${run.tutorial.total} steps)` : `run over: ${phase} in chamber ${run.chamber + 1}/8 vs ${run.finalBoss}`;
-      say(`[${bot.opts.name}] ${what} after ${Math.round(run.elapsed)} s, +${glimmer} glimmer (snapshots ${bot.snapshots}, rtt ${Math.round(bot.rttMs)} ms)`);
+      const reward = run.rewards.find((r) => r.slot === bot.slot);
+      const stats = run.stats.find((x) => x.slot === bot.slot);
+      const what = run.tutorial
+        ? `tutorial ${phase === 'victory' ? 'completed' : 'failed'} (${run.tutorial.total} steps)`
+        : `run over: ${phase} at depth ${run.depth}, chamber ${run.chamber + 1}/${RUN.CHAMBERS.length} vs ${run.finalBoss}, bosses slain ${run.cleared}, ultimates ${stats?.ultimates ?? 0}`;
+      const relics = reward && reward.relics.length > 0 ? reward.relics.join(',') : 'none';
+      say(`[${bot.opts.name}] ${what} after ${Math.round(run.elapsed)} s, +${reward?.glimmer ?? 0} glimmer, +${reward?.xp ?? 0} xp, relics ${relics} (snapshots ${bot.snapshots}, rtt ${Math.round(bot.rttMs)} ms)`);
       if (args.once && ++finished >= bots.length) shutdown(0);
     };
     bot.onClose = (expected) => {
@@ -507,7 +542,7 @@ async function cli(): Promise<void> {
     setInterval(() => {
       const b = bots[0];
       if (!b || !b.run) return;
-      const where = b.run.tutorial ? `tutorial step ${b.run.tutorial.index + 1}/${b.run.tutorial.total} (${b.run.tutorial.step})` : `chamber ${b.run.chamber + 1} wave ${b.run.wave}/${b.run.waveCount}`;
+      const where = b.run.tutorial ? `tutorial step ${b.run.tutorial.index + 1}/${b.run.tutorial.total} (${b.run.tutorial.step})` : `depth ${b.run.depth} chamber ${b.run.chamber + 1} wave ${b.run.wave}/${b.run.waveCount}`;
       say(`status: ${b.run.phase} ${where} players ${b.roster.filter((p) => p.connected).length} t=${Math.round(b.run.elapsed)}s`);
     }, 10000).unref();
   }

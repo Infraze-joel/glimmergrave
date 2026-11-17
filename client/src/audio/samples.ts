@@ -31,6 +31,8 @@ export const VOICES = {
   MAX_RATE: 4,
   /** Simultaneous sample voices per pool. */
   LIMITS: { own: 20, combat: 18, element: 14, big: 14, ambience: 8, ui: 6, music: 18 },
+  /** Pre-scheduled texture voices (`free`) of one zone bed; more than this are simply not scheduled. */
+  FREE_MAX: 160,
   /** Priorities: danger cues and the own hero win over the party, the party over ambience. */
   PRI: { AMBIENT: 0, WORLD: 1, PARTY: 2, OWN: 3 },
 } as const;
@@ -207,6 +209,11 @@ export interface VoiceOpts {
   dest?: AudioNode;
   reverb?: AudioNode;
   pool?: Pool;
+  /**
+   * Outside the voice pools: for textures that are scheduled ahead as a whole (zone beds). Pool limits look at
+   * what is scheduled, not at what sounds, so such voices would evict each other; the caller keeps them few and short.
+   */
+  free?: boolean;
 }
 
 interface Voice { end: number; pri: number; amp: GainNode; src: AudioBufferSourceNode }
@@ -218,6 +225,7 @@ export function createPlayer(g: AudioGraph, bank: Bank) {
   const pools = new Map<Pool, Voice[]>();
   let dropped = 0;
   let stolen = 0;
+  let freeLive = 0;
 
   /** Makes room in a pool. Returns false when the new voice loses against everything that is playing. */
   const admit = (pool: Pool, pri: number, now: number): boolean => {
@@ -248,7 +256,7 @@ export function createPlayer(g: AudioGraph, bank: Bank) {
     const pool: Pool = o.pool ?? (o.dest ? 'music' : o.bus ?? 'combat');
     const pri = o.pri ?? VOICES.PRI.WORLD;
     const now = ctx.currentTime;
-    if (!admit(pool, pri, now)) return false;
+    if (o.free) { if (freeLive >= VOICES.FREE_MAX) return false; } else if (!admit(pool, pri, now)) return false;
 
     const start = t + (o.at ?? 0);
     const buffer = o.reverse ? bank.reversed(sample) : sample.buffer;
@@ -305,7 +313,12 @@ export function createPlayer(g: AudioGraph, bank: Bank) {
     g.track(src);
     src.start(start, offset);
     src.stop(start + length + 0.01);
-    pools.get(pool)?.push({ end: start + length, pri, amp, src });
+    if (o.free) {
+      freeLive++;
+      src.addEventListener('ended', () => { freeLive--; }, { once: true });
+    } else {
+      pools.get(pool)?.push({ end: start + length, pri, amp, src });
+    }
     return true;
   };
 

@@ -1,13 +1,13 @@
 /** Projectiles are swept circles, so fast bolts never tunnel through targets, obstacles or walls. */
 import { TICK_DT, WORLD } from '../constants.ts';
-import { damageHero, isTargetable, strikeEnemy } from './combat.ts';
+import { damageHero, isTargetable, strikeEnemy, type StrikeOpts } from './combat.ts';
 import { angleDiff, inArc, segDist, sweepHit } from './geom.ts';
 import type { Enemy, Hero, Projectile } from './state.ts';
 import { SIM } from './tuning.ts';
 import type { World } from './world.ts';
 
-export type ProjectileInit = Omit<Projectile, 'id' | 'hit' | 'dead' | 'rot' | 'dirX' | 'dirZ' | 'homing' | 'seek' | 'fragile'>
-  & { rot: number; homing?: number; seek?: number; fragile?: boolean };
+export type ProjectileInit = Omit<Projectile, 'id' | 'hit' | 'dead' | 'rot' | 'dirX' | 'dirZ' | 'homing' | 'seek' | 'fragile' | 'only' | 'bonus'>
+  & { rot: number; homing?: number; seek?: number; fragile?: boolean; only?: number; bonus?: number };
 
 export function spawnProjectile(w: World, init: ProjectileInit): Projectile | null {
   if (w.projectiles.length >= WORLD.MAX_PROJECTILES) {
@@ -17,7 +17,7 @@ export function spawnProjectile(w: World, init: ProjectileInit): Projectile | nu
   }
   const p: Projectile = {
     ...init, id: w.nextProjectileId++, dirX: Math.sin(init.rot), dirZ: Math.cos(init.rot), hit: [], dead: false,
-    homing: init.homing ?? 0, seek: init.seek ?? -1, fragile: init.fragile === true,
+    homing: init.homing ?? 0, seek: init.seek ?? -1, fragile: init.fragile === true, only: init.only ?? -1, bonus: init.bonus ?? 0,
   };
   if (w.nextProjectileId > 0xffff) w.nextProjectileId = 1;
   w.projectiles.push(p);
@@ -25,6 +25,8 @@ export function spawnProjectile(w: World, init: ProjectileInit): Projectile | nu
 }
 
 const hitT: number[] = [];
+/** Reused strike options (projectile hits are the hottest strike path). */
+const STRIKE: StrikeOpts = { fromX: 0, fromZ: 0, stun: 0, knockback: 0, special: null, bonus: 0, poison: false };
 const hitE: Enemy[] = [];
 
 // ---------------------------------------------------------------- fragile hostile projectiles (soul wisps)
@@ -118,7 +120,7 @@ function stepFriendly(w: World, p: Projectile, bx: number, bz: number, limit: nu
   hitT.length = 0;
   hitE.length = 0;
   for (const e of w.enemies) {
-    if (!isTargetable(e) || p.hit.includes(e.id)) continue;
+    if (!isTargetable(e) || p.hit.includes(e.id) || (p.only >= 0 && e.id !== p.only)) continue;
     const t = sweepHit(p.x, p.z, bx, bz, e.x, e.z, p.radius + e.radius);
     if (t < 0 || t > limit) continue;
     // Insertion sort by t: at most a handful of candidates.
@@ -143,7 +145,13 @@ function stepFriendly(w: World, p: Projectile, bx: number, bz: number, limit: nu
     const t = hitT[i] as number;
     const fromX = p.x - p.dirX;
     const fromZ = p.z - p.dirZ;
-    if (!strikeEnemy(w, owner, e, p.damage, p.slot, { fromX, fromZ, stun: p.stun, knockback: p.knockback })) continue;
+    STRIKE.fromX = fromX;
+    STRIKE.fromZ = fromZ;
+    STRIKE.stun = p.stun;
+    STRIKE.knockback = p.knockback;
+    STRIKE.bonus = p.bonus;
+    STRIKE.poison = p.kind === 'crossbowBolt' || p.kind === 'knife';
+    if (!strikeEnemy(w, owner, e, p.damage, p.slot, STRIKE)) continue;
     p.hit.push(e.id);
     if (p.pierce > 0) {
       p.pierce--;

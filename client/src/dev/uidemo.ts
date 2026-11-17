@@ -10,29 +10,41 @@
  *   Update 2      #training-<step> #training-summary #armory-poor #armory-rich #armory-max #armory-lobby
  *                 #wardrobe #wardrobe-lobby #codex-<tab> #pause-codex #strip-0..3 #combo #tip-<id>
  *                 #draft-reroll #draft-tags #act-1..3 #boss-<kind> #herald-<kind>
- *   Query params  lang=en|de   bg=noisy (busy backdrop for contrast checks)   panel=0 (hide the dev panel)
+ *   Update 3      #menu-<class> #menu-badge #lobby-oath #hud-<class> #hud-<class>-art #ult-0 #ult-half #ult-ready
+ *                 #ult-infused #buffs #sets #set-toast #strip-4 #reaction-<id> #depth-2 #doors-deep #affix #party-ult
+ *                 #draft-legendary #draft-class #draft-5 #draft-sets #summary-win #summary-levelup #summary-fell
+ *                 #summary-ascended #summary-loss #hub-<tab>-<new|mid|end> #hub-mastery-<class> #codex-classes
+ *                 #codex-progress #wardrobe-<class>
+ *   Query params  profile=new|mid|end (progression stage for every route; default mid)   lang=en|de   bg=noisy (busy backdrop for contrast checks)   panel=0 (hide the dev panel)
  *                 freeze (stop the fake tickers)   tips=1 (leave all tips unseen)
- *   window.__uidemo  { go, fire, error, audio, nextStep, intents }  for scripted checks
+ *   window.__uidemo  { go, fire, error, audio, nextStep, intents, missing }  for scripted checks
+ *                    missing() lists every data id without an English or German text (must be empty)
  *
  * The 3D hero preview is replaced by a flat placeholder painted on the canvas wherever 'ui:showcase' asks.
  */
 import { RUN } from '@shared/constants.ts';
-import { BOON_TUNING } from '@shared/data/boons.ts';
+import { BOON_TUNING, SETS } from '@shared/data/boons.ts';
 import { CLASSES } from '@shared/data/classes.ts';
-import { DEFAULT_LOOK, LOOK, META_UPGRADES, REWARDS, defaultLooks } from '@shared/data/meta.ts';
+import { FEATS, LIFETIME_STATS, featTier, type LifetimeStat } from '@shared/data/feats.ts';
+import { TALENT_TIERS, levelFromXp, xpForLevel } from '@shared/data/mastery.ts';
+import { DEFAULT_LOOK, LOOK, META_UPGRADES, PARAGON, REWARDS, defaultLooks } from '@shared/data/meta.ts';
+import { REACTIONS } from '@shared/data/reactions.ts';
+import { RELICS, rankFromShards, shardsForRank } from '@shared/data/relics.ts';
 import { TUTORIAL_STEPS } from '@shared/data/tutorial.ts';
 import { ERROR_CODES } from '@shared/protocol.ts';
 import {
-  BIOME_IDS, BOSS_KINDS, PF,
+  AFFIX_IDS, BIOME_IDS, BOSS_KINDS, CLASS_IDS, PF,
   type BiomeId, type BoonOffer, type BoonStack, type ClassId, type GameEvent, type Hazard, type Look, type PlayerSnap,
-  type RoomLayout, type RosterEntry, type RunState,
+  type RoomLayout, type RosterEntry, type RunReward, type RunState,
 } from '@shared/types.ts';
 import { bus, type ConnError, type EventMap } from '../core/EventBus.ts';
 import { resetSession, state, type Screen } from '../core/GameState.ts';
 import { updateSettings } from '../core/Settings.ts';
 import { initUI } from '../ui/index.ts';
-import { markTipSeen, resetTips } from '../ui/prefs.ts';
-import { ui, type CodexTab } from '../ui/store.ts';
+import { markTipSeen, resetMarks, resetTips, setMark } from '../ui/prefs.ts';
+import { artMark } from '../ui/progress.ts';
+import { HUB_TABS, ui, type CodexTab, type HubTab } from '../ui/store.ts';
+import { missingTexts } from '../ui/text.ts';
 import { TIP_IDS, type TipId } from '../ui/tips.ts';
 
 const HUD_TICK_MS = 66;
@@ -51,35 +63,35 @@ const look = (color: number, style = 0, head = true, cape = true): Look => ({ co
 function roster(): RosterEntry[] {
   return [
     {
-      slot: 0, name: 'Aldric', cls: 'knight', look: look(2, 1), ready: true, connected: true, host: true,
+      slot: 0, name: 'Aldric', cls: 'knight', look: look(2, 1), mastery: 7, art: 1, ready: true, connected: true, host: true,
       boons: [
         { id: 'infuse_ember_primary', level: 1 }, { id: 'keen_edge', level: 2 }, { id: 'barrier', level: 1 },
         { id: 'amplifier', level: 1 }, { id: 'spare_step', level: 1 }, { id: 'kindred_flame', level: 1 },
       ],
     },
     {
-      slot: 1, name: 'Brunhild', cls: 'barbarian', look: look(0), ready: true, connected: true, host: false,
+      slot: 1, name: 'Brunhild', cls: 'templar', look: look(0), mastery: 23, art: 0, ready: true, connected: true, host: false,
       boons: [{ id: 'infuse_storm_secondary', level: 1 }, { id: 'heavy_hand', level: 3 }, { id: 'iron_heart', level: 2 }],
     },
     {
-      slot: 2, name: 'Mirelle', cls: 'mage', look: look(5, 2, true, false), ready: false, connected: true, host: false,
+      slot: 2, name: 'Mirelle', cls: 'spellblade', look: look(5, 2, true, false), mastery: 3, art: 0, ready: false, connected: true, host: false,
       boons: [
         { id: 'infuse_rime_primary', level: 2 }, { id: 'deep_frost', level: 1 }, { id: 'echo', level: 1 },
         { id: 'quick_wits', level: 2 },
       ],
     },
     {
-      slot: 3, name: 'Schattenklinge99', cls: 'rogue', look: look(4, 1, false), ready: true, connected: false, host: false,
+      slot: 3, name: 'Schattenklinge99', cls: 'shade', look: look(4, 1, false), mastery: 112, art: 1, ready: true, connected: false, host: false,
       boons: [{ id: 'deadeye', level: 1 }, { id: 'fleet_foot', level: 2 }],
     },
   ];
 }
 
 function players(): PlayerSnap[] {
-  const base = { rot: 0, anim: 'idle' as const, animSeq: 0, revive: 0 };
+  const base = { rot: 0, anim: 'idle' as const, animSeq: 0, revive: 0, ult: 0 };
   return [
-    { ...base, slot: 0, x: 0, z: 0, hp: 87, maxHp: 130, shield: 22, state: 'alive', cdSecondary: 0.45, cdDash: 0.6, dashCharges: 1, flags: PF.CONNECTED },
-    { ...base, slot: 1, x: 5, z: -3, hp: 96, maxHp: 160, shield: 0, state: 'alive', cdSecondary: 0, cdDash: 0, dashCharges: 1, flags: PF.CONNECTED },
+    { ...base, slot: 0, x: 0, z: 0, hp: 87, maxHp: 130, shield: 22, state: 'alive', cdSecondary: 0.45, cdDash: 0.6, dashCharges: 1, ult: 0.62, flags: PF.CONNECTED },
+    { ...base, slot: 1, x: 5, z: -3, hp: 96, maxHp: 160, shield: 0, state: 'alive', cdSecondary: 0, cdDash: 0, dashCharges: 1, ult: 1, flags: PF.CONNECTED },
     { ...base, slot: 2, x: 4, z: 3, hp: 0, maxHp: 85, shield: 0, state: 'downed', cdSecondary: 0, cdDash: 0, dashCharges: 1, revive: 0.4, flags: PF.CONNECTED },
     { ...base, slot: 3, x: -8, z: 6, hp: 28, maxHp: 95, shield: 0, state: 'alive', cdSecondary: 0, cdDash: 0, dashCharges: 2, flags: 0 },
   ];
@@ -98,18 +110,125 @@ function room(biome: BiomeId, hazards = true): RoomLayout {
 function run(patch: Partial<RunState> = {}): RunState {
   return {
     phase: 'combat', oath: 2, chamber: 4, chamberKind: 'combat', entered: 'cursed', wave: 2, waveCount: 3, room: room('flooded', false),
-    bossKind: null, finalBoss: 'matron', rewards: [], tutorial: null,
+    bossKind: null, finalBoss: 'matron', rewards: [], tutorial: null, depth: 0, cleared: 0, chambersCleared: 4,
     doors: [], doorProgress: [], bossId: -1, draftPending: [], draftTime: RUN.DRAFT_TIMEOUT_SECONDS, elapsed: 437,
     stats: [
-      { slot: 0, damage: 12480, kills: 61, resonances: 14, revives: 2, downs: 1 },
-      { slot: 1, damage: 15230, kills: 74, resonances: 9, revives: 1, downs: 0 },
-      { slot: 2, damage: 9870, kills: 38, resonances: 21, revives: 0, downs: 3 },
-      { slot: 3, damage: 4410, kills: 19, resonances: 2, revives: 0, downs: 2 },
+      { slot: 0, damage: 12480, kills: 61, resonances: 14, revives: 2, downs: 1, elites: 3, bosses: 1, ultimates: 4 },
+      { slot: 1, damage: 15230, kills: 74, resonances: 9, revives: 1, downs: 0, elites: 5, bosses: 0, ultimates: 6 },
+      { slot: 2, damage: 9870, kills: 38, resonances: 21, revives: 0, downs: 3, elites: 1, bosses: 0, ultimates: 2 },
+      { slot: 3, damage: 4410, kills: 19, resonances: 2, revives: 0, downs: 2, elites: 0, bosses: 0, ultimates: 1 },
     ],
     secondWinds: 0,
     ...patch,
   };
 }
+
+const reward = (slot: number, glimmer: number, xp = 0, relics: string[] = []): RunReward => ({ slot, glimmer, xp, relics });
+
+// ------------------------------------------------------------------ profiles at different stages of progression
+
+type Stage = 'new' | 'mid' | 'end';
+const stageParam = params.get('profile');
+const DEFAULT_STAGE: Stage = stageParam === 'new' || stageParam === 'end' ? stageParam : 'mid';
+
+/** Total experience that puts a class at `level` with `into` experience inside it. */
+function xpAt(level: number, into = 0): number {
+  let total = into;
+  for (let l = 1; l < level; l++) total += xpForLevel(l);
+  return total;
+}
+
+const perClass = <T>(make: (cls: ClassId) => T): Record<ClassId, T> =>
+  Object.fromEntries(CLASS_IDS.map((cls) => [cls, make(cls)])) as Record<ClassId, T>;
+const lifetimeOf = (values: Partial<Record<LifetimeStat, number>>): Record<LifetimeStat, number> =>
+  Object.fromEntries(LIFETIME_STATS.map((key) => [key, values[key] ?? 0])) as Record<LifetimeStat, number>;
+
+/** Feats claimed up to `behind` tiers short of what the counters have reached (so some are waiting). */
+function featsClaimed(lifetime: Record<LifetimeStat, number>, behind: (id: string) => number): Record<string, number> {
+  return Object.fromEntries(FEATS.map((feat) => [feat.id, Math.max(0, featTier(feat, lifetime[feat.stat]) - behind(feat.id))]));
+}
+
+function stageProfile(stage: Stage): void {
+  const p = state.profile;
+  if (stage === 'new') {
+    Object.assign(p, {
+      runs: 0, wins: 0, bestChamber: 0, oathUnlocked: 0, glimmer: 40, glimmerEarned: 40, tutorialDone: true, meta: {},
+      xp: perClass(() => 0), arts: perClass(() => 0), talents: perClass(() => Array.from({ length: TALENT_TIERS }, () => 0)),
+      paragon: {}, shards: {}, relics: [], lifetime: lifetimeOf({ glimmerEarned: 40 }), feats: {}, classWins: perClass(() => 0),
+    });
+    return;
+  }
+  if (stage === 'mid') {
+    const xp = { ...perClass(() => 0), knight: xpAt(7, 310), mage: xpAt(4, 60), rogue: xpAt(3, 20), templar: xpAt(2, 140), shade: xpAt(1, 70) };
+    const shards = { whetstone: shardsForRank(2) + 1, iron_reliquary: 1, storm_coil: shardsForRank(2), phoenix: 1, tome: shardsForRank(3) };
+    const lifetime = lifetimeOf({
+      runs: 23, wins: 6, kills: 1840, elites: 31, bosses: 7, resonances: 412, revives: 9, ultimates: 64, chambers: 131, damage: 412000,
+      bestDepth: 2, bestOath: 3, glimmerEarned: 4460,
+      masteryLevels: CLASS_IDS.reduce((sum, cls) => sum + levelFromXp(xp[cls]).level - 1, 0),
+      relicRanks: Object.values(shards).reduce((sum, n) => sum + rankFromShards(n), 0), classesWon: 2,
+    });
+    Object.assign(p, {
+      runs: 23, wins: 6, bestChamber: 8, oathUnlocked: 3, glimmer: 640, glimmerEarned: 4460, tutorialDone: true,
+      meta: { vitality: 3, might: 2, swiftness: 3, insight: 1, fortune: 2, ferocity: 1, zeal: 1 },
+      xp, arts: { ...perClass(() => 0), knight: 1 }, talents: { ...perClass(() => [0, 0, 0]), knight: [1, 0, 0], mage: [2, 0, 0] },
+      paragon: { asc_might: 4, asc_vitality: 2, asc_fortune: 1 }, shards, relics: ['whetstone'],
+      lifetime, feats: featsClaimed(lifetime, (id) => (id === 'gravedigger' || id === 'harmonist' || id === 'adept' ? 1 : 0)),
+      classWins: { ...perClass(() => 0), knight: 4, mage: 2 },
+    });
+    return;
+  }
+  // Deep endgame: rank 60 Ascension, level 40 mastery, almost every relic, Oath XIV.
+  const levels: Record<ClassId, number> = { knight: 40, barbarian: 18, mage: 31, rogue: 22, templar: 27, spellblade: 12, shade: 35 };
+  const xp = perClass((cls) => xpAt(levels[cls], Math.round(xpForLevel(levels[cls]) * 0.63)));
+  const shards = Object.fromEntries(RELICS.map((def, i) => [def.id, i === 7 || i === 15 ? 0 : shardsForRank(1 + ((i * 7) % 10)) + (i % 3)]));
+  shards.whetstone = shardsForRank(10);
+  const lifetime = lifetimeOf({
+    runs: 412, wins: 187, kills: 61250, elites: 1480, bosses: 233, resonances: 18420, revives: 96, ultimates: 3110, chambers: 4870,
+    damage: 28400000, bestDepth: 7, bestOath: 14, glimmerEarned: 386400,
+    masteryLevels: CLASS_IDS.reduce((sum, cls) => sum + levels[cls] - 1, 0),
+    relicRanks: Object.values(shards).reduce((sum, n) => sum + rankFromShards(n), 0), classesWon: 7,
+  });
+  Object.assign(p, {
+    runs: 412, wins: 187, bestChamber: 8, oathUnlocked: 14, glimmer: 18450, glimmerEarned: 386400, tutorialDone: true,
+    meta: Object.fromEntries(META_UPGRADES.map((def) => [def.id, def.costs.length])),
+    xp, arts: { ...perClass(() => 1), barbarian: 0, mage: 0 }, talents: perClass((cls) => [1, 2, levels[cls] >= 10 ? 1 : 0]),
+    paragon: Object.fromEntries(PARAGON.map((def, i) => [def.id, i === 0 ? 60 : [48, 31, 25, 40, 26, 12][i - 1] ?? 20])),
+    shards, relics: ['whetstone', 'storm_coil', 'phoenix'],
+    lifetime, feats: featsClaimed(lifetime, (id) => (id === 'ruin' || id === 'delver' ? 1 : 0)),
+    classWins: perClass((cls) => levels[cls]),
+  });
+}
+
+/** Opens the progression hub on a tab for a profile stage. */
+function hub(tab: HubTab, stage: Stage, cls?: ClassId): void {
+  stageProfile(stage);
+  setScreen('menu');
+  ui.hubTab = tab;
+  ui.hubCls = cls ?? null;
+  ui.hubRelic = null;
+  ui.page = 'armory';
+  emitAll();
+  bus.emit('state:profile');
+}
+
+/** Own hero as a given class (HUD checks): bar icons, art, class boons. */
+function heroAs(cls: ClassId, art: number, boons: BoonStack[], ult = 0.4): void {
+  solo(boons);
+  state.roster = state.roster.map((p) => ({ ...p, cls, art, mastery: art > 0 ? 12 : 1 }));
+  state.players[0].ult = ult;
+  emitAll();
+}
+
+const UMBRA_BOONS: BoonStack[] = [
+  { id: 'infuse_ember_primary', level: 1 }, { id: 'infuse_rime_secondary', level: 1 }, { id: 'infuse_storm_dash', level: 1 },
+  { id: 'infuse_umbra_ultimate', level: 1 },
+];
+/** A build with several sets in progress: ember tier 2, offense tier 1, resonance 1/2, defense 1/3. */
+const SET_BOONS: BoonStack[] = [
+  { id: 'infuse_ember_primary', level: 1 }, { id: 'infuse_ember_dash', level: 1 }, { id: 'wildfire', level: 2 }, { id: 'infuse_ember_ultimate', level: 1 },
+  { id: 'keen_edge', level: 2 }, { id: 'deadeye', level: 1 }, { id: 'momentum', level: 1 }, { id: 'amplifier', level: 1 }, { id: 'thorns', level: 1 },
+  { id: 'zealot', level: 1 }, { id: 'infuse_rime_secondary', level: 1 },
+];
 
 const REROLLED: BoonOffer[][] = [
   [{ id: 'amplifier', level: 2 }, { id: 'infuse_storm_dash', level: 1 }, { id: 'barrier', level: 2 }],
@@ -193,11 +312,16 @@ function baseline(): void {
   ui.codexTab = 'elements';
   ui.wardrobeCls = null;
   ui.biomes.clear();
-  Object.assign(state.profile, {
-    runs: 23, wins: 6, bestChamber: 8, oathUnlocked: 2, glimmer: 240, glimmerEarned: 1460, tutorialDone: true,
-    meta: { vitality: 2, might: 1, insight: 0, swiftness: 3 },
-    looks: { ...defaultLooks(), knight: look(2, 1), mage: look(5, 2, true, false) },
-  });
+  ui.hubTab = 'armory';
+  ui.hubCls = null;
+  ui.hubRelic = null;
+  ui.progress = null;
+  ui.oathBaseline = null;
+  stageProfile(DEFAULT_STAGE);
+  Object.assign(state.profile, { cls: 'knight', looks: { ...defaultLooks(), knight: look(2, 1), mage: look(5, 2, true, false) } });
+  // Badges for "new art" only show on the routes that are about them.
+  resetMarks();
+  for (const cls of CLASS_IDS) setMark(artMark(cls));
   state.draftRerolls = 0;
   // Tips only appear on their own routes (or with ?tips=1), so other screenshots stay clean.
   resetTips();
@@ -241,7 +365,7 @@ function nextStep(): void {
   if (!tut) return;
   const next = TUTORIAL_STEPS[tut.index + 1];
   if (!next) {
-    state.run = run({ phase: 'victory', chamber: 0, elapsed: 196, tutorial: { ...tut, progress: 1 }, rewards: [{ slot: OWN_SLOT, glimmer: REWARDS.TUTORIAL }] });
+    state.run = run({ phase: 'victory', chamber: 0, elapsed: 196, tutorial: { ...tut, progress: 1 }, rewards: [reward(OWN_SLOT, REWARDS.TUTORIAL)] });
     Object.assign(state.profile, { glimmer: state.profile.glimmer + REWARDS.TUTORIAL, tutorialDone: true });
     setScreen('summary');
     emitAll();
@@ -289,8 +413,9 @@ function tip(id: TipId): void {
   switch (id) {
     case 'status.ember':
     case 'status.rime':
-    case 'status.storm': {
-      const el = id.slice('status.'.length) as 'ember' | 'rime' | 'storm';
+    case 'status.storm':
+    case 'status.umbra': {
+      const el = id.slice('status.'.length) as 'ember' | 'rime' | 'storm' | 'umbra';
       solo([{ id: `infuse_${el}_primary`, level: 1 }]);
       fire({ e: 'hit', target: { t: 'e', id: 7 }, ...at2, dmg: 22, crit: false, el, by: 0 });
       break;
@@ -312,12 +437,52 @@ function tip(id: TipId): void {
       break;
     case 'elite': ROUTES.elite(); break;
     case 'boss': bossFight('stalker', false); break;
+    case 'ultimate': heroAs('mage', 0, TRAINING_BOONS.slice(0, 1), 1); fire({ e: 'ultReady', slot: 0 }); break;
+    case 'descend': ROUTES['doors-deep'](); break;
+    case 'affix': inGame({ entered: 'boon' }); fire({ e: 'spawn', id: 31, kind: 'warrior', ...at2, elite: true, affix: 'volatile' }); break;
+    case 'set': solo(SET_BOONS); fire({ e: 'set', slot: 0, id: 'set_ember', tier: 2 }); break;
   }
   emitAll();
 }
 
 function profileState(patch: { glimmer: number; meta: Record<string, number> }): void {
   Object.assign(state.profile, patch);
+}
+
+/** Stand-in for core `bookRewards`: credits the own reward and announces it like the real client does. */
+function bookDemo(cls: ClassId, own: RunReward | undefined): void {
+  if (!own) return;
+  const p = state.profile;
+  const before = levelFromXp(p.xp[cls] ?? 0).level;
+  const relics = own.relics.map((id) => {
+    const had = rankFromShards(p.shards[id] ?? 0);
+    p.shards[id] = (p.shards[id] ?? 0) + 1;
+    const rank = rankFromShards(p.shards[id]);
+    return { id, rank, rankUp: rank > had };
+  });
+  p.glimmer += own.glimmer;
+  p.xp[cls] = (p.xp[cls] ?? 0) + own.xp;
+  const level = levelFromXp(p.xp[cls]).level;
+  bus.emit('game:progress', { cls, xp: own.xp, levelsGained: level - before, level, relics, featsReady: 0 });
+}
+
+function summary(
+  patch: Partial<RunState>, rewards: RunReward[],
+  opts: { cls?: ClassId; solo?: boolean; guests?: number; stage?: Stage; oathBaseline?: number } = {},
+): void {
+  session();
+  if (opts.stage) stageProfile(opts.stage);
+  if (opts.solo) state.roster = roster().slice(0, 1);
+  else if (opts.guests) state.roster = roster().slice(0, opts.guests);
+  const cls = opts.cls ?? state.roster[0].cls;
+  state.roster[0] = { ...state.roster[0], cls, mastery: levelFromXp(state.profile.xp[cls] ?? 0).level };
+  ui.oathBaseline = opts.oathBaseline ?? state.profile.oathUnlocked;
+  state.run = run({ ...patch, rewards });
+  state.run.stats = state.run.stats.filter((row) => state.roster.some((p) => p.slot === row.slot));
+  setScreen('summary');
+  bookDemo(cls, rewards.find((r) => r.slot === OWN_SLOT));
+  emitAll();
+  bus.emit('state:profile');
 }
 
 const ROUTES: Record<string, () => void> = {
@@ -328,7 +493,8 @@ const ROUTES: Record<string, () => void> = {
   },
   menu: () => { setScreen('menu'); emitAll(); },
   'menu-new': () => {
-    Object.assign(state.profile, { runs: 0, wins: 0, bestChamber: 0, oathUnlocked: 0, glimmer: 0, glimmerEarned: 0, tutorialDone: false, meta: {} });
+    stageProfile('new');
+    Object.assign(state.profile, { glimmer: 0, glimmerEarned: 0, tutorialDone: false });
     setScreen('menu');
     emitAll();
   },
@@ -377,21 +543,24 @@ const ROUTES: Record<string, () => void> = {
   'draft-wait': () => { inGame({ phase: 'draft', draftPending: [1, 2], draftTime: 18 }); state.enemiesAlive = 0; emitAll(); },
   tab: () => { inGame(); ui.tab = true; emitAll(); },
   pause: () => { inGame(); ui.pause = true; emitAll(); },
-  'summary-win': () => {
-    session();
-    ui.oathBaseline = 2;
-    state.profile.glimmer = 240 + 261;
-    state.run = run({
-      phase: 'victory', chamber: 7, chamberKind: 'boss', elapsed: 754, bossKind: 'matron',
-      rewards: [{ slot: 0, glimmer: 261 }, { slot: 1, glimmer: 237 }, { slot: 2, glimmer: 237 }, { slot: 3, glimmer: 237 }],
-    });
-    setScreen('summary');
-    emitAll();
+  'summary-win': () => summary({ phase: 'victory', chamber: 7, chamberKind: 'boss', elapsed: 754, bossKind: 'matron', cleared: 1, chambersCleared: 8 },
+    [reward(0, 261, 372, ['storm_coil']), reward(1, 237, 340), reward(2, 237, 340, ['whetstone']), reward(3, 237, 340)], { oathBaseline: 2 }),
+  'summary-levelup': () => {
+    // A fresh Templar gains three levels at once: art at 2, the first talent tier at 3.
+    stageProfile('new');
+    state.profile.cls = 'templar';
+    summary({ phase: 'victory', chamber: 7, chamberKind: 'boss', elapsed: 812, bossKind: 'regent', finalBoss: 'regent', cleared: 1, chambersCleared: 8, oath: 0 },
+      [reward(0, 188, 760, ['iron_reliquary', 'iron_reliquary', 'bell'])], { cls: 'templar', solo: true, oathBaseline: 0 });
   },
+  'summary-fell': () => summary({ phase: 'defeat', chamber: 3, chamberKind: 'elite', elapsed: 1722, depth: 1, cleared: 1, chambersCleared: 11, oath: 3 },
+    [reward(0, 544, 910, ['whetstone', 'phoenix']), reward(1, 498, 860, ['tome']), reward(2, 498, 860), reward(3, 498, 860)], { oathBaseline: 3 }),
+  'summary-ascended': () => summary({ phase: 'victory', chamber: 7, chamberKind: 'boss', elapsed: 2871, depth: 2, cleared: 3, chambersCleared: 24, oath: 5, finalBoss: 'stalker' },
+    [reward(0, 1620, 2480, ['whetstone', 'whetstone', 'compass', 'ember_heart', 'ember_heart']), reward(1, 1490, 2300, ['bell', 'bell'])], { stage: 'end', guests: 2 }),
   'summary-loss': () => {
     session(GUEST_SLOT);
-    state.profile.glimmer = 240 + 78;
-    state.run = run({ phase: 'defeat', chamber: 5, elapsed: 512, rewards: [{ slot: 0, glimmer: 86 }, { slot: 1, glimmer: 78 }] });
+    stageProfile(DEFAULT_STAGE);
+    state.run = run({ phase: 'defeat', chamber: 5, elapsed: 512, rewards: [reward(0, 86, 120), reward(1, 78, 104)] });
+    bookDemo('templar', state.run.rewards[1]);
     setScreen('summary');
     emitAll();
   },
@@ -409,7 +578,7 @@ const ROUTES: Record<string, () => void> = {
     state.roster = roster().slice(0, 1);
     state.profile.glimmer = REWARDS.TUTORIAL;
     state.run = run({
-      phase: 'victory', chamber: 0, elapsed: 196, oath: 0, rewards: [{ slot: 0, glimmer: REWARDS.TUTORIAL }],
+      phase: 'victory', chamber: 0, elapsed: 196, oath: 0, rewards: [reward(0, REWARDS.TUTORIAL)],
       tutorial: { step: 'door', index: TUTORIAL_STEPS.length - 1, total: TUTORIAL_STEPS.length, progress: 1, marker: null },
     });
     setScreen('summary');
@@ -432,7 +601,7 @@ const ROUTES: Record<string, () => void> = {
   wardrobe: () => { setScreen('menu'); ui.wardrobeCls = state.profile.cls; ui.page = 'wardrobe'; emitAll(); },
   'wardrobe-mage': () => { setScreen('menu'); ui.wardrobeCls = 'mage'; ui.page = 'wardrobe'; emitAll(); },
   'wardrobe-lobby': () => { ROUTES.lobby(); ui.page = 'wardrobe'; emitAll(); },
-  ...Object.fromEntries((['elements', 'combat', 'hazards', 'enemies', 'doors', 'boons'] as CodexTab[]).map((tab): [string, () => void] =>
+  ...Object.fromEntries((['elements', 'classes', 'combat', 'hazards', 'enemies', 'doors', 'boons', 'progress'] as CodexTab[]).map((tab): [string, () => void] =>
     [`codex-${tab}`, () => { setScreen('menu'); ui.codexTab = tab; ui.page = 'codex'; emitAll(); }])),
   'pause-codex': () => { inGame(); ui.pause = true; ui.page = 'codex'; emitAll(); },
   'strip-0': () => solo([{ id: 'keen_edge', level: 1 }]),
@@ -466,6 +635,110 @@ const ROUTES: Record<string, () => void> = {
     [`boss-${kind}`, () => bossFight(kind, false)],
     [`herald-${kind}`, () => bossFight(kind, true)],
   ])),
+  // ---- update 3
+  ...Object.fromEntries(CLASS_IDS.flatMap((cls): [string, () => void][] => [
+    [`menu-${cls}`, () => { state.profile.cls = cls; setScreen('menu'); emitAll(); }],
+    [`wardrobe-${cls}`, () => { setScreen('menu'); ui.wardrobeCls = cls; ui.page = 'wardrobe'; emitAll(); }],
+    [`hud-${cls}`, () => heroAs(cls, 0, [{ id: 'keen_edge', level: 1 }])],
+    [`hud-${cls}-art`, () => heroAs(cls, 1, [{ id: 'infuse_storm_secondary', level: 1 }], 1)],
+    [`hub-mastery-${cls}`, () => hub('mastery', DEFAULT_STAGE, cls)],
+  ])),
+  'menu-badge': () => {
+    // Feat tiers waiting and a talent tier left open: the menu button carries a count.
+    stageProfile('mid');
+    resetMarks();
+    setScreen('menu');
+    emitAll();
+  },
+  'menu-end': () => { stageProfile('end'); state.profile.cls = 'shade'; setScreen('menu'); emitAll(); },
+  'lobby-oath': () => {
+    stageProfile('end');
+    session();
+    state.oath = 12;
+    state.run = run({ phase: 'lobby' });
+    setScreen('lobby');
+    emitAll();
+  },
+  'lobby-new': () => { stageProfile('new'); session(); state.oath = 0; state.run = run({ phase: 'lobby' }); setScreen('lobby'); emitAll(); },
+  'ult-0': () => { inGame(); state.players[0].ult = 0; emitAll(); },
+  'ult-half': () => { inGame(); state.players[0].ult = 0.5; emitAll(); },
+  'ult-ready': () => { inGame(); state.players[0].ult = 1; emitAll(); fire({ e: 'ultReady', slot: 0 }); },
+  'ult-infused': () => { solo(UMBRA_BOONS); state.players[0].ult = 1; emitAll(); },
+  'ult-denied': () => { inGame(); Object.assign(state.players[0], { ult: 0.3, cdSecondary: 0, cdDash: 0 }); emitAll(); bus.emit('game:localAction', { action: 'denied' }); },
+  buffs: () => {
+    heroAs('barbarian', 0, TRAINING_BOONS.slice(0, 1), 0.2);
+    fire({ e: 'buff', slot: 0, id: 'bloodrage', dur: 8 });
+    fire({ e: 'buff', slot: 0, id: 'bulwark', dur: 3.5 });
+    fire({ e: 'buff', slot: 0, id: 'overload', dur: 1.6 });
+  },
+  sets: () => solo(SET_BOONS),
+  'set-toast': () => { solo(SET_BOONS); fire({ e: 'set', slot: 0, id: 'set_ember', tier: 2 }); },
+  'set-ally': () => { inGame(); fire({ e: 'set', slot: 1, id: 'set_defense', tier: 1 }); },
+  'strip-4': () => solo(UMBRA_BOONS),
+  'strip-umbra': () => solo([{ id: 'infuse_umbra_primary', level: 1 }, { id: 'infuse_rime_secondary', level: 1 }]),
+  ...Object.fromEntries(REACTIONS.map((reaction): [string, () => void] => [`reaction-${reaction.id}`, () => {
+    solo([{ id: `infuse_${reaction.pair[0]}_primary`, level: 1 }, { id: `infuse_${reaction.pair[1]}_secondary`, level: 1 }]);
+    fire({ e: 'resonance', x: 2, z: -1, r: 3, a: reaction.pair[0], b: reaction.pair[1], by: 0 });
+  }])),
+  'depth-2': () => inGame({ depth: 1, cleared: 1, chamber: 2, chambersCleared: 10, entered: 'boon', oath: 4, finalBoss: 'stalker' }),
+  'depth-7': () => inGame({ depth: 6, cleared: 6, chamber: 6, chamberKind: 'elite', chambersCleared: 54, entered: 'cursed', oath: 14, finalBoss: 'regent' }),
+  descend: () => { inGame({ depth: 1, cleared: 1, chamber: 0, chambersCleared: 8, entered: 'descend', wave: 1, elapsed: 790 }); fire({ e: 'descend', depth: 1 }); },
+  'doors-deep': () => {
+    inGame({
+      phase: 'doors', chamber: 7, chamberKind: 'boss', cleared: 1, chambersCleared: 8, entered: 'boss',
+      doors: [{ x: -6, z: -10, type: 'descend' }, { x: 6, z: -10, type: 'ascend' }], doorProgress: [0.55, 0.1],
+    });
+    state.players[2] = { ...state.players[2], hp: 34, state: 'alive', revive: 0 };
+    state.enemiesAlive = 0;
+    emitAll();
+  },
+  affix: () => {
+    inGame({ depth: 1, cleared: 1, chamber: 3, chamberKind: 'elite', entered: 'boon', bossKind: 'champion', bossId: 1 });
+    state.bossHp = 1;
+    emitAll();
+    AFFIX_IDS.forEach((affix, i) => fire({ e: 'spawn', id: 40 + i, kind: 'warrior', x: 2, z: -1, elite: true, affix }));
+  },
+  'party-ult': () => { inGame(); state.players = state.players.map((p) => ({ ...p, ult: 1 })); emitAll(); fire({ e: 'ultReady', slot: 1 }); },
+  'draft-legendary': () => {
+    solo([{ id: 'infuse_ember_primary', level: 1 }, { id: 'infuse_rime_secondary', level: 1 }, { id: 'amplifier', level: 1 }],
+      { phase: 'draft', draftPending: [0], draftTime: 31, chamber: 4 });
+    state.enemiesAlive = 0;
+    state.draft = [{ id: 'duo_shatter', level: 1 }, { id: 'encore', level: 1 }, { id: 'infuse_umbra_ultimate', level: 1 }];
+    emitAll();
+  },
+  'draft-class': () => {
+    heroAs('rogue', 1, [{ id: 'keen_edge', level: 1 }, { id: 'deadeye', level: 1 }]);
+    setRun(run({ phase: 'draft', draftPending: [0], draftTime: 27, chamber: 2, oath: 0, entered: 'boon' }));
+    state.enemiesAlive = 0;
+    state.draft = [{ id: 'rogue_fan', level: 1 }, { id: 'rogue_pierce', level: 2 }, { id: 'momentum', level: 1 }];
+    emitAll();
+  },
+  'draft-5': () => {
+    // Cursed door + Foresight: five choices must fit.
+    state.profile.meta = { ...state.profile.meta, foresight: 1, insight: 2 };
+    solo(SET_BOONS, { phase: 'draft', draftPending: [0], draftTime: 38, chamber: 5, entered: 'cursed' });
+    state.enemiesAlive = 0;
+    state.draftRerolls = 1;
+    state.draft = [
+      { id: 'duo_conflagration', level: 1 }, { id: 'giant_slayer', level: 1 }, { id: 'infuse_umbra_secondary', level: 1 },
+      { id: 'crescendo', level: 1 }, { id: 'knight_aegis', level: 1 },
+    ];
+    emitAll();
+  },
+  'draft-sets': () => {
+    solo(SET_BOONS, { phase: 'draft', draftPending: [0], draftTime: 22, chamber: 3 });
+    state.enemiesAlive = 0;
+    state.draft = [{ id: 'first_blood', level: 1 }, { id: 'echo', level: 1 }, { id: 'keen_edge', level: 3 }, { id: 'opening_act', level: 1 }];
+    emitAll();
+  },
+  ...Object.fromEntries(HUB_TABS.flatMap((tab) => (['new', 'mid', 'end'] as Stage[]).map((stage): [string, () => void] =>
+    [`hub-${tab}-${stage}`, () => hub(tab, stage)]))),
+  'hub-ascension-locked': () => hub('ascension', 'new'),
+  'hub-reliquary-pick': () => { hub('reliquary', 'end'); ui.hubRelic = 'storm_coil'; bus.emit('state:profile'); },
+  'hub-reliquary-unknown': () => { hub('reliquary', 'mid'); ui.hubRelic = 'compass'; bus.emit('state:profile'); },
+  'hub-mastery-news': () => { stageProfile('mid'); resetMarks(); hub('mastery', 'mid', 'mage'); },
+  'hub-lobby': () => { ROUTES.lobby(); ui.hubTab = 'mastery'; ui.page = 'armory'; emitAll(); },
+
   error: () => { setScreen('menu'); emitAll(); bus.emit('net:error', { error: 'room_not_found', fatal: true }); },
   reconnecting: () => { inGame(); state.conn.status = 'reconnecting'; state.conn.pingMs = 312; emitAll(); },
   toasts: () => {
@@ -537,6 +810,28 @@ const EVENTS: [string, () => void][] = [
   ['local secondary', () => bus.emit('game:localAction', { action: 'secondary' })],
   ['local dash', () => bus.emit('game:localAction', { action: 'dash' })],
   ['local denied', () => bus.emit('game:localAction', { action: 'denied' })],
+  ['local ultimate', () => { bus.emit('game:localAction', { action: 'ultimate' }); const me = state.players[0]; if (me) me.ult = 0; bus.emit('state:hud'); }],
+  ['ult ready own', () => { const me = state.players[0]; if (me) me.ult = 1; bus.emit('state:hud'); fire({ e: 'ultReady', slot: 0 }); }],
+  ['ult ready ally', () => fire({ e: 'ultReady', slot: 1 })],
+  ['hit umbra', () => fire({ e: 'hit', target: { t: 'e', id: 7 }, ...at, dmg: 22, crit: false, el: 'umbra', by: 0 })],
+  ...REACTIONS.map((reaction): [string, () => void] =>
+    [`res ${reaction.id}`, () => fire({ e: 'resonance', ...at, r: 3, a: reaction.pair[0], b: reaction.pair[1], by: 0 })]),
+  ['buff bloodrage', () => fire({ e: 'buff', slot: 0, id: 'bloodrage', dur: 8 })],
+  ['buff bulwark', () => fire({ e: 'buff', slot: 0, id: 'bulwark', dur: 6 })],
+  ['buff overload', () => fire({ e: 'buff', slot: 0, id: 'overload', dur: 6 })],
+  ...SETS.slice(0, 3).map((set): [string, () => void] => [`set ${set.id}`, () => fire({ e: 'set', slot: 0, id: set.id, tier: 1 })]),
+  ['set ally', () => fire({ e: 'set', slot: 1, id: 'set_kinship', tier: 2 })],
+  ['descend', () => fire({ e: 'descend', depth: (state.run?.depth ?? 0) + 1 })],
+  ...AFFIX_IDS.map((affix): [string, () => void] => [`elite ${affix}`, () => fire({ e: 'spawn', id: 50, kind: 'warrior', ...at, elite: true, affix })]),
+  ['zone', () => fire({ e: 'zone', id: 3, kind: 'templar_consecrate', ...at, r: 3.6, dur: 5, el: null, by: 0 })],
+  ['zone end', () => fire({ e: 'zoneEnd', id: 3, ...at, sprung: false })],
+  ['mark', () => fire({ e: 'mark', id: 7, dur: 8 })],
+  ['door descend', () => fire({ e: 'doorChosen', type: 'descend' })],
+  ['door ascend', () => fire({ e: 'doorChosen', type: 'ascend' })],
+  ...Object.values(CLASSES).flatMap((def): [string, () => void][] => [
+    [`${def.id} art`, () => fire({ e: 'cast', who: { t: 'p', id: 1 }, ability: def.arts[0]?.id ?? def.secondary.id, ...at, rot: 0 })],
+    [`${def.id} ultimate`, () => fire({ e: 'cast', who: { t: 'p', id: 1 }, ability: def.ultimate.id, ...at, rot: 0 })],
+  ]),
 ];
 
 // ------------------------------------------------------------------ reactions to ui:* intents
@@ -563,6 +858,7 @@ function wireIntents(): void {
       session();
       state.roster = roster().slice(0, 1).map((p) => ({
         ...p, name: state.profile.name || 'Warden', cls: state.profile.cls, look: state.profile.looks[state.profile.cls], ready: false, boons: [],
+        mastery: levelFromXp(state.profile.xp[state.profile.cls] ?? 0).level, art: state.profile.arts[state.profile.cls] ?? 0,
       }));
       state.oath = 0;
       state.run = run({ phase: 'lobby' });
@@ -577,6 +873,8 @@ function wireIntents(): void {
     const me = state.roster.find((p) => p.slot === state.conn.slot);
     if (!me || state.screen !== 'lobby') return;
     me.look = { ...(state.profile.looks[me.cls] ?? DEFAULT_LOOK) };
+    me.mastery = levelFromXp(state.profile.xp[me.cls] ?? 0).level;
+    me.art = me.mastery >= 2 ? state.profile.arts[me.cls] ?? 0 : 0;
     bus.emit('state:roster');
   });
   bus.on('ui:reroll', () => {
@@ -592,7 +890,11 @@ function wireIntents(): void {
   bus.on('ui:lobby', (patch) => {
     const me = state.roster.find((p) => p.slot === state.conn.slot);
     if (!me) return;
-    if (patch.cls) me.cls = patch.cls;
+    if (patch.cls) {
+      me.cls = patch.cls;
+      me.mastery = levelFromXp(state.profile.xp[me.cls] ?? 0).level;
+      me.art = me.mastery >= 2 ? state.profile.arts[me.cls] ?? 0 : 0;
+    }
     if (patch.ready !== undefined) me.ready = patch.ready;
     if (patch.oath !== undefined && me.host) state.oath = patch.oath;
     bus.emit('state:roster');
@@ -629,6 +931,7 @@ function startTickers(): void {
     if (me && me.state === 'alive') {
       me.cdSecondary = me.cdSecondary <= 0 ? 1 : Math.max(0, me.cdSecondary - 0.012);
       me.cdDash = me.cdDash <= 0 ? 1 : Math.max(0, me.cdDash - 0.03);
+      if (me.ult < 1) me.ult = Math.min(1, me.ult + 0.004);
     }
     bus.emit('state:hud');
   }, HUD_TICK_MS);
@@ -677,7 +980,9 @@ function paintBackdrop(): void {
   window.addEventListener('resize', draw);
 }
 
-const CLASS_TINT: Record<ClassId, string> = { knight: '#7fa9e6', barbarian: '#e2584b', mage: '#e391d8', rogue: '#86d06c' };
+const CLASS_TINT: Record<ClassId, string> = {
+  knight: '#7fa9e6', barbarian: '#e2584b', mage: '#e391d8', rogue: '#86d06c', templar: '#f0dc9a', spellblade: '#8f9bff', shade: '#9db0cf',
+};
 
 /** Flat stand-in for the 3D hero preview: a paper-doll at the requested screen position, tinted by the look. */
 function drawShowcase(g: CanvasRenderingContext2D, w: number, hgt: number): void {
@@ -764,6 +1069,8 @@ declare global {
       nextStep(): void;
       /** Forgets which tips were shown (all tips can appear again). */
       resetTips(): void;
+      /** Data ids without an English or German text, and German texts whose numbers drifted. Must be empty. */
+      missing(): string[];
       /** Every `ui:*` intent emitted so far, as "name payload". */
       intents: string[];
       routes: string[];
@@ -784,6 +1091,9 @@ function boot(): void {
   wireIntents();
   startTickers();
   buildPanel();
+  // Unit-like check: every class, boon, talent, relic, feat, set, reaction, affix, upgrade and Ascension stat has its texts.
+  const missing = missingTexts();
+  if (missing.length > 0) console.error(`[uidemo] ${missing.length} missing or drifted texts:\n${missing.join('\n')}`);
   const route = (): void => go(window.location.hash.slice(1) || 'menu');
   window.addEventListener('hashchange', route);
   route();
@@ -795,6 +1105,7 @@ function boot(): void {
     audio: () => audioDebug(),
     nextStep,
     resetTips,
+    missing: missingTexts,
     intents: intentLog,
     routes: Object.keys(ROUTES),
     errors: CONN_ERRORS,

@@ -19,7 +19,8 @@ const SRC = resolve(process.argv[2] ?? '../audio-src');
 const OUT = resolve('client/public/assets/audio');
 const MANIFEST = resolve('client/src/audio/manifest.ts');
 const DOC = resolve('docs/AUDIO.md');
-const BUDGET_BYTES = 1.5 * 1024 * 1024;
+/** Update 3 budget for the whole sample set. */
+const BUDGET_BYTES = 900 * 1024;
 
 /** key -> repository folder, folder of the audio inside it, upstream URL and the licence file to verify. */
 const PACKS = {
@@ -87,6 +88,10 @@ const GROUPS = [
   ['ui.tab', 'ui', 0, [['uia', 'switch12.wav'], ['uia', 'switch13.wav']]],
   ['ui.toggle', 'ui', 0, [['ifc', 'toggle_001.wav'], ['ifc', 'toggle_002.wav']]],
   ['ui.drop', 'ui', 0, [['ifc', 'drop_002.wav'], ['ifc', 'drop_003.wav']]],
+  // update 3: progression pages (talent pick, relic / tome handling, rank-up sweep)
+  ['pluck', 'ui', 0, [['ifc', 'pluck_001.wav'], ['ifc', 'pluck_002.wav']]],
+  ['ui.book', 'ui', 0, [['rpg', 'book_place_1.ogg'], ['rpg', 'book_open.ogg']]],
+  ['ui.rise', 'ui', 0, [['ifc', 'maximize_004.wav'], ['ifc', 'maximize_006.wav']]],
   // ---------------------------------------------------------------- tier 1: core combat
   ['swing.blade', 'foley', 1, [['rpg', 'knife_slice.ogg'], ['rpg', 'knife_slice_2.ogg']]],
   ['swing.draw', 'foley', 1, [['rpg', 'draw_knife_1.ogg'], ['rpg', 'draw_knife_2.ogg'], ['rpg', 'draw_knife_3.ogg']]],
@@ -130,6 +135,11 @@ const GROUPS = [
   ['shimmer', 'magic', 2, [['ifc', 'glass_004.wav']]],
   ['ping', 'magic', 2, [['ifc', 'glass_001.wav'], ['ifc', 'glass_003.wav'], ['ifc', 'glass_006.wav']]],
   ['tex.fire', 'bed', 2, [['sci', 'thruster_fire_004.ogg', { seg: [0.6, 2.4] }]]],
+  // update 3: weighty iron for the templar, arcane rise for the spellblade, chained zaps (Void Arc), umbra grain
+  ['hit.iron', 'impact', 2, [['sci', 'impact_metal_000.ogg'], ['sci', 'impact_metal_003.ogg']]],
+  ['arcane', 'magic', 2, [['dig', 'power_up_3.ogg'], ['dig', 'power_up_11.ogg']]],
+  ['zap.chain', 'magic', 2, [['dig', 'zap_three_tone_down.ogg']]],
+  ['tex.void', 'bed', 2, [['sci', 'space_engine_low_001.ogg', { seg: [0.5, 1.4], rate: 22050 }]]],
   ['tex.fireLow', 'bed', 2, [['sci', 'thruster_fire_003.ogg', { seg: [0.6, 3.0], rate: 22050 }]]],
   // ---------------------------------------------------------------- tier 3: run flow
   ['door.open', 'flow', 3, [['rpg', 'door_open_1.ogg'], ['rpg', 'door_open_2.ogg']]],
@@ -144,6 +154,9 @@ const GROUPS = [
   ['drum.war', 'big', 3, [['jin', 'Hit jingles/jingles_hit_14.ogg'], ['jin', 'Hit jingles/jingles_hit_12.ogg'], ['jin', 'Hit jingles/jingles_hit_0.ogg']]],
   ['drum.fill', 'big', 3, [['jin', 'Hit jingles/jingles_hit_11.ogg'], ['jin', 'Hit jingles/jingles_hit_9.ogg'], ['jin', 'Hit jingles/jingles_hit_3.ogg']]],
   ['slime', 'flow', 3, [['sci', 'slime_000.ogg']]],
+  // update 3: the descent's sub drop, the Chronicle's gong
+  ['sub.drop', 'big', 3, [['dig', 'low_down.ogg']]],
+  ['bong', 'flow', 3, [['ifc', 'bong_001.wav']]],
   // ---------------------------------------------------------------- tier 4: ambience beds (crossfaded at runtime)
   ['bed.drone', 'bed', 4, [['sci', 'space_engine_low_002.ogg', { seg: [0.3, 3.6], rate: 22050 }]]],
   ['bed.rumble', 'bed', 4, [['sci', 'space_engine_large_000.ogg', { seg: [0.3, 3.6], rate: 22050 }]]],

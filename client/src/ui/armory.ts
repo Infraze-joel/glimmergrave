@@ -1,14 +1,13 @@
 /**
- * Armory: spend Glimmer on permanent upgrades (shared/data/meta.ts). Reachable from the main menu, the lobby
- * and the run summary. Buying goes through core `purchaseUpgrade`, which also resends the loadout in a lobby.
+ * Armory tab of the progression hub: spend Glimmer on permanent upgrades (shared/data/meta.ts), grouped by
+ * what they are for. Buying goes through core `purchaseUpgrade`, which also resends the loadout in a lobby.
  */
-import { META_UPGRADES, REWARDS, type MetaUpgradeDef } from '@shared/data/meta.ts';
+import { META_INDEX, META_UPGRADES, REWARDS, type MetaUpgradeDef } from '@shared/data/meta.ts';
 import { metaLevel, nextUpgradeCost, purchaseUpgrade, state } from '../core/GameState.ts';
 import { h, icon, retrigger, setAttr, setText, show, toggle } from './dom.ts';
 import { levelPips } from './draft.ts';
 import type { IconName } from './icons.ts';
 import { formatInt, getLang, hasKey, t } from './i18n.ts';
-import { pageHead } from './pages.ts';
 import { UI_CONFIG } from './store.ts';
 import type { View } from './view.ts';
 
@@ -19,7 +18,19 @@ const HAS_VALUE = /\{v\}/;
 const META_ICON: Record<string, IconName> = {
   vitality: 'heart', might: 'sword', swiftness: 'speed', celerity: 'hourglass', footwork: 'dash',
   insight: 'reroll', attunement: 'infusion', resolve: 'revive', fortune: 'glimmer',
+  ferocity: 'eye', tempo: 'offense', zeal: 'ultimate', warding: 'defense', scholar: 'xp', reliquary: 'relic', salvage: 'shard',
+  foresight: 'boon', tenacity: 'heart',
 };
+
+/** Upgrades grouped by purpose. Ids missing here (a new table row) land in the last group. */
+export const META_GROUPS: readonly { id: 'combat' | 'agility' | 'draft' | 'fortune'; upgrades: readonly string[] }[] = [
+  { id: 'combat', upgrades: ['vitality', 'might', 'ferocity', 'tempo', 'zeal', 'warding'] },
+  { id: 'agility', upgrades: ['swiftness', 'celerity', 'footwork'] },
+  { id: 'draft', upgrades: ['insight', 'attunement', 'foresight', 'resolve', 'tenacity'] },
+  { id: 'fortune', upgrades: ['fortune', 'scholar', 'reliquary', 'salvage'] },
+];
+
+export const metaIcon = (id: string): IconName => META_ICON[id] ?? 'gem';
 /** Upgrades whose value is a count rather than a bonus. */
 const COUNT_VALUES = new Set(['insight']);
 
@@ -68,16 +79,23 @@ interface Card {
   level: number;
 }
 
-export function createArmory(close: () => void): View {
-  const walletValue = h('b', { class: 'gg-num' });
-  const wallet = h('div', { class: 'gg-wallet', 'data-testid': 'armory-wallet', 'data-glimmer': '0' },
-    icon('glimmer'),
-    h('div', null, h('span', null, t('armory.wallet')), walletValue),
-  );
-  const grid = h('div', { class: 'gg-armory-grid' });
+export function createArmoryTab(): View {
+  const grid = h('div', { class: 'gg-armory-groups' });
   const lobbyNote = h('p', { class: 'gg-armory-note' }, icon('check'), t('armory.lobbyNote'));
   const cards: Card[] = [];
-  let lastGlimmer = -1;
+  const groupEls = new Map<string, { box: HTMLElement; count: HTMLElement; ids: string[] }>();
+  const grouped = new Set(META_GROUPS.flatMap((g) => g.upgrades));
+  const lastGroup = META_GROUPS[META_GROUPS.length - 1].id;
+  for (const group of META_GROUPS) {
+    const ids = group.upgrades.filter((id) => META_INDEX.has(id));
+    if (group.id === lastGroup) ids.push(...META_UPGRADES.filter((def) => !grouped.has(def.id)).map((def) => def.id));
+    const count = h('span', { class: 'gg-armory-group-count gg-num' });
+    const box = h('div', { class: 'gg-armory-grid' });
+    groupEls.set(group.id, { box, count, ids });
+    grid.append(h('section', { class: 'gg-armory-group', 'data-group': group.id },
+      h('header', { class: 'gg-armory-group-head' }, h('h3', null, t(`armory.group.${group.id}`)), count), box));
+  }
+  const boxOf = (id: string): HTMLElement => [...groupEls.values()].find((g) => g.ids.includes(id))?.box ?? grid;
 
   for (const def of META_UPGRADES) {
     const pips = h('span', { class: 'gg-meta-pips' });
@@ -100,7 +118,7 @@ export function createArmory(close: () => void): View {
       },
     }, buyLabel, price);
     const el = h('article', { class: 'gg-meta-card gg-cut', 'data-id': def.id, 'data-level': '0', 'data-max': String(def.costs.length) },
-      h('span', { class: 'gg-meta-icon' }, icon(META_ICON[def.id] ?? 'gem')),
+      h('span', { class: 'gg-meta-icon' }, icon(metaIcon(def.id))),
       h('div', { class: 'gg-meta-main' },
         h('div', { class: 'gg-meta-top' }, h('h3', null, metaName(def)), pips),
         desc,
@@ -110,28 +128,38 @@ export function createArmory(close: () => void): View {
       h('div', { class: 'gg-meta-shop' }, buy, reason),
     );
     cards.push({ def, el, pips, desc, now, next, arrow, nextBox, buy, buyLabel, price, reason, level: -1 });
-    grid.append(el);
+  }
+  // Cards are placed in group order (the table order is the wire format, not a reading order).
+  for (const { ids } of groupEls.values()) {
+    for (const id of ids) {
+      const card = cards.find((c) => c.def.id === id);
+      if (card) boxOf(id).append(card.el);
+    }
   }
 
-  const el = h('section', { class: 'gg-page gg-armory gg-backdrop', 'data-testid': 'armory-root' },
-    h('div', { class: 'gg-page-layout' },
-      pageHead({ icon: 'armory', title: t('armory.title'), sub: t('armory.sub'), extra: wallet, close }),
-      grid,
-      h('footer', { class: 'gg-page-foot' },
-        h('p', { class: 'gg-armory-earn' }, icon('glimmer'), t('armory.earnHint', {
-          c: REWARDS.PER_CHAMBER_CLEARED, e: REWARDS.PER_ELITE_SLAIN, b: REWARDS.BOSS_SLAIN, m: REWARDS.MINIMUM,
-        })),
-        lobbyNote,
-      ),
+  const el = h('div', { class: 'gg-hub-pane gg-hub-armory' },
+    grid,
+    h('footer', { class: 'gg-page-foot' },
+      h('p', { class: 'gg-armory-earn' }, icon('glimmer'), t('armory.earnHint', {
+        c: REWARDS.PER_CHAMBER_CLEARED, e: REWARDS.PER_ELITE_SLAIN, b: REWARDS.BOSS_SLAIN, m: REWARDS.MINIMUM,
+      })),
+      lobbyNote,
     ),
   );
 
   const sync = (): void => {
     const glimmer = Math.max(0, Math.floor(state.profile.glimmer));
-    setText(walletValue, formatInt(glimmer));
-    setAttr(wallet, 'data-glimmer', String(glimmer));
-    if (lastGlimmer >= 0 && glimmer !== lastGlimmer) retrigger(wallet, glimmer < lastGlimmer ? 'is-spent' : 'is-gained');
-    lastGlimmer = glimmer;
+    for (const group of groupEls.values()) {
+      let have = 0;
+      let max = 0;
+      for (const id of group.ids) {
+        const def = META_UPGRADES[META_INDEX.get(id) ?? -1];
+        if (!def) continue;
+        have += metaLevel(id);
+        max += def.costs.length;
+      }
+      setText(group.count, t('armory.owned', { n: have, m: max }));
+    }
     show(lobbyNote, state.screen === 'lobby');
     for (const card of cards) {
       const { def } = card;

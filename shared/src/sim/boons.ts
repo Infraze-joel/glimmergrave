@@ -1,20 +1,29 @@
 /** Boon bookkeeping: stat aggregation, applying picks, and draft generation. */
 import { BOONS, BOON_BY_ID, BOON_TUNING, type BoonDef } from '../data/boons.ts';
+import { addMods, emptyMods } from '../data/mods.ts';
+import { REACTIONS } from '../data/reactions.ts';
 import type { AbilitySlot, BoonOffer, BoonStack, ElementId } from '../types.ts';
+import { classBoonMatters, refreshHero } from './build.ts';
 import type { Rng } from './rng.ts';
 import type { BoonStats, DraftOptions, Hero } from './state.ts';
 
 export type { DraftOptions };
 
 /** Kinship boons that only do something once the owner can trigger Resonance. */
-const NEEDS_INFUSION: ReadonlySet<string> = new Set(['shared_vigor']);
+const NEEDS_INFUSION: ReadonlySet<string> = new Set(['shared_vigor', 'crystal_ward', 'covenant']);
 
 export function emptyStats(): BoonStats {
   return {
     primaryDamage: 0, secondaryDamage: 0, attackSpeed: 1, crit: 0, execute: 0, bonusHp: 0, barrier: 0, leech: 0,
     lastStand: false, moveSpeed: 1, dashRecharge: 1, extraDash: 0, secondaryCdr: 0, wildfire: 0, deepFrost: 0,
     overcharge: 0, amplifier: 0, wideResonance: 0, aftershock: 0, echo: 0, kindred: 0, sharedVigor: 0, lifeline: 0,
-    oathbond: 0, infusion: { primary: null, secondary: null, dash: null },
+    oathbond: 0,
+    momentum: 0, giantSlayer: 0, overkill: 0, firstBlood: 0, brutality: 0, thorns: 0, mending: 0, crystalWard: 0,
+    slipstream: 0, afterimage: 0, catalyst: 0, chainReaction: false, crescendo: 0, encore: 0, openingAct: 0, covenant: 0,
+    rally: 0, creepingDark: 0,
+    duo: { shatter: 0, conflagration: 0, superconduct: 0, soulfire: 0, entomb: 0, voidarc: 0 },
+    mods: emptyMods(),
+    infusion: { primary: null, secondary: null, dash: null, ultimate: null },
   };
 }
 
@@ -32,6 +41,8 @@ export function computeStats(boons: readonly BoonStack[]): BoonStats {
       if (def.element && def.slot) s.infusion[def.slot] = { element: def.element, potency: v };
       continue;
     }
+    if (def.mods) addMods(s.mods, def.mods, v);
+    if (def.reaction) { s.duo[def.reaction] = v; continue; }
     switch (def.id) {
       case 'keen_edge': s.primaryDamage = v; break;
       case 'heavy_hand': s.secondaryDamage = v; break;
@@ -57,6 +68,26 @@ export function computeStats(boons: readonly BoonStack[]): BoonStats {
       case 'shared_vigor': s.sharedVigor = v; break;
       case 'lifeline': s.lifeline = v; break;
       case 'oathbond': s.oathbond = v; break;
+      case 'momentum': s.momentum = v; break;
+      case 'giant_slayer': s.giantSlayer = v; break;
+      case 'overkill': s.overkill = v; break;
+      case 'first_blood': s.firstBlood = v; break;
+      case 'brutality': s.brutality = v; break;
+      case 'thorns': s.thorns = v; break;
+      case 'mending': s.mending = v; break;
+      case 'stoneskin': s.mods.damageTaken += v; break;
+      case 'crystal_ward': s.crystalWard = v; break;
+      case 'slipstream': s.slipstream = v; break;
+      case 'afterimage': s.afterimage = v; break;
+      case 'catalyst': s.catalyst = v; break;
+      case 'chain_reaction': s.chainReaction = true; break;
+      case 'zealot': s.mods.ultCharge += v; break;
+      case 'crescendo': s.crescendo = v; break;
+      case 'encore': s.encore = v; break;
+      case 'opening_act': s.openingAct = v; break;
+      case 'covenant': s.covenant = v; break;
+      case 'rally': s.rally = v; break;
+      case 'creeping_dark': s.creepingDark = v; break;
       default: break;
     }
   }
@@ -69,14 +100,14 @@ export function boonLevel(boons: readonly BoonStack[], id: string): number {
 }
 
 export function maxDashCharges(h: Hero): number {
-  return h.def.dashCharges + h.stats.extraDash;
+  return h.def.dashCharges + h.stats.extraDash + h.mods.dashCharges;
 }
 
 /**
  * Adds one level of `id` to the hero and applies its immediate effects (health, shield, charges).
  * Returns the new level, or 0 if the boon is unknown or already maxed.
  */
-export function applyBoon(h: Hero, id: string): number {
+export function applyBoon(h: Hero, id: string, onSet?: (id: string, tier: number) => void): number {
   const def = BOON_BY_ID.get(id);
   if (!def) return 0;
   const current = boonLevel(h.boons, id);
@@ -94,30 +125,44 @@ export function applyBoon(h: Hero, id: string): number {
   if (stack) stack.level = current + 1;
   else h.boons.push({ id, level: 1 });
   const before = h.stats;
-  h.stats = computeStats(h.boons);
-  const hpGain = h.stats.bonusHp - before.bonusHp;
+  const beforeMaxHp = h.maxHp;
+  const beforeCharges = maxDashCharges(h);
+  const raised = refreshHero(h);
+  const hpGain = h.maxHp - beforeMaxHp;
   if (hpGain !== 0) {
-    h.maxHp = h.def.maxHp + h.meta.hp + h.stats.bonusHp;
     if (h.state === 'alive') h.hp = Math.min(h.maxHp, h.hp + Math.max(0, hpGain));
     else h.hp = Math.min(h.hp, h.maxHp);
   }
   if (h.stats.barrier !== before.barrier) h.barrier = h.stats.barrier;
-  if (h.stats.extraDash > before.extraDash) h.dashCharges = Math.min(maxDashCharges(h), h.dashCharges + (h.stats.extraDash - before.extraDash));
+  const charges = maxDashCharges(h);
+  if (charges > beforeCharges) h.dashCharges = Math.min(charges, h.dashCharges + (charges - beforeCharges));
+  else if (h.dashCharges > charges) h.dashCharges = charges;
+  if (onSet) for (const r of raised) onSet(r.id, r.tier);
   return current + 1;
 }
 
-function heroElements(h: Hero): Set<ElementId> {
+export function heroElements(h: Hero): Set<ElementId> {
   const out = new Set<ElementId>();
   const inf = h.stats.infusion;
   if (inf.primary) out.add(inf.primary.element);
   if (inf.secondary) out.add(inf.secondary.element);
   if (inf.dash) out.add(inf.dash.element);
+  if (inf.ultimate) out.add(inf.ultimate.element);
   return out;
 }
 
 /** May this boon be offered to the hero right now? */
 export function isOfferable(h: Hero, def: BoonDef): boolean {
   if (boonLevel(h.boons, def.id) >= def.values.length) return false;
+  if (def.cls !== undefined && def.cls !== h.cls) return false;
+  if (def.category === 'class') return classBoonMatters(h, def.id);
+  if (def.category === 'duo') {
+    // Duo boons need infusions of both elements of their reaction.
+    const reaction = REACTIONS.find((r) => r.id === def.reaction);
+    if (!reaction) return false;
+    const own = heroElements(h);
+    return own.has(reaction.pair[0]) && own.has(reaction.pair[1]);
+  }
   if (def.category === 'element') return def.element !== undefined && heroElements(h).has(def.element);
   if (def.category === 'resonance' || NEEDS_INFUSION.has(def.id)) return heroElements(h).size > 0;
   return true;

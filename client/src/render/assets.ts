@@ -6,8 +6,8 @@
  * the bone they hang from. Templates are instantiated with SkeletonUtils.clone().
  */
 import {
-  Box3, BufferAttribute, BufferGeometry, Color, ConeGeometry, CylinderGeometry, DodecahedronGeometry, Matrix3, Matrix4, Mesh,
-  OctahedronGeometry, Quaternion, Skeleton, SkinnedMesh, Vector3,
+  Box3, BoxGeometry, BufferAttribute, BufferGeometry, Color, ConeGeometry, CylinderGeometry, DodecahedronGeometry, Matrix3, Matrix4, Mesh,
+  OctahedronGeometry, Quaternion, SRGBColorSpace, Skeleton, SkinnedMesh, Vector3,
 } from 'three';
 import type { AnimationClip, Bone, InterleavedBufferAttribute, KeyframeTrack, Material, Object3D, Texture } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -37,7 +37,7 @@ export interface CharacterTemplate {
   refs: number;
 }
 
-export type PropName = 'arrow' | 'dagger' | 'skel_arrow';
+export type PropName = 'arrow' | 'dagger' | 'skel_arrow' | 'shield_round';
 
 export interface Assets {
   /**
@@ -53,6 +53,7 @@ export interface Assets {
   skelClips: Map<string, AnimationClip>;
   dungeonMap: Texture;
   rogueMap: Texture;
+  knightMap: Texture;
   skeletonMap: Texture;
   props: Record<PropName, BufferGeometry>;
   /** Baked static geometry of one dungeon kit piece (cached, owned by the library). */
@@ -76,7 +77,14 @@ interface ExtraPart {
   owned: boolean;
   /** 'model': `matrix` is given in the character's rest-pose space (Y up, +Z forward, feet at 0) instead of bone space. */
   space?: 'model';
+  /**
+   * The part is textured with ANOTHER palette than the character it is baked into: its texels are looked up once
+   * per vertex (the kit's palettes are flat swatches) and stored as vertex colour.
+   */
+  colors?: ColorSampler;
 }
+
+type ColorSampler = (u: number, v: number, out: Color) => void;
 
 interface BakeSpec {
   /** Which optional (rigid) child meshes of the source stay. Skinned body parts are always kept. */
@@ -84,8 +92,11 @@ interface BakeSpec {
   extras: ExtraPart[];
   /** Per-texel cloth mask (heroes): 1 where the palette texel is one of the class's cloth swatches. */
   cloth?: (u: number, v: number) => number;
-  /** Rigid source meshes that hang from another bone than in the file (rest-pose placement in model space). */
-  rehang?: Map<string, { bone: string; matrix: Matrix4 }>;
+  /**
+   * Rigid source meshes that hang from another bone than in the file. `matrix` is the rest-pose placement in model
+   * space, or (with `local`) a transform in the new bone's own space applied to the mesh as it was held.
+   */
+  rehang?: Map<string, { bone: string; matrix: Matrix4; local?: boolean }>;
 }
 
 const FILES = [
@@ -160,18 +171,56 @@ function fillAttribute(count: number, values: readonly number[]): BufferAttribut
   return new BufferAttribute(arr, values.length);
 }
 
-function decorate(geo: BufferGeometry, mask: readonly number[], tint: Color, cloth?: (u: number, v: number) => number): void {
+function decorate(
+  geo: BufferGeometry, mask: readonly number[], tint: Color, cloth?: (u: number, v: number) => number, colors?: ColorSampler,
+): void {
   const count = geo.getAttribute('position').count;
-  const attr = fillAttribute(count, mask);
-  if (cloth && mask[1] === 0 && mask[2] === 0) {
-    const uv = geo.getAttribute('uv');
+  const attr = fillAttribute(count, colors ? [mask[0], mask[1], 1] : mask);
+  const tints = fillAttribute(count, [tint.r, tint.g, tint.b]);
+  const uv = geo.getAttribute('uv');
+  if (colors) {
+    for (let i = 0; i < count; i++) {
+      colors(uv.getX(i), uv.getY(i), _sampled);
+      tints.setXYZ(i, _sampled.r * tint.r, _sampled.g * tint.g, _sampled.b * tint.b);
+    }
+  } else if (cloth && mask[1] === 0 && mask[2] === 0) {
     for (let i = 0; i < count; i++) attr.setY(i, cloth(uv.getX(i), uv.getY(i)));
   }
   geo.setAttribute('aMask', attr);
-  geo.setAttribute('aTint', fillAttribute(count, [tint.r, tint.g, tint.b]));
+  geo.setAttribute('aTint', tints);
+}
+
+/** Reads a (small) palette texture back so parts that use it can be baked into a character with another palette. */
+function colorSampler(map: Texture): ColorSampler {
+  const image = map.image as { width: number; height: number };
+  const w = Math.max(1, Math.min(PALETTE_SAMPLE_MAX, image.width));
+  const h = Math.max(1, Math.min(PALETTE_SAMPLE_MAX, image.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return (_u, _v, out) => { out.setRGB(1, 1, 1); };
+  ctx.drawImage(map.image as CanvasImageSource, 0, 0, w, h);
+  const px = ctx.getImageData(0, 0, w, h).data;
+  const flip = map.flipY;
+  const ox = map.offset.x;
+  const oy = map.offset.y;
+  const rx = map.repeat.x;
+  const ry = map.repeat.y;
+  return (u, v, out) => {
+    const tu = u * rx + ox;
+    let tv = v * ry + oy;
+    if (flip) tv = 1 - tv;
+    const x = Math.min(w - 1, Math.max(0, Math.floor((tu - Math.floor(tu)) * w)));
+    const y = Math.min(h - 1, Math.max(0, Math.floor((tv - Math.floor(tv)) * h)));
+    const i = (y * w + x) * 4;
+    out.setRGB(px[i] / 255, px[i + 1] / 255, px[i + 2] / 255, SRGBColorSpace);
+  };
 }
 
 const CLOTH_SAMPLE = 128;
+const PALETTE_SAMPLE_MAX = 1024;
+const _sampled = new Color();
 
 /** Builds the cloth lookup of a hero palette texture: texels whose hue lies in the class's cloth window. */
 function clothSampler(map: Texture, window: { hueMin: number; hueMax: number; satMin: number }): (u: number, v: number) => number {
@@ -286,14 +335,14 @@ function bakeCharacter(source: Object3D, map: Texture, spec: BakeSpec): Characte
   }
 
   const bindInverse = new Matrix4().copy(main.bindMatrix).invert();
-  const addRigid = (src: BufferGeometry, bone: Bone, local: Matrix4, mask: readonly number[], tint: Color, shadow = false): void => {
+  const addRigid = (src: BufferGeometry, bone: Bone, local: Matrix4, mask: readonly number[], tint: Color, shadow = false, colors?: ColorSampler): void => {
     const j = boneIndexByName.get(bone.name);
     if (j === undefined) return;
     // p = inv(bindMatrix) * inv(boneInverse_j) * local * v   (see header comment)
     _m.copy(skeleton.boneInverses[j]).invert().premultiply(bindInverse).multiply(local);
     const geo = plainGeometry(src, _m);
     rigidSkin(geo, j);
-    decorate(geo, mask, tint, spec.cloth);
+    decorate(geo, mask, tint, spec.cloth, colors);
     (shadow ? shadowParts : parts).push(geo);
   };
 
@@ -304,7 +353,8 @@ function bakeCharacter(source: Object3D, map: Texture, spec: BakeSpec): Characte
     const moved = spec.rehang?.get(baseName);
     const bone = moved ? skeleton.bones.find((b) => b.name === moved.bone) ?? null : findBone(mesh);
     if (!bone) continue;
-    if (moved) _m2.copy(bone.matrixWorld).invert().multiply(moved.matrix);
+    if (moved?.local) _m2.copy(moved.matrix).multiply(mesh.matrix);
+    else if (moved) _m2.copy(bone.matrixWorld).invert().multiply(moved.matrix);
     else _m2.copy(bone.matrixWorld).invert().multiply(mesh.matrixWorld);
     addRigid(mesh.geometry, bone, _m2.clone(), [0, RIGID_CLOTH_PATTERN.test(mesh.name) ? 1 : 0, 0], WHITE, shadow);
   }
@@ -312,8 +362,8 @@ function bakeCharacter(source: Object3D, map: Texture, spec: BakeSpec): Characte
     const bone = skeleton.bones.find((b) => b.name === extra.bone);
     if (bone) {
       const toLocal = (m: Matrix4): Matrix4 => (extra.space === 'model' ? new Matrix4().copy(bone.matrixWorld).invert().multiply(m) : m);
-      addRigid(extra.geometry, bone, toLocal(extra.matrix), extra.mask, extra.tint);
-      if (extra.shadow) addRigid(extra.shadow, bone, toLocal(extra.shadowMatrix ?? extra.matrix), extra.mask, extra.tint, true);
+      addRigid(extra.geometry, bone, toLocal(extra.matrix), extra.mask, extra.tint, false, extra.colors);
+      if (extra.shadow) addRigid(extra.shadow, bone, toLocal(extra.shadowMatrix ?? extra.matrix), extra.mask, extra.tint, true, extra.colors);
     }
     if (extra.owned) extra.geometry.dispose();
   }
@@ -590,6 +640,109 @@ function stalkerParts(props: Object3D): ExtraPart[] {
   return parts;
 }
 
+// ---------------------------------------------------------------------------------------------- hero trim (update 3)
+// Placements are in rest-pose model space of a hero: T-pose, +Z forward, hips 0.41, shoulders 1.11 (x +-0.21),
+// neck 1.24, top of the head gear about 2.2.
+
+const TRIM = {
+  GOLD: 0xe2ad3c, GOLD_DARK: 0x9a7024, STEEL: 0xcfd6e6, WHITE: 0xffffff, RUNE: 0x9fe8ff, RUNE_GLOW: 2.4,
+  SHADE: 0x1c1626, SHADE_GLOW: 2.2,
+  /** Where a slung item sits on the back (shield, quiver). */
+  BACK_X: 0.2, BACK_Y: 0.7, BACK_Z: -0.3, BACK_SCALE: 0.8,
+} as const;
+
+/** The same hanging panel as the bosses' mantles, turned to hang in front of the body. */
+function frontPanel(rows: readonly (readonly [number, number, number])[], notch = 0): BufferGeometry {
+  const geo = panelGeometry(rows, notch);
+  geo.rotateY(Math.PI);
+  return geo;
+}
+
+/** Without a shadow LOD: heroes cast their full mesh, and a lone shadow part would replace it in the shadow pass. */
+function heroProp(props: Object3D, name: string, bone: string, matrix: Matrix4, colors?: ColorSampler): ExtraPart {
+  const part = propPart(props, name, bone, matrix);
+  delete part.shadow;
+  delete part.shadowMatrix;
+  if (colors) part.colors = colors;
+  return part;
+}
+
+/** Named part sets referenced by HERO_OUTFIT[...].extras / headExtras. */
+function heroExtras(name: string, props: Object3D, knightColors: ColorSampler): ExtraPart[] {
+  const gold = new Color(TRIM.GOLD);
+  const goldDark = new Color(TRIM.GOLD_DARK);
+  const solid: [number, number, number] = [0, 0, 1];
+  const cloth: [number, number, number] = [0, 1, 1];
+  switch (name) {
+    case 'templarTrim': {
+      // heavier and gilded: broad pauldrons with a horn each, a white tabard with a gold cross, a studded belt
+      const parts: ExtraPart[] = [];
+      for (const side of [-1, 1]) {
+        const arm = side > 0 ? 'upperarml' : 'upperarmr';
+        const plate = new DodecahedronGeometry(0.2);
+        plate.scale(1.2, 0.7, 1.15);
+        parts.push(modelPart(plate, arm, matrixOf(side * 0.33, 1.2, 0, 0, 0, -side * 0.3), solid, gold));
+        parts.push(modelPart(new ConeGeometry(0.06, 0.24, 4), arm, matrixOf(side * 0.43, 1.33, 0, 0, 0, -side * 0.7), solid, goldDark));
+      }
+      parts.push({
+        geometry: frontPanel([[1.08, -0.29, 0.15], [0.8, -0.32, 0.17], [0.52, -0.31, 0.15], [0.28, -0.28, 0.1]], -0.06),
+        bone: 'spine', matrix: new Matrix4(), mask: cloth, tint: new Color(TRIM.WHITE), owned: true, space: 'model',
+      });
+      parts.push(modelPart(new BoxGeometry(0.055, 0.26, 0.03), 'spine', matrixOf(0, 0.84, 0.385), solid, gold));
+      parts.push(modelPart(new BoxGeometry(0.18, 0.055, 0.03), 'spine', matrixOf(0, 0.89, 0.385), solid, gold));
+      parts.push(modelPart(new CylinderGeometry(0.275, 0.29, 0.08, 8, 1, true), 'hips', matrixOf(0, 0.6, 0), solid, goldDark));
+      return parts;
+    }
+    case 'templarCrest': {
+      // a tall gold crest over the helmet, so the templar reads from the top-down camera
+      const parts: ExtraPart[] = [];
+      for (let i = 0; i < 5; i++) {
+        const h = 0.62 - Math.abs(i - 1.5) * 0.1;
+        parts.push(modelPart(new ConeGeometry(0.13, h, 4), 'head', matrixOf(0, 2.2 + h * 0.35, 0.28 - i * 0.16, -0.3), solid, i % 2 === 0 ? gold : goldDark));
+      }
+      return parts;
+    }
+    case 'ornateSword':
+      return [heroProp(props, 'sword_2handed_color', 'handslotr', new Matrix4())];
+    case 'spellSword':
+      return [heroProp(props, 'sword_1handed', 'handslotr', new Matrix4(), knightColors)];
+    case 'spellTrim': {
+      // three rune shards hovering behind the shoulders, steel shoulder caps and a bright gem at the collar
+      const rune = new Color(TRIM.RUNE).multiplyScalar(TRIM.RUNE_GLOW);
+      const parts: ExtraPart[] = [];
+      const spots: [number, number, number][] = [[-0.55, 1.3, -0.3], [0.55, 1.3, -0.3], [0, 1.2, -0.55]];
+      for (const [x, y, z] of spots) {
+        const shard = new OctahedronGeometry(0.075);
+        shard.scale(0.7, 2.4, 0.7);
+        parts.push(modelPart(shard, 'chest', matrixOf(x, y, z, 0.2, 0, -x * 0.6), [1, 0, 1], rune));
+      }
+      parts.push(modelPart(new OctahedronGeometry(0.055), 'chest', matrixOf(0, 1.1, 0.25), [1, 0, 1], rune));
+      for (const side of [-1, 1]) {
+        parts.push(modelPart(new ConeGeometry(0.1, 0.2, 4), side > 0 ? 'upperarml' : 'upperarmr', matrixOf(side * 0.31, 1.22, 0, 0, 0, -side * 0.5), solid, new Color(TRIM.STEEL)));
+      }
+      return parts;
+    }
+    case 'shadeTrim': {
+      // tattered scarf tails streaming from the neck, dark shoulder blades and a pale ember at the throat
+      const dark = new Color(TRIM.SHADE);
+      const parts: ExtraPart[] = [];
+      for (const side of [-1, 1]) {
+        parts.push({
+          geometry: panelGeometry([[1.2, -0.17, 0.08], [0.92, -0.4, 0.1], [0.64, -0.54, 0.07], [side < 0 ? 0.36 : 0.46, -0.6, 0.02]]),
+          bone: 'chest', matrix: matrixOf(side * 0.13, 0, 0, 0, side * 0.35), mask: cloth, tint: new Color(TRIM.WHITE), owned: true, space: 'model',
+        });
+        parts.push(modelPart(new ConeGeometry(0.065, 0.26, 4), side > 0 ? 'upperarml' : 'upperarmr', matrixOf(side * 0.33, 1.24, -0.03, -0.3, 0, -side * 0.9), solid, dark));
+      }
+      parts.push(modelPart(new OctahedronGeometry(0.05), 'chest', matrixOf(0, 1.06, 0.25), [1, 0, 1], new Color(PALETTE.umbra).multiplyScalar(TRIM.SHADE_GLOW)));
+      return parts;
+    }
+    case 'backQuiver':
+      return [{ ...heroProp(props, 'quiver', 'chest', matrixOf(0.1, TRIM.BACK_Y, TRIM.BACK_Z + 0.04, 0.2, 0, -0.45)), space: 'model' }];
+    default:
+      return [];
+  }
+}
+
 /** Removes tracks that cost mixer time without changing the pose (scale, IK helpers, constant == rest). */
 function optimiseClip(clip: AnimationClip, rig: Object3D): AnimationClip {
   const keep: KeyframeTrack[] = [];
@@ -665,18 +818,21 @@ export async function loadAssets(onProgress: (loaded: number, total: number) => 
   props.updateMatrixWorld(true);
   const skeletonMap = firstMap(files.skel_warrior.scene, 'skeleton');
   const rogueMap = firstMap(files.hero_rogue.scene);
+  const knightMap = firstMap(files.hero_knight.scene);
   const dungeonMap = firstMap(files.dungeon.scene);
-  const keepMaps = new Set<Texture>([skeletonMap, rogueMap, dungeonMap]);
+  const keepMaps = new Set<Texture>([skeletonMap, rogueMap, knightMap, dungeonMap]);
 
   // Heroes are baked lazily per look (class, head, cape, style); their source scenes stay alive for that.
+  // Several classes share one body file (update 3): the palette texture belongs to the body, not the class.
   const heroMaps = {} as Record<ClassId, Texture>;
   const heroCloth = {} as Record<ClassId, (u: number, v: number) => number>;
   for (const cls of CLASS_IDS) {
-    const map = firstMap(files[`hero_${cls}`].scene);
+    const map = firstMap(files[`hero_${HERO_OUTFIT[cls].body}`].scene);
     heroMaps[cls] = map;
     keepMaps.add(map);
     heroCloth[cls] = clothSampler(map, HERO_OUTFIT[cls].cloth);
   }
+  const knightColors = colorSampler(knightMap);
   const heroCache = new Map<string, CharacterTemplate>();
   const disposeTemplate = (tpl: CharacterTemplate): void => {
     const body = tpl.scene.getObjectByName(BODY_MESH_NAME) as SkinnedMesh | undefined;
@@ -692,11 +848,16 @@ export async function loadAssets(onProgress: (loaded: number, total: number) => 
       const keep = new Set<string>([...outfit.gear[style], ...outfit.belt[style]]);
       if (look.head && outfit.head) keep.add(outfit.head);
       if (look.cape) keep.add(outfit.cape);
-      const rehang = new Map<string, { bone: string; matrix: Matrix4 }>();
+      const rehang = new Map<string, { bone: string; matrix: Matrix4; local?: boolean }>();
       for (const name of outfit.belt[style]) rehang.set(name, { bone: 'hips', matrix: matrixOf(BELT.X, BELT.Y, BELT.Z, BELT.RX, 0, BELT.RZ) });
+      for (const name of outfit.offhand?.[style] ?? []) rehang.set(name, { bone: 'handslotl', matrix: new Matrix4(), local: true });
+      for (const name of outfit.back?.[style] ?? []) rehang.set(name, { bone: 'chest', matrix: matrixOf(TRIM.BACK_X, TRIM.BACK_Y, TRIM.BACK_Z, 0.12, Math.PI, 0, TRIM.BACK_SCALE) });
+      const extras: ExtraPart[] = [];
+      for (const name of outfit.extras?.[style] ?? []) extras.push(...heroExtras(name, props, knightColors));
+      if (look.head) for (const name of outfit.headExtras ?? []) extras.push(...heroExtras(name, props, knightColors));
       // the rogue's hood is a different head mesh: the hooded file is the source when the look shows it
-      const file: FileName = cls === 'rogue' && look.head ? 'hero_rogue_hooded' : `hero_${cls}`;
-      tpl = bakeCharacter(files[file].scene, heroMaps[cls], { keepRigid: (n) => keep.has(n), extras: [], cloth: heroCloth[cls], rehang });
+      const file: FileName = outfit.body === 'rogue' && look.head ? 'hero_rogue_hooded' : `hero_${outfit.body}`;
+      tpl = bakeCharacter(files[file].scene, heroMaps[cls], { keepRigid: (n) => keep.has(n), extras, cloth: heroCloth[cls], rehang });
       tpl.key = key;
       heroCache.set(key, tpl);
     }
@@ -751,6 +912,7 @@ export async function loadAssets(onProgress: (loaded: number, total: number) => 
   };
   const propGeos: Record<PropName, BufferGeometry> = {
     arrow: propGeometry('arrow'), dagger: propGeometry('dagger'), skel_arrow: propGeometry('skel_arrow'),
+    shield_round: propGeometry('shield_round'),
   };
 
   const heroClips = clipMap(files.anims_hero);
@@ -781,8 +943,9 @@ export async function loadAssets(onProgress: (loaded: number, total: number) => 
   };
 
   // Source meshes of the skeletons / props are no longer needed once baked (heroes are re-baked per look).
+  // props.glb also stays: hero looks baked later take weapons from it.
   for (const name of FILES) {
-    if (name === 'dungeon' || name.startsWith('anims') || name.startsWith('hero_')) continue;
+    if (name === 'dungeon' || name === 'props' || name.startsWith('anims') || name.startsWith('hero_')) continue;
     disposeSource(files[name].scene, keepMaps);
   }
 
@@ -793,12 +956,13 @@ export async function loadAssets(onProgress: (loaded: number, total: number) => 
     for (const tpl of [...heroCache.values(), ...Object.values(enemies)]) disposeTemplate(tpl);
     heroCache.clear();
     disposeSource(dungeon, new Set());
+    disposeSource(props, keepMaps);
     for (const name of FILES) if (name.startsWith('hero_')) disposeSource(files[name].scene, keepMaps);
     for (const map of keepMaps) map.dispose();
   };
 
   return {
     heroTemplate, releaseHero, heroTemplateCount: () => heroCache.size,
-    enemies, heroClips, skelClips, dungeonMap, rogueMap, skeletonMap, props: propGeos, piece, dispose,
+    enemies, heroClips, skelClips, dungeonMap, rogueMap, knightMap, skeletonMap, props: propGeos, piece, dispose,
   };
 }

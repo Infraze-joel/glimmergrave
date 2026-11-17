@@ -4,13 +4,15 @@
  *  - two different elements: a "Resonance" chip; only one: the hint that a second element enables it
  *  - every Resonance burst bumps a short-lived combo counter; own bursts are emphasised
  */
+import { reactionOf } from '@shared/data/reactions.ts';
 import type { ElementId } from '@shared/types.ts';
 import { selfRoster, state } from '../core/GameState.ts';
 import { h, icon, retrigger, setAttr, show } from './dom.ts';
-import { distinctElements, infusionsOf, pairName, statusLine } from './elements.ts';
+import { distinctElements, infusionsOf, pairName, reactionsOf, statusLine } from './elements.ts';
 import { t, type I18nKey } from './i18n.ts';
 import { nameOf } from './model.ts';
 import { UI_CONFIG } from './store.ts';
+import { reactionBody, reactionName } from './text.ts';
 import type { View } from './view.ts';
 
 export interface StripView extends View {
@@ -50,16 +52,26 @@ export function createStrip(): StripView {
         h('span', { class: 'gg-strip-key' }, t(`hud.key.${slot}` as I18nKey)),
         icon(element),
         h('b', null, t(`element.${element}.name`)),
-        h('span', { class: 'gg-strip-verb' }, t(`status.${element}.verb`)),
+        // Four infused abilities do not fit with the verb: the element name alone stays.
+        infusions.length <= 2 ? h('span', { class: 'gg-strip-verb' }, t(`status.${element}.verb`)) : null,
       ));
     }
     if (elements.length >= 2) {
-      const row = h('div', { class: 'gg-strip-res is-ready' }, icon('arrow', 'gg-strip-arrow'));
-      for (const element of elements) row.append(h('i', { class: 'gg-strip-dot', 'data-element': element }));
-      row.append(icon('resonance'), h('b', null, t('strip.resonance')));
+      // Which named reactions this hero can trigger alone: the first by name, the rest as a count.
+      const reactions = reactionsOf(elements);
+      const row = h('div', { class: 'gg-strip-res is-ready', title: reactions.map((r) => `${reactionName(r)}: ${reactionBody(r)}`).join('\n') },
+        icon('arrow', 'gg-strip-arrow'));
+      const first = reactions[0];
+      for (const element of first ? first.pair : elements) row.append(h('i', { class: 'gg-strip-dot', 'data-element': element }));
+      row.append(icon('resonance'), h('b', null, first ? reactionName(first) : t('strip.resonance')));
+      if (reactions.length > 1) row.append(h('span', { class: 'gg-strip-more gg-num' }, t('strip.more', { n: reactions.length - 1 })));
+      setAttr(el, 'data-reactions', reactions.map((r) => r.id).join(' '));
       chips.append(row);
     } else if (elements.length === 1) {
+      setAttr(el, 'data-reactions', '');
       chips.append(h('div', { class: 'gg-strip-res' }, icon('plus', 'gg-strip-arrow'), h('span', null, t('strip.one'))));
+    } else {
+      setAttr(el, 'data-reactions', '');
     }
     show(chips, infusions.length > 0);
   };
@@ -72,6 +84,7 @@ export function createStrip(): StripView {
     comboCount.textContent = count > 1 ? `×${count}` : '';
     comboPair.replaceChildren(icon(a, `gg-el-${a}`), icon('arrow', 'gg-combo-arrow'), icon(b, `gg-el-${b}`), h('span', null, pairName(a, b)));
     comboWho.textContent = own ? t('hud.resonanceOwn') : by >= 0 ? nameOf(by) : '';
+    combo.dataset.reaction = reactionOf(a, b)?.id ?? '';
     combo.classList.toggle('is-own', own);
     combo.dataset.tier = count >= 5 ? '3' : count >= 3 ? '2' : '1';
     combo.style.setProperty('--el-a', `var(--gg-${a})`);

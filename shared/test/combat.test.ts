@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { TICK_DT, WORLD } from '@shared/constants.ts';
-import { BOONS, BOON_BY_ID, BOON_TUNING } from '@shared/data/boons.ts';
+import { BOONS, BOON_BY_ID, BOON_TUNING, SETS } from '@shared/data/boons.ts';
+import { reactionOf } from '@shared/data/reactions.ts';
 import { CLASSES, DASH } from '@shared/data/classes.ts';
 import { ENEMIES, STATUS } from '@shared/data/enemies.ts';
 import { applyBoon, SIM, type Hero, type World } from '@shared/sim/index.ts';
@@ -8,6 +9,10 @@ import { enemySpeed } from '@shared/sim/enemies.ts';
 import { damageHero, enemyDamage } from '@shared/sim/combat.ts';
 import { BTN, EF, PF, type GameEvent } from '@shared/types.ts';
 import { casts, dummy, hits, live, Pad, place, sandbox, seconds, stepN } from './harness.ts';
+
+/** Tier-1 bonus of a set (two boons of one element / kind switch it on, see data/boons.ts SETS). */
+const setMod = (id: string, key: 'elementPotency' | 'moveSpeed' | 'reviveSpeed'): number => SETS.find((x) => x.id === id)!.tiers[0].mods![key]!;
+const SHATTER = reactionOf('ember', 'rime')!;
 
 const give = (w: World, slot: number, ...ids: string[]): Hero => {
   const h = w.hero(slot)!;
@@ -67,7 +72,9 @@ describe('element statuses', () => {
     stepN(w, seconds(STATUS.BURN.DURATION) + 5);
     const potency = BOON_BY_ID.get('infuse_ember_primary')!.values[1]!;
     const wildfire = BOON_BY_ID.get('wildfire')!.values[0]!;
-    expect(before - target.hp).toBeCloseTo(STATUS.BURN.DPS * STATUS.BURN.DURATION * potency * (1 + wildfire), 5);
+    // Infusion + wildfire are two ember boons: the ember set's first tier makes the status stronger as well.
+    const power = 1 + setMod('set_ember', 'elementPotency');
+    expect(before - target.hp).toBeCloseTo(STATUS.BURN.DPS * STATUS.BURN.DURATION * potency * (1 + wildfire) * power, 5);
   });
 
   it('Chill slows movement; deep_frost slows more and weakens the enemy', () => {
@@ -85,7 +92,8 @@ describe('element statuses', () => {
     const b = setup('infuse_rime_primary', 'deep_frost');
     slash(b.w, b.pad);
     const frost = BOON_BY_ID.get('deep_frost')!.values[0]!;
-    expect(enemySpeed(b.target)).toBeCloseTo(base * (1 - STATUS.CHILL.SLOW - frost), 6);
+    // Two rime boons: the rime set (tier 1) strengthens the slow itself.
+    expect(enemySpeed(b.target)).toBeCloseTo(base * (1 - STATUS.CHILL.SLOW * (1 + setMod('set_rime', 'elementPotency')) - frost), 6);
     expect(enemyDamage(b.target, 10)).toBeCloseTo(10 * (1 - frost), 6);
   });
 
@@ -102,7 +110,8 @@ describe('element statuses', () => {
     slash(b.w, b.pad);
     const hp = b.target.hp;
     slash(b.w, b.pad);
-    expect(hp - b.target.hp).toBeCloseTo(SLASH * (1 + STATUS.SHOCK.VULNERABILITY + BOON_BY_ID.get('overcharge')!.values[0]!), 5);
+    const shock = STATUS.SHOCK.VULNERABILITY * (1 + setMod('set_storm', 'elementPotency'));
+    expect(hp - b.target.hp).toBeCloseTo(SLASH * (1 + shock + BOON_BY_ID.get('overcharge')!.values[0]!), 5);
   });
 
   it('an enemy carries at most one element; the same element only refreshes it', () => {
@@ -138,7 +147,8 @@ describe('Resonance', () => {
     expect(res[0]).toMatchObject({ a: 'ember', b: 'rime', r: STATUS.RESONANCE.RADIUS, by: 0 });
     expect(ev.some((e) => e.e === 'aoe' && !e.hostile && e.el === 'rime')).toBe(true);
     // The neighbour was never touched by the bash itself (outside the lunge path), only by the burst.
-    expect(nearBefore - near.hp).toBeCloseTo(STATUS.RESONANCE.DAMAGE, 5);
+    // Ember + rime is Shatter: the burst hits harder (and stuns, see update3.test.ts).
+    expect(nearBefore - near.hp).toBeCloseTo(STATUS.RESONANCE.DAMAGE * SHATTER.damageMul, 5);
     expect(target.status).toBe('rime');
     expect(near.status).toBe('rime');
     expect(far.status).toBeNull();
@@ -214,7 +224,7 @@ describe('Resonance', () => {
     const wide = BOON_BY_ID.get('wide_resonance')!.values[0]!;
     expect(res).toHaveLength(2);
     expect(res[0]!.r).toBeCloseTo(STATUS.RESONANCE.RADIUS * (1 + wide), 6);
-    expect(nearBefore - near.hp).toBeCloseTo(2 * STATUS.RESONANCE.DAMAGE * (1 + amp), 5);
+    expect(nearBefore - near.hp).toBeCloseTo(2 * STATUS.RESONANCE.DAMAGE * (1 + amp) * SHATTER.damageMul, 5);
     // aftershock: a dash charge back and a chunk of the secondary cooldown refunded.
     expect(h.dashCharges).toBe(1);
     expect(cdAtBurst).toBeCloseTo(BOON_BY_ID.get('aftershock')!.values[0]! * h.secondaryCdMax + TICK_DT, 5);
@@ -258,18 +268,20 @@ describe('Resonance', () => {
 });
 
 describe('boons', () => {
-  it('data sanity: 33 boons, unique ids, every one is implemented', () => {
-    expect(BOONS).toHaveLength(33);
-    expect(new Set(BOONS.map((b) => b.id)).size).toBe(33);
+  it('data sanity: 80 boons, unique ids, every one is implemented', () => {
+    expect(BOONS).toHaveLength(80);
+    expect(new Set(BOONS.map((b) => b.id)).size).toBe(80);
     for (const def of BOONS) {
-      const w = sandbox(['rogue']);
+      // Class boons change the abilities of their own class; everything else is tried on a rogue.
+      const w = sandbox([def.cls ?? 'rogue']);
       const h = w.hero(0)!;
-      const before = JSON.stringify([h.stats, h.maxHp, h.barrier, h.dashCharges]);
+      const state = (): string => JSON.stringify([h.stats, h.maxHp, h.barrier, h.dashCharges, h.abil, h.mods]);
+      const before = state();
       if (def.category === 'element') applyBoon(h, `infuse_${def.element}_primary`);
-      const mid = JSON.stringify([h.stats, h.maxHp, h.barrier, h.dashCharges]);
+      const mid = state();
       for (let level = 1; level <= def.values.length; level++) expect(applyBoon(h, def.id)).toBe(level);
       expect(applyBoon(h, def.id), `${def.id} beyond max level`).toBe(0);
-      expect(JSON.stringify([h.stats, h.maxHp, h.barrier, h.dashCharges]), def.id).not.toBe(def.category === 'element' ? mid : before);
+      expect(state(), def.id).not.toBe(def.category === 'element' ? mid : before);
     }
   });
 
@@ -372,7 +384,8 @@ describe('boons', () => {
     const h = give(w, 0, 'fleet_foot', 'quick_step', 'spare_step', 'quick_wits');
     const pad = new Pad(w);
     pad.hold({ moveX: 1 }, 1);
-    expect(w.getSelfState(0).moveSpeed).toBeCloseTo(CLASSES.knight.moveSpeed * (1 + BOON_BY_ID.get('fleet_foot')!.values[0]!), 6);
+    // Four mobility boons also switch on the first tier of the mobility set.
+    expect(w.getSelfState(0).moveSpeed).toBeCloseTo(CLASSES.knight.moveSpeed * (1 + BOON_BY_ID.get('fleet_foot')!.values[0]!) * (1 + setMod('set_mobility', 'moveSpeed')), 6);
     expect(w.getSnapshotBody().players[0]!.dashCharges).toBe(CLASSES.knight.dashCharges + 1);
     pad.hold({ buttons: BTN.DASH }, 1);
     const recharge = DASH.COOLDOWN / (1 + BOON_BY_ID.get('quick_step')!.values[0]!);
@@ -426,7 +439,8 @@ describe('boons', () => {
     let ticks = 0;
     const startProgress = mage.revive;
     while (mage.state === 'downed' && ticks < 500) { w.step(); ticks++; }
-    const expected = ((1 - startProgress) * WORLD.REVIVE_SECONDS) / (1 + life);
+    // lifeline + oathbond are two kinship boons: the kinship set (tier 1) adds its revive speed.
+    const expected = ((1 - startProgress) * WORLD.REVIVE_SECONDS) / (1 + life + setMod('set_kinship', 'reviveSpeed'));
     expect(ticks * TICK_DT).toBeGreaterThan(expected - 0.1);
     expect(ticks * TICK_DT).toBeLessThan(expected + 0.1);
     expect(mage.hp).toBe(Math.round(mage.maxHp * WORLD.REVIVE_HP_FRACTION * (1 + life)));

@@ -97,11 +97,11 @@ async function boot(): Promise<void> {
     bus.emit('state:hud');
   };
 
-  const INFUSION_ID = /^infuse_([a-z]+)_(primary|secondary|dash)$/;
+  const INFUSION_ID = /^infuse_([a-z]+)_(primary|secondary|dash|ultimate)$/;
   bus.on('state:roster', () => {
     view.setRoster(state.roster.map((p) => ({ slot: p.slot, cls: p.cls, name: p.name, look: p.look })));
     for (const p of state.roster) {
-      const infusions: Record<AbilitySlot, ElementId | null> = { primary: null, secondary: null, dash: null };
+      const infusions: Record<AbilitySlot, ElementId | null> = { primary: null, secondary: null, dash: null, ultimate: null };
       for (const boon of p.boons) {
         const match = INFUSION_ID.exec(boon.id);
         if (match && (ELEMENT_IDS as readonly string[]).includes(match[1])) infusions[match[2] as AbilitySlot] = match[1] as ElementId;
@@ -166,7 +166,7 @@ async function boot(): Promise<void> {
     if (piloted) Object.assign(sample, { moveX: piloted.moveX, moveZ: piloted.moveZ, aim: piloted.aim, aimDist: piloted.aimDist, buttons: piloted.buttons });
     const cmd: InputCmd = { seq: ++seq, moveX: sample.moveX, moveZ: sample.moveZ, aim: sample.aim, aimDist: sample.aimDist, buttons: sample.buttons };
     net.sendInput(cmd);
-    const action = prediction.step(cmd, room, me, own?.cls ?? 'knight');
+    const action = prediction.step(cmd, room, me, own?.cls ?? 'knight', own?.art ?? 0);
     if (action) {
       bus.emit('game:localAction', { action });
       if (action !== 'denied') view.localAction(action);

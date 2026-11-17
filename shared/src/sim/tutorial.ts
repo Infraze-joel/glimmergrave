@@ -5,6 +5,7 @@
  * lesson simply repeats, and the draft resolves itself when its timer runs out.
  */
 import { RUN, TICK_DT, WORLD } from '../constants.ts';
+import { XP_REWARDS } from '../data/mastery.ts';
 import { REWARDS } from '../data/meta.ts';
 import { TUTORIAL_STEPS, type TutorialStep } from '../data/tutorial.ts';
 import type { EnemyKind, RoomLayout, TutorialState } from '../types.ts';
@@ -215,8 +216,9 @@ function finish(w: World, t: TutorialRun): void {
   t.finished = true;
   const run = w.run;
   run.phase = 'victory';
-  run.rewards = w.heroes.map((h) => ({ slot: h.slot, glimmer: REWARDS.TUTORIAL }));
+  run.rewards = w.heroes.map((h) => ({ slot: h.slot, glimmer: REWARDS.TUTORIAL, xp: XP_REWARDS.TUTORIAL, relics: [] }));
   w.director.chambersCleared = 1;
+  run.chambersCleared = 1;
   w.emit({ e: 'chamberClear' });
   publish(w, t, 1);
   w.runVersion++;

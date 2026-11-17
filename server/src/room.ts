@@ -22,6 +22,9 @@ export interface Session {
   cls: ClassId;
   /** Cosmetic appearance (already sanitised); shown to everyone on the roster. */
   look: Look;
+  /** Mastery level and secondary variant as the simulation applies them (clamped); shown on the roster. */
+  mastery: number;
+  art: number;
   ready: boolean;
   /** Secret for rejoining this slot. Never logged, never sent to anyone but its owner. */
   token: string;
@@ -113,7 +116,8 @@ export class Room {
     for (const s of this.sessions) {
       if (!s) continue;
       out.push({
-        slot: s.slot, name: s.name, cls: s.cls, look: { ...s.look }, ready: s.ready, connected: s.peer !== null, host: s.slot === this.hostSlot,
+        slot: s.slot, name: s.name, cls: s.cls, look: { ...s.look }, mastery: s.mastery, art: s.art, ready: s.ready, connected: s.peer !== null,
+        host: s.slot === this.hostSlot,
         boons: this.world.getBoons(s.slot),
       });
     }
@@ -188,19 +192,27 @@ export class Room {
     else if (this.emptySince === 0) this.emptySince = this.opts.now();
   }
 
+  /** Copies what the simulation made of the loadout (after its own clamping) into the session for the roster. */
+  private adoptBuild(session: Session): void {
+    const build = this.world.getBuild(session.slot);
+    session.mastery = build ? build.mastery : 1;
+    session.art = build ? build.art : 0;
+  }
+
   /**
-   * `loadout` must already be sanitised (parseClientMsg does that); the simulation clamps the upgrade levels again.
+   * `loadout` must already be sanitised (parseClientMsg does that); the simulation clamps everything again.
    * In a tutorial room the first join starts the training session at once and nobody else can ever join.
    */
   join(peer: Peer, name: string, cls: ClassId, loadout: Loadout): JoinResult {
     if (this.phase !== 'lobby' || (this.tutorial && this.playerCount > 0)) return { ok: false, code: 'run_in_progress' };
     const slot = this.sessions.findIndex((s) => s === null);
     if (slot < 0) return { ok: false, code: 'room_full' };
-    if (!this.world.addPlayer(slot, cls, name, loadout.meta)) return { ok: false, code: 'room_full' };
+    if (!this.world.addPlayer(slot, cls, name, loadout)) return { ok: false, code: 'room_full' };
     const session: Session = {
-      slot, name, cls, look: { ...loadout.look }, ready: false, token: randomBytes(SERVER.TOKEN_BYTES).toString('hex'), peer,
+      slot, name, cls, look: { ...loadout.look }, mastery: 1, art: 0, ready: false, token: randomBytes(SERVER.TOKEN_BYTES).toString('hex'), peer,
       disconnectedAt: 0, draftSig: EMPTY_DRAFT,
     };
+    this.adoptBuild(session);
     this.sessions[slot] = session;
     this.touch();
     this.updateEmpty();
@@ -212,6 +224,8 @@ export class Room {
         this.world.removePlayer(slot);
         return { ok: false, code: 'server_full' };
       }
+      // Training heroes are plain (no mastery, no art): show what the simulation really uses.
+      this.adoptBuild(session);
       this.endedAt = 0;
       this.sendState(session);
       this.lastRunVersion = this.world.runVersion;
@@ -276,16 +290,23 @@ export class Room {
       case 'lobby': {
         if (this.phase !== 'lobby') return null;
         let changed = false;
-        if (msg.cls !== undefined && msg.cls !== session.cls && this.world.setClass(session.slot, msg.cls)) {
+        // A loadout belongs to a class (mastery, art, talents), so it only ever arrives together with `cls`
+        // (parseClientMsg enforces that). A class change without one keeps upgrades, Ascension and relics and
+        // resets mastery, art and talents until the client sends the loadout of the new class.
+        if (msg.cls !== undefined && msg.loadout !== undefined) {
+          if (this.world.setClass(session.slot, msg.cls, msg.loadout)) {
+            session.cls = msg.cls;
+            session.look = { ...msg.loadout.look };
+            this.adoptBuild(session);
+            changed = true;
+          }
+        } else if (msg.cls !== undefined && msg.cls !== session.cls && this.world.setClass(session.slot, msg.cls)) {
           session.cls = msg.cls;
+          this.adoptBuild(session);
           changed = true;
         }
         if (msg.ready !== undefined && msg.ready !== session.ready) {
           session.ready = msg.ready;
-          changed = true;
-        }
-        if (msg.loadout !== undefined && this.world.setMeta(session.slot, msg.loadout.meta)) {
-          session.look = { ...msg.loadout.look };
           changed = true;
         }
         let error: ErrorCode | null = null;
@@ -334,7 +355,7 @@ export class Room {
     const seed = this.opts.seed ?? randomInt(1, 0x7fffffff);
     if (!this.world.start(this.oath, seed, this.opts.debugStartChamber)) return 'not_ready';
     this.endedAt = 0;
-    this.opts.log('info', 'run_start', { room: this.code, players: this.playerCount, oath: this.oath });
+    this.opts.log('info', 'run_start', { room: this.code, players: this.playerCount, oath: this.world.run.oath });
     this.broadcastRoster();
     this.broadcastRun();
     this.syncDrafts(true);
@@ -404,7 +425,7 @@ export class Room {
     if (phase === 'victory' || phase === 'defeat') {
       if (this.endedAt === 0) {
         this.endedAt = this.opts.now();
-        this.opts.log('info', 'run_end', { room: this.code, result: phase, chamber: this.world.run.chamber, seconds: Math.round(this.world.run.elapsed) });
+        this.opts.log('info', 'run_end', { room: this.code, result: phase, chamber: this.world.run.chamber, depth: this.world.run.depth, cleared: this.world.run.cleared, seconds: Math.round(this.world.run.elapsed) });
       } else if (this.opts.now() - this.endedAt > SERVER.END_LINGER_MS / this.opts.timeScale) {
         return;
       }

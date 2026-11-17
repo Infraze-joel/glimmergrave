@@ -3,18 +3,36 @@
  * rows and GameEvents through every feature of WorldView.
  *
  * Keys: 1/2/3 chamber kind · 4/5/6 biome · B boss · L random looks · M menu showcase (cycles class + looks) · T marker
+ *       C old / new classes · X next depth of the endless descent
  *       Q quality · S stress mode · D doors · Z zoom · N damage numbers · F focus cycle · P pause
  * URL:  ?showcase&kind=boss&biome=forge&boss=stalker&quality=medium&mode=stress&focus=boss&freeze=4.5
  *       &looks=1 (varied looks) &same=knight (all four slots one class) &menu=mage&look=3,1,1,2&sx=0.7 &marker=0
+ * Update 3:
+ *       &classes=templar,spellblade,shade,knight (who stands in the four slots; default = the four old classes, &new=1 = the new ones)
+ *       &depth=2 (endless descent mood) &focus=x,z,zoom (free camera, e.g. focus=0,3,0.5)
+ *       &demo=NAME&at=1 (a calm stage where one thing happens at `at` seconds; combine with freeze= to capture it):
+ *         art | ult | primary   every hero uses that ability at once
+ *         zones                 consecrate, sanctuary, bolt storm, smoke, an armed and a sprung snare, the three buffs
+ *         reactions             the six named reactions side by side (left to right: REACTION_IDS order)
+ *         umbra                 withered enemies, umbra-tinted projectiles, umbra infusions
+ *         affix                 four elites with the four affixes; the volatile one dies and announces its blast
+ *         doors                 a descend and an ascend door
+ *         ready                 every hero with a full ultimate charge
+ *         lineup                the four heroes shoulder to shoulder (use with face=south&focus=0,5.4,0.24)
  */
+import { AnimationMixer, Vector3 } from 'three';
+import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import { loadAssets, WorldView } from '../render/index.ts';
-import { BIOME_IDS, BOSS_KINDS, CLASS_IDS, EF, ELEMENT_IDS, PF } from '@shared/types.ts';
+import type { Assets } from '../render/index.ts';
+import { AFFIX_IDS, BIOME_IDS, BOSS_KINDS, CLASS_IDS, EF, ELEMENT_IDS, PF } from '@shared/types.ts';
 import type {
   BiomeId, BossKind, ClassId, Door, ElementId, EnemyAnim, EnemyKind, EnemySnap, GameEvent, Hazard, Look, Obstacle, PlayerAnim, PlayerSnap,
   ProjectileKind, ProjectileSnap, RoomLayout,
 } from '@shared/types.ts';
 import type { ChamberKind } from '@shared/constants.ts';
-import { CLASSES, DASH } from '@shared/data/classes.ts';
+import { CLASSES, DASH, ULTIMATE } from '@shared/data/classes.ts';
+import type { AbilityDef } from '@shared/data/classes.ts';
+import { REACTIONS } from '@shared/data/reactions.ts';
 import { ENEMY_TUNING, STATUS } from '@shared/data/enemies.ts';
 import { DEFAULT_LOOK, LOOK } from '@shared/data/meta.ts';
 import { NET, WORLD } from '@shared/constants.ts';
@@ -29,6 +47,13 @@ const ROOM_SIZE: Record<ChamberKind, { w: number; d: number }> = {
   combat: { w: 28, d: 20 }, elite: { w: 30, d: 22 }, boss: { w: 36, d: 26 },
 };
 const NAMES = ['Aldric', 'Brunhild', 'Cyrene', 'Dax'];
+const SLOTS = NET.MAX_PLAYERS;
+const OLD_CLASSES: ClassId[] = ['knight', 'barbarian', 'mage', 'rogue'];
+const NEW_CLASSES: ClassId[] = ['templar', 'spellblade', 'shade', 'mage'];
+const DEMOS = ['art', 'ult', 'primary', 'zones', 'reactions', 'umbra', 'affix', 'doors', 'ready', 'lineup'] as const;
+type Demo = (typeof DEMOS)[number];
+/** Zone / trap / buff line-up of the `zones` demo: [ability id, x]. */
+const ZONE_DEMO: [string, number][] = [['templar_consecrate', -12], ['templar_sanctuary', -4.5], ['rogue_volley', 5], ['shade_smoke', 12.5]];
 
 const BIOME_BOSS: Record<BiomeId, BossKind> = { crypt: 'regent', flooded: 'matron', forge: 'stalker' };
 const HAZARD_KINDS: Hazard['kind'][] = ['spikes', 'vent', 'frost'];
@@ -81,6 +106,7 @@ interface Shot { snap: ProjectileSnap; vx: number; vz: number; life: number; spe
 const HERO_STEPS: { anim: PlayerAnim; dur: number }[] = [
   { anim: 'idle', dur: 1.0 }, { anim: 'run', dur: 1.7 }, { anim: 'primary1', dur: 0.55 }, { anim: 'primary2', dur: 0.55 },
   { anim: 'primary3', dur: 0.75 }, { anim: 'idle', dur: 0.35 }, { anim: 'secondary', dur: 1.45 }, { anim: 'idle', dur: 0.35 },
+  { anim: 'art', dur: 1.5 }, { anim: 'idle', dur: 0.5 }, { anim: 'ultimate', dur: 2.2 }, { anim: 'idle', dur: 0.4 },
   { anim: 'dash', dur: 0.3 }, { anim: 'idle', dur: 0.45 }, { anim: 'hit', dur: 0.6 }, { anim: 'idle', dur: 0.3 },
   { anim: 'downed', dur: 3.4 }, { anim: 'cheer', dur: 1.7 },
 ];
@@ -129,23 +155,30 @@ function enemyScript(kind: EnemyKind): EnemyStep[] {
   return base;
 }
 
-const FLAG_DEMOS = [EF.BURN, EF.CHILL, EF.SHOCK, EF.STUNNED, EF.SHIELDED, EF.ENRAGED, EF.BURN | EF.SHIELDED, EF.CHILL | EF.SHOCK | EF.ENRAGED, 0];
+const FLAG_DEMOS = [EF.BURN, EF.CHILL, EF.SHOCK, EF.WITHER, EF.STUNNED, EF.SHIELDED, EF.ENRAGED, EF.BURN | EF.SHIELDED, EF.CHILL | EF.SHOCK | EF.ENRAGED, EF.WITHER | EF.BURN, 0];
+const STATUS_BIT: Record<ElementId, number> = { ember: EF.BURN, rime: EF.CHILL, storm: EF.SHOCK, umbra: EF.WITHER };
+const ANY_STATUS = EF.BURN | EF.CHILL | EF.SHOCK | EF.WITHER;
 const PROJECTILE_DEMO: { kind: ProjectileKind; hostile: boolean }[] = [
   { kind: 'arcBolt', hostile: false }, { kind: 'crossbowBolt', hostile: false }, { kind: 'knife', hostile: false },
   { kind: 'boneArrow', hostile: true }, { kind: 'hexOrb', hostile: true },
   { kind: 'boneSpear', hostile: true }, { kind: 'soulWisp', hostile: true },
+  { kind: 'shieldDisc', hostile: false }, { kind: 'bladeWave', hostile: false }, { kind: 'shadowDagger', hostile: false },
 ];
-const ELEMENT_PAIRS: [ElementId, ElementId][] = [
-  ['ember', 'rime'], ['ember', 'storm'], ['rime', 'ember'], ['rime', 'storm'], ['storm', 'ember'], ['storm', 'rime'],
-];
+/** One pair per named reaction, in REACTION_IDS order. */
+const ELEMENT_PAIRS: [ElementId, ElementId][] = REACTIONS.map((r) => [r.pair[0], r.pair[1]]);
 
 class Showcase {
   private readonly view: WorldView;
   private kind: ChamberKind = 'combat';
   private biome: BiomeId = 'crypt';
   private boss: BossKind | null = null;
-  private looks: Look[] = CLASS_IDS.map(() => ({ ...DEFAULT_LOOK }));
-  private classes: ClassId[] = [...CLASS_IDS];
+  private looks: Look[] = OLD_CLASSES.map(() => ({ ...DEFAULT_LOOK }));
+  private classes: ClassId[] = [...OLD_CLASSES];
+  private demo: Demo | null = null;
+  private demoAt = 1;
+  private demoDone = false;
+  private depth = 0;
+  private focusFree: { x: number; z: number; zoom: number } | null = null;
   private menu = false;
   private menuCls = 0;
   private menuLook: Look = { ...DEFAULT_LOOK };
@@ -209,8 +242,17 @@ class Showcase {
     if (boss && BOSS_KINDS.includes(boss)) this.boss = boss;
     if (params.has('looks')) this.looks = LOOK_SET.map((l) => ({ ...l }));
     const same = params.get('same') as ClassId | null;
+    if (params.has('new')) this.classes = [...NEW_CLASSES];
+    const list = (params.get('classes') ?? '').split(',').filter((c): c is ClassId => CLASS_IDS.includes(c as ClassId));
+    if (list.length > 0) this.classes = OLD_CLASSES.map((_, i) => list[i % list.length]);
+    const demo = params.get('demo') as Demo | null;
+    if (demo && DEMOS.includes(demo)) { this.demo = demo; this.calm = true; this.markerOn = false; this.doorsOn = demo === 'doors'; }
+    if (params.has('at')) this.demoAt = Number(params.get('at'));
+    if (params.has('depth')) this.depth = Number(params.get('depth'));
+    const free = (params.get('focus') ?? '').split(',').map(Number);
+    if (free.length === 3 && free.every(Number.isFinite)) { this.focusFree = { x: free[0], z: free[1], zoom: free[2] }; this.focusName = ''; }
     if (same && CLASS_IDS.includes(same)) {
-      this.classes = CLASS_IDS.map(() => same);
+      this.classes = OLD_CLASSES.map(() => same);
       // one class, four outfits: default, then the three gear styles with different colours / head / cape
       this.looks = [{ ...DEFAULT_LOOK }, { color: 2, head: true, cape: true, style: 1 }, { color: 4, head: false, cape: true, style: 2 }, { color: 7, head: true, cape: false, style: 0 }];
     }
@@ -243,12 +285,21 @@ class Showcase {
   }
 
   private applyRoster(): void {
-    this.view.setRoster(this.classes.map((cls, slot) => ({ slot, cls, name: NAMES[slot], look: this.looks[slot] })));
-    // infusion demo: ember blade, rime secondary, storm bolts + storm dash, ember dash
-    this.view.setInfusions(0, { primary: 'ember', secondary: null, dash: null });
-    this.view.setInfusions(1, { primary: null, secondary: 'rime', dash: null });
-    this.view.setInfusions(2, { primary: 'storm', secondary: null, dash: 'storm' });
-    this.view.setInfusions(3, { primary: null, secondary: null, dash: 'ember' });
+    this.view.setRoster(this.classes.map((cls, slot) => ({ slot, cls, name: NAMES[slot], look: this.looks[slot], art: 1 })));
+    if (this.demo === 'umbra') {
+      for (let slot = 0; slot < SLOTS; slot++) this.view.setInfusions(slot, { primary: 'umbra', secondary: 'umbra', dash: 'umbra', ultimate: 'umbra' });
+      return;
+    }
+    if (this.demo) {
+      // the ability demos show every class in its own colours
+      for (let slot = 0; slot < SLOTS; slot++) this.view.setInfusions(slot, { primary: null, secondary: null, dash: null, ultimate: null });
+      return;
+    }
+    // infusion demo: ember blade, rime secondary, storm bolts + storm dash, ember dash + umbra ultimate
+    this.view.setInfusions(0, { primary: 'ember', secondary: null, dash: null, ultimate: null });
+    this.view.setInfusions(1, { primary: null, secondary: 'rime', dash: null, ultimate: null });
+    this.view.setInfusions(2, { primary: 'storm', secondary: null, dash: 'storm', ultimate: null });
+    this.view.setInfusions(3, { primary: 'umbra', secondary: null, dash: 'ember', ultimate: 'umbra' });
   }
 
   private applyMenu(): void {
@@ -259,6 +310,8 @@ class Showcase {
     if (k === '1' || k === '2' || k === '3') { this.kind = KINDS[Number(k) - 1]; this.reset(); }
     else if (k === '4' || k === '5' || k === '6') { this.biome = BIOME_IDS[Number(k) - 4]; this.reset(); }
     else if (k === 'b') { this.boss = BOSS_KINDS[(BOSS_KINDS.indexOf(this.boss ?? BIOME_BOSS[this.biome]) + 1) % BOSS_KINDS.length]; this.reset(); }
+    else if (k === 'c') { this.classes = this.classes[0] === OLD_CLASSES[0] ? [...NEW_CLASSES] : [...OLD_CLASSES]; this.reset(); }
+    else if (k === 'x') { this.depth = (this.depth + 1) % 5; this.view.setDepth(this.depth); }
     else if (k === 'l') { this.looks = this.looks.map(() => this.randomLook()); this.applyRoster(); }
     else if (k === 'm') { this.menu = !this.menu; this.menuAuto = true; this.menuTimer = 0; this.reset(); }
     else if (k === 't') this.markerOn = !this.markerOn;
@@ -274,6 +327,8 @@ class Showcase {
   private reset(): void {
     this.room = sampleRoom(this.kind, this.biome);
     this.view.clearSession();
+    this.view.setDepth(this.depth);
+    this.demoDone = false;
     this.applyRoster();
     this.applyMenu();
     this.view.setRoom(this.menu ? null : this.room, this.kind, KINDS.indexOf(this.kind) * 3);
@@ -294,11 +349,15 @@ class Showcase {
         cls, homeX, homeZ, step: -1, t: 0, offset: slot * 0.95,
         snap: {
           slot, x: homeX, z: homeZ, rot: NORTH, hp: maxHp * (1 - slot * 0.18), maxHp, shield: slot === 0 ? 20 : 0, state: 'alive', anim: 'idle', animSeq: 0,
-          cdSecondary: 0, cdDash: 0, dashCharges: 1, revive: 0, flags: PF.CONNECTED | (slot === 2 ? PF.KINDRED_AURA : 0),
+          cdSecondary: 0, cdDash: 0, ult: this.demo === 'ready' ? 1 : 0, dashCharges: 1, revive: 0,
+          flags: PF.CONNECTED | (slot === 2 && !this.demo ? PF.KINDRED_AURA : 0),
         },
       });
     });
-    if (this.stress) {
+    if (this.demo) {
+      for (const h of this.heroes) { h.snap.hp = h.snap.maxHp; h.snap.shield = 0; }
+      this.setupDemo();
+    } else if (this.stress) {
       const mix: EnemyKind[] = [];
       for (let i = 0; i < 20; i++) mix.push('minion');
       for (let i = 0; i < 8; i++) mix.push('warrior');
@@ -442,7 +501,6 @@ class Showcase {
 
   private stepHero(h: HeroActor, dt: number): void {
     const s = h.snap;
-    const cls = CLASSES[h.cls];
     if (this.time < h.offset) return;
     h.t -= dt;
     if (h.t <= 0) {
@@ -459,24 +517,9 @@ class Showcase {
         this.emit({ e: 'revived', slot: s.slot, by: (s.slot + 1) % 4 });
         this.emit({ e: 'heal', slot: s.slot, amount: Math.round(s.hp) });
       }
-      if (step.anim === 'primary1' || step.anim === 'primary2' || step.anim === 'primary3' || step.anim === 'secondary') {
-        const idx = step.anim === 'primary2' ? 1 : step.anim === 'primary3' ? 2 : 0;
-        const a = step.anim === 'secondary' ? cls.secondary : cls.primary[Math.min(idx, cls.primary.length - 1)];
-        s.anim = a.anim === 'primary1' && step.anim !== 'secondary' ? step.anim : a.anim;
-        this.emit({ e: 'cast', who: { t: 'p', id: s.slot }, ability: a.id, x: s.x, z: s.z, rot: s.rot });
-        if (step.anim === 'secondary') s.cdSecondary = 1;
-        if (a.shape === 'projectile' && a.projectile) {
-          const el = (this.counters.shot++ % 4);
-          for (let i = 0; i < a.count; i++) {
-            const spread = a.count > 1 ? ((i / (a.count - 1)) - 0.5) * a.arc * DEG : 0;
-            this.shoot(a.projectile, s.x + Math.sin(s.rot) * 0.8, s.z + Math.cos(s.rot) * 0.8, s.rot + spread, a.speed, a.range, el, false);
-          }
-        } else if (a.shape === 'circle') {
-          const tx = s.x;
-          const tz = s.z - 7;
-          this.emit({ e: 'telegraph', shape: 'circle', x: tx, z: tz, rot: 0, r: a.radius, w: 0, dur: a.windup });
-          this.later(a.windup, () => this.emit({ e: 'aoe', x: tx, z: tz, r: a.radius, el: 'storm', hostile: false }));
-        }
+      if (step.anim === 'primary1' || step.anim === 'primary2' || step.anim === 'primary3' || step.anim === 'secondary' || step.anim === 'art' || step.anim === 'ultimate') {
+        if (step.anim === 'ultimate') s.ult = 0;
+        this.perform(h, step.anim);
       } else if (step.anim === 'hit') {
         s.hp = Math.max(8, s.hp - 14);
         this.emit({ e: 'hit', target: { t: 'p', id: s.slot }, x: s.x, z: s.z, dmg: 14, crit: false, el: null, by: -1 });
@@ -507,6 +550,199 @@ class Showcase {
       if (el > 0.8) { s.flags |= PF.BEING_REVIVED; s.revive = Math.min(1, (el - 0.8) / 2.4); }
     }
     s.cdSecondary = Math.max(0, s.cdSecondary - dt / 6);
+    // the charge fills over the cycle and is spent by the ultimate step
+    if (s.ult < 1 && s.state === 'alive') {
+      s.ult = Math.min(1, s.ult + dt / 7);
+      if (s.ult >= 1) this.emit({ e: 'ultReady', slot: s.slot });
+    }
+  }
+
+  /** What the simulation would announce for one ability use: the cast, and the follow-up events of its shape. */
+  private perform(h: HeroActor, anim: PlayerAnim): void {
+    const s = h.snap;
+    const cls = CLASSES[h.cls];
+    const idx = anim === 'primary2' ? 1 : anim === 'primary3' ? 2 : 0;
+    const a: AbilityDef = anim === 'ultimate' ? cls.ultimate : anim === 'art' ? cls.arts[0] ?? cls.secondary
+      : anim === 'secondary' ? cls.secondary : cls.primary[Math.min(idx, cls.primary.length - 1)];
+    const primary = a.anim === 'primary1' || a.anim === 'primary2' || a.anim === 'primary3';
+    s.anim = primary ? (anim === 'secondary' || anim === 'art' || anim === 'ultimate' ? a.anim : anim) : a.anim;
+    s.animSeq++;
+    const sin = Math.sin(s.rot);
+    const cos = Math.cos(s.rot);
+    // ground-targeted shapes aim ahead of the hero; everything else is cast where it stands
+    const reach = a.shape === 'leap' ? Math.min(a.range, 5.5) : a.shape === 'trap' ? 4 : a.range > 0 ? Math.min(a.range, 7) : 0;
+    const aimed = a.shape === 'circle' || a.shape === 'leap' || a.shape === 'trap' || (a.shape === 'zone' && a.range > 0);
+    const tx = aimed ? s.x + sin * reach : s.x;
+    const tz = aimed ? s.z + cos * reach : s.z;
+    const slot = s.slot;
+    this.emit({ e: 'cast', who: { t: 'p', id: slot }, ability: a.id, x: a.shape === 'zone' || a.shape === 'trap' ? s.x : tx, z: a.shape === 'zone' || a.shape === 'trap' ? s.z : tz, rot: s.rot });
+    if (anim === 'secondary' || anim === 'art') s.cdSecondary = 1;
+    const el: ElementId | null = this.demo === 'umbra' ? 'umbra' : null;
+    switch (a.shape) {
+      case 'projectile': {
+        if (!a.projectile) break;
+        const code = this.demo === 'umbra' ? 4 : this.demo ? 0 : this.counters.shot++ % 5;
+        const kind = a.projectile;
+        this.later(a.windup, () => {
+          for (let i = 0; i < a.count; i++) {
+            const spread = a.count > 1 ? ((i / (a.count - 1)) - 0.5) * a.arc * DEG : 0;
+            this.shoot(kind, s.x + Math.sin(s.rot) * 0.8, s.z + Math.cos(s.rot) * 0.8, s.rot + spread, a.speed, a.range, code, false);
+          }
+        });
+        break;
+      }
+      case 'circle': {
+        this.later(a.windup, () => {
+          this.emit({ e: 'aoe', x: tx, z: tz, r: a.radius, el: el ?? (a.id === 'mage_nova' ? 'storm' : null), hostile: false });
+          if (a.buff) this.emit({ e: 'buff', slot, id: a.buff, dur: a.duration });
+          if (a.special === 'mark') this.markAround(tx, tz, a.radius, a.duration, s);
+          if (a.special === 'allElements') {
+            // the overload resonates with itself on everything it touches
+            this.enemies.filter((e) => e.gone <= 0 && Math.hypot(e.snap.x - tx, e.snap.z - tz) < a.radius).slice(0, 3).forEach((e, i) => {
+              const [ea, eb] = ELEMENT_PAIRS[(i * 2 + slot) % ELEMENT_PAIRS.length];
+              this.later(0.1 + i * 0.12, () => this.emit({ e: 'resonance', x: e.snap.x, z: e.snap.z, r: STATUS.RESONANCE.RADIUS, a: ea, b: eb, by: slot }));
+            });
+          }
+        });
+        break;
+      }
+      case 'leap': {
+        // the simulation teleports at landing in this script: the view has to carry the hero through the air itself
+        this.later(a.windup, () => {
+          s.x = tx; s.z = tz;
+          this.emit({ e: 'aoe', x: tx, z: tz, r: a.radius, el, hostile: false });
+        });
+        break;
+      }
+      case 'zone':
+        this.later(a.windup, () => this.emit({ e: 'zone', id: this.nextId++, kind: a.id, x: tx, z: tz, r: a.radius, dur: a.duration, el, by: slot }));
+        break;
+      case 'trap': {
+        const id = this.nextId++;
+        this.emit({ e: 'zone', id, kind: a.id, x: tx, z: tz, r: a.radius, dur: a.duration, el, by: slot });
+        if (!this.demo) this.later(a.windup + 1.4, () => this.emit({ e: 'zoneEnd', id, x: tx, z: tz, sprung: true }));
+        break;
+      }
+      case 'buff':
+        this.later(a.windup, () => {
+          if (!a.buff) return;
+          const id = a.buff;
+          if (a.radius > 0) for (const o of this.heroes) this.emit({ e: 'buff', slot: o.snap.slot, id, dur: a.duration });
+          else this.emit({ e: 'buff', slot, id, dur: a.duration });
+        });
+        break;
+      default:
+        break;
+    }
+  }
+
+  /** Death Mark: every enemy near the point is marked and a dagger flies at each. */
+  private markAround(x: number, z: number, r: number, dur: number, from: PlayerSnap): void {
+    let n = 0;
+    for (const e of this.enemies) {
+      if (e.gone > 0 || Math.hypot(e.snap.x - x, e.snap.z - z) > r || n >= ULTIMATE.MARK_MAX_TARGETS) continue;
+      n++;
+      this.emit({ e: 'mark', id: e.snap.id, dur });
+      const rot = Math.atan2(e.snap.x - from.x, e.snap.z - from.z);
+      this.shoot('shadowDagger', from.x, from.z, rot, 26, Math.hypot(e.snap.x - from.x, e.snap.z - from.z), 0, false);
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------------- demos (update 3)
+
+  private dummy(kind: EnemyKind, x: number, z: number, flags = 0, affix?: (typeof AFFIX_IDS)[number]): EnemyActor {
+    const actor: EnemyActor = {
+      homeX: x, homeZ: z, step: 0, t: 1e9, cycle: 0, gone: 0, script: [{ anim: 'idle', dur: 1e9 }], statusDemo: false, slamCount: 0,
+      leapBack: false, fromX: x, fromZ: z, toX: x, toZ: z,
+      snap: { id: this.nextId++, kind, x, z, rot: 0, hp: 1, anim: 'idle', animSeq: 0, flags },
+    };
+    this.enemies.push(actor);
+    if (affix) this.emit({ e: 'spawn', id: actor.snap.id, kind, x, z, elite: true, affix });
+    return actor;
+  }
+
+  /** A calm stage for one feature: heroes in a row facing north, a few idle skeletons as targets. */
+  private setupDemo(): void {
+    const hd = this.room.d / 2;
+    const demo = this.demo;
+    const row: EnemyKind[] = ['minion', 'warrior', 'archer', 'mage'];
+    this.heroes.forEach((h, i) => { h.homeX = -9 + i * 6; h.homeZ = hd - 3.5; h.snap.x = h.homeX; h.snap.z = h.homeZ; h.offset = 0; });
+    if (demo === 'art' || demo === 'ult' || demo === 'primary') {
+      // two targets in front of every hero
+      this.heroes.forEach((h, i) => { this.dummy(row[i % 4], h.homeX - 1.1, h.homeZ - 5.2); this.dummy(row[(i + 1) % 4], h.homeX + 1.3, h.homeZ - 6.6); });
+    } else if (demo === 'reactions') {
+      // one victim per reaction and a few bystanders the Void Arc can jump to
+      REACTIONS.forEach((_, i) => this.dummy(row[i % 4], -12.5 + i * 5, -1));
+      for (let i = 0; i < 3; i++) this.dummy('minion', 9.5 + i * 2.2, 2.6 - i * 0.4);
+      this.heroes.forEach((h) => { h.snap.z = hd - 1.5; h.homeZ = hd - 1.5; });
+    } else if (demo === 'umbra') {
+      row.forEach((kind, i) => this.dummy(kind, -6 + i * 4, -1.5, EF.WITHER | (i === 3 ? EF.BURN : 0) | (i === 1 ? EF.ELITE : 0)));
+      this.dummy('champion', 9, -3, EF.WITHER);
+    } else if (demo === 'affix') {
+      AFFIX_IDS.forEach((affix, i) => this.dummy(row[i % 4], -7.5 + i * 5, -0.5, EF.ELITE, affix));
+    } else if (demo === 'lineup') {
+      this.heroes.forEach((h, i) => { h.homeX = -3.6 + i * 2.4; h.snap.x = h.homeX; h.homeZ = 6; h.snap.z = 6; });
+    } else if (demo === 'zones') {
+      this.heroes.forEach((h, i) => { h.homeX = -12 + i * 4.5; h.snap.x = h.homeX; h.homeZ = hd - 2.2; h.snap.z = h.homeZ; });
+      for (let i = 0; i < 4; i++) this.dummy(row[i], -12 + i * 8, -3.4);
+    }
+  }
+
+  /** The one thing a demo stage shows, fired once at `at`. */
+  private runDemo(): void {
+    const demo = this.demo;
+    if (!demo || this.demoDone || this.time < this.demoAt) return;
+    this.demoDone = true;
+    if (demo === 'art' || demo === 'ult' || demo === 'primary') {
+      for (const h of this.heroes) { this.perform(h, demo === 'ult' ? 'ultimate' : demo === 'art' ? 'art' : 'primary3'); h.t = 2.2; }
+    } else if (demo === 'reactions') {
+      REACTIONS.forEach((r, i) => {
+        const e = this.enemies[i].snap;
+        e.flags |= STATUS_BIT[r.pair[1]];
+        this.emit({ e: 'resonance', x: e.x, z: e.z, r: STATUS.RESONANCE.RADIUS * r.radiusMul, a: r.pair[0], b: r.pair[1], by: 0 });
+      });
+    } else if (demo === 'umbra') {
+      for (const e of this.enemies) this.emit({ e: 'status', id: e.snap.id, el: 'umbra' });
+      for (const h of this.heroes) { this.perform(h, 'primary1'); h.t = 0.8; }
+      PROJECTILE_DEMO.filter((d) => !d.hostile).forEach((d, i) => this.shoot(d.kind, -11, 3.2 + i * 0.9, Math.PI / 2, 6, 30, 4, false));
+    } else if (demo === 'affix') {
+      // the volatile elite dies; its blast is announced like any other hostile attack
+      const v = this.enemies[AFFIX_IDS.indexOf('volatile')];
+      this.later(0.9, () => {
+        this.emit({ e: 'kill', id: v.snap.id, kind: v.snap.kind, x: v.snap.x, z: v.snap.z, by: 0 });
+        this.emit({ e: 'telegraph', shape: 'circle', x: v.snap.x, z: v.snap.z, rot: 0, r: 3, w: 0, dur: 1.2 });
+        v.gone = 1e9;
+        this.later(1.2, () => this.emit({ e: 'aoe', x: v.snap.x, z: v.snap.z, r: 3, el: null, hostile: true }));
+      });
+      const armored = this.enemies[AFFIX_IDS.indexOf('armored')];
+      this.later(3.2, () => this.emit({ e: 'shieldBreak', id: armored.snap.id }));
+    } else if (demo === 'zones') {
+      ZONE_DEMO.forEach(([kind, x]) => {
+        const def = Object.values(CLASSES).flatMap((c) => [c.secondary, ...c.arts, c.ultimate]).find((a) => a.id === kind);
+        if (def) this.emit({ e: 'zone', id: this.nextId++, kind, x, z: -2.2, r: def.radius, dur: 60, el: null, by: 0 });
+      });
+      // snares: one armed, one that goes off half a second later; a hostile telegraph across the smoke to prove it stays readable
+      const trap = CLASSES.rogue.arts[0];
+      const sprung = this.nextId++;
+      this.emit({ e: 'zone', id: this.nextId++, kind: trap.id, x: -8.2, z: 3.4, r: trap.radius, dur: 60, el: null, by: 3 });
+      this.emit({ e: 'zone', id: sprung, kind: trap.id, x: -2.6, z: 3.4, r: trap.radius, dur: 60, el: null, by: 3 });
+      this.later(0.9, () => this.emit({ e: 'zoneEnd', id: sprung, x: -2.6, z: 3.4, sprung: true }));
+      this.later(0.3, () => this.emit({ e: 'telegraph', shape: 'circle', x: 11.2, z: -1.4, rot: 0, r: 2.2, w: 0, dur: 3 }));
+      this.later(0.3, () => this.emit({ e: 'telegraph', shape: 'line', x: -8, z: -6.5, rot: 0.2, r: 8, w: 1.4, dur: 3 }));
+      this.emit({ e: 'buff', slot: 0, id: 'bloodrage', dur: 60 });
+      this.emit({ e: 'buff', slot: 1, id: 'bulwark', dur: 60 });
+      this.emit({ e: 'buff', slot: 2, id: 'overload', dur: 60 });
+      this.emit({ e: 'cast', who: { t: 'p', id: 3 }, ability: 'knight_bulwark', x: this.heroes[3].snap.x, z: this.heroes[3].snap.z, rot: NORTH });
+    } else if (demo === 'ready') {
+      for (const h of this.heroes) this.emit({ e: 'ultReady', slot: h.snap.slot });
+    }
+  }
+
+  private demoHero(h: HeroActor, dt: number): void {
+    const s = h.snap;
+    h.t -= dt;
+    if (h.t <= 0 && s.anim !== 'idle') { s.anim = 'idle'; s.animSeq++; }
+    if (s.anim === 'idle') { s.x += (h.homeX - s.x) * Math.min(1, dt * 3); s.z += (h.homeZ - s.z) * Math.min(1, dt * 3); }
   }
 
   private stressHero(h: HeroActor, dt: number): void {
@@ -523,14 +759,20 @@ class Showcase {
       h.step++;
       const attack = h.step % 3 !== 0;
       const secondary = h.step % 9 === 4;
-      const ab = secondary ? cls.secondary : cls.primary[h.step % cls.primary.length];
+      // update 3 load: every hero also keeps throwing its art and its ultimate (zones, buffs, the star, leaps)
+      const special: PlayerAnim | null = h.step % 14 === 7 ? 'ultimate' : h.step % 9 === 1 ? 'art' : null;
+      const ab = special === 'ultimate' ? cls.ultimate : special === 'art' ? cls.arts[0] : secondary ? cls.secondary : cls.primary[h.step % cls.primary.length];
       s.anim = attack ? ab.anim : 'run';
       s.animSeq++;
       h.t = attack ? Math.max(0.35, ab.lock + 0.1) : 0.5;
-      if (attack) {
+      if (attack && special) {
+        s.rot = Math.atan2(-s.x, -1 - s.z);
+        s.animSeq--;
+        this.perform(h, special);
+      } else if (attack) {
         s.rot = Math.atan2(-s.x, -1 - s.z);
         this.emit({ e: 'cast', who: { t: 'p', id: s.slot }, ability: ab.id, x: s.x, z: s.z, rot: s.rot });
-        if (ab.projectile) for (let i = 0; i < ab.count; i++) this.shoot(ab.projectile, s.x, s.z, s.rot + (i - (ab.count - 1) / 2) * 0.2, ab.speed, ab.range, h.step % 4, false);
+        if (ab.projectile) for (let i = 0; i < ab.count; i++) this.shoot(ab.projectile, s.x, s.z, s.rot + (i - (ab.count - 1) / 2) * 0.2, ab.speed, ab.range, h.step % 5, false);
       }
     }
     if (s.anim === 'run') s.rot = moveRot;
@@ -578,7 +820,7 @@ class Showcase {
       if (flags !== s.flags) {
         if ((s.flags & EF.SHIELDED) && !(flags & EF.SHIELDED)) this.emit({ e: 'shieldBreak', id: s.id });
         for (const el of ELEMENT_IDS) {
-          const bit = el === 'ember' ? EF.BURN : el === 'rime' ? EF.CHILL : EF.SHOCK;
+          const bit = STATUS_BIT[el];
           if ((flags & bit) && !(s.flags & bit)) this.emit({ e: 'status', id: s.id, el });
         }
         s.flags = flags;
@@ -657,7 +899,7 @@ class Showcase {
     if (step.anim !== 'spawn' && step.anim !== 'death') {
       // constant chip damage so health bars and numbers show
       if (!this.calm && Math.random() < dt * 0.9) {
-        const el = Math.random() < 0.5 ? ELEMENT_IDS[Math.floor(Math.random() * 3)] : null;
+        const el = Math.random() < 0.5 ? ELEMENT_IDS[Math.floor(Math.random() * ELEMENT_IDS.length)] : null;
         const crit = Math.random() < 0.2;
         s.hp = Math.max(0.12, s.hp - 0.07);
         this.emit({ e: 'hit', target: { t: 'e', id: s.id }, x: s.x, z: s.z, dmg: Math.round((crit ? 2 : 1) * (9 + Math.random() * 30)), crit, el, by: 0 });
@@ -741,7 +983,7 @@ class Showcase {
 
     this.playerRows.length = 0;
     for (const h of this.heroes) {
-      if (this.stress) this.stressHero(h, dt); else this.stepHero(h, dt);
+      if (this.demo) this.demoHero(h, dt); else if (this.stress) this.stressHero(h, dt); else this.stepHero(h, dt);
       this.playerRows.push(h.snap);
     }
     this.enemyRows.length = 0;
@@ -752,7 +994,10 @@ class Showcase {
 
     const t = this.timers;
     const c = this.counters;
-    if (this.stress) {
+    this.runDemo();
+    if (this.demo) {
+      // a demo stage is quiet: nothing but what the demo itself fires
+    } else if (this.stress) {
       // 44 enemies, ~60 projectiles in flight and constant combat VFX
       t.shot -= dt;
       while (this.shots.length < 60 && t.shot <= 0) {
@@ -767,18 +1012,18 @@ class Showcase {
         t.hit += 0.05;
         const e = this.enemies[Math.floor(Math.random() * this.enemies.length)];
         if (e.gone > 0 || e.snap.anim === 'spawn') continue;
-        const el = Math.random() < 0.6 ? ELEMENT_IDS[Math.floor(Math.random() * 3)] : null;
+        const el = Math.random() < 0.6 ? ELEMENT_IDS[Math.floor(Math.random() * ELEMENT_IDS.length)] : null;
         const crit = Math.random() < 0.15;
         e.snap.hp -= e.snap.kind === 'regent' || e.snap.kind === 'champion' ? 0.004 : 0.09;
         this.emit({ e: 'hit', target: { t: 'e', id: e.snap.id }, x: e.snap.x, z: e.snap.z, dmg: Math.round(10 + Math.random() * 40), crit, el, by: Math.floor(Math.random() * 4) });
         if (el) {
-          const bit = el === 'ember' ? EF.BURN : el === 'rime' ? EF.CHILL : EF.SHOCK;
-          const had = e.snap.flags & (EF.BURN | EF.CHILL | EF.SHOCK);
+          const bit = STATUS_BIT[el];
+          const had = e.snap.flags & ANY_STATUS;
           if (had && !(had & bit)) {
-            const prev: ElementId = had & EF.BURN ? 'ember' : had & EF.CHILL ? 'rime' : 'storm';
+            const prev: ElementId = had & EF.BURN ? 'ember' : had & EF.CHILL ? 'rime' : had & EF.SHOCK ? 'storm' : 'umbra';
             this.emit({ e: 'resonance', x: e.snap.x, z: e.snap.z, r: STATUS.RESONANCE.RADIUS, a: prev, b: el, by: 0 });
           }
-          e.snap.flags = (e.snap.flags & ~(EF.BURN | EF.CHILL | EF.SHOCK)) | bit;
+          e.snap.flags = (e.snap.flags & ~ANY_STATUS) | bit;
           this.emit({ e: 'status', id: e.snap.id, el });
         }
         if (e.snap.hp <= 0) {
@@ -862,7 +1107,9 @@ class Showcase {
     // doors
     if (this.doorsOn && !this.stress && this.time > 2.5) {
       if (this.doors.length === 0) {
-        const types: Door['type'][] = this.kind === 'combat' ? ['boon', 'blessing', 'cursed'] : this.kind === 'elite' ? ['boon', 'boss'] : ['blessing', 'cursed'];
+        // after a final boss the two doors of the endless descent stand side by side
+        const types: Door['type'][] = this.demo === 'doors' ? ['descend', 'ascend']
+          : this.kind === 'combat' ? ['boon', 'blessing', 'cursed'] : this.kind === 'elite' ? ['boon', 'boss'] : ['descend', 'ascend'];
         const span = this.kind === 'boss' ? 26 : 16;
         this.doors = types.map((type, i) => ({ type, x: types.length === 1 ? 0 : -span / 2 + (i / (types.length - 1)) * span, z: -hd + 2.4 }));
         this.doorProgress = types.map(() => 0);
@@ -877,6 +1124,7 @@ class Showcase {
 
   private applyFocus(): void {
     const name = this.focusName;
+    if (this.focusFree) { this.view.debugFocus(this.focusFree); return; }
     if (!name) { this.view.debugFocus(null); return; }
     if (/^hero\d$/.test(name)) {
       const h = this.heroes[Number(name.slice(4)) % this.heroes.length];
@@ -936,8 +1184,9 @@ class Showcase {
       + `frame JS ${this.jsMs.toFixed(1)} ms   ${(1000 / this.frameMs).toFixed(0)} fps\n`
       + `enemies ${d.enemies}  proj ${d.projectiles}  particles ${d.particles}\n`
       + `decals ${d.decals}  fx ${d.fxSprites}  ui ${d.uiSprites}  geo ${s.geometries} tex ${s.textures}\n`
+      + `zones ${d.zones}  depth ${d.depth}${this.demo ? `  demo ${this.demo}` : ''}\n`
       + `hazards ${d.hazards}  hero bakes ${d.heroTemplates}  cursor ${this.cursor.x.toFixed(1)}, ${this.cursor.z.toFixed(1)}\n`
-      + '[1/2/3] chamber [4/5/6] biome [B]oss [L]ooks [M]enu [T] marker\n'
+      + '[1/2/3] chamber [4/5/6] biome [B]oss [L]ooks [M]enu [T] marker [C]lasses de[X]cend\n'
       + '[Q]uality [S]tress [D]oors [Z]oom [N]umbers [F]ocus [P]ause';
   };
 
@@ -955,6 +1204,37 @@ class Showcase {
   }
 }
 
+/**
+ * Dev helper for tuning HERO_ANIMS: samples a hero clip and reports when the weapon hand moves fastest (the visible
+ * hit), so `impact` values do not have to be guessed. Returns [time of the peak, clip duration].
+ */
+function measureClip(assets: Assets, cls: ClassId, clipName: string): [number, number] | null {
+  const clip = assets.heroClips.get(clipName);
+  if (!clip) return null;
+  const tpl = assets.heroTemplate(cls, DEFAULT_LOOK);
+  const root = cloneSkinned(tpl.scene);
+  const hand = root.getObjectByName('handslotr');
+  const mixer = new AnimationMixer(root);
+  mixer.clipAction(clip).play();
+  const prev = new Vector3();
+  const cur = new Vector3();
+  let best = 0;
+  let bestAt = 0;
+  const step = 1 / 60;
+  for (let t = 0; t <= clip.duration && hand; t += step) {
+    mixer.setTime(t);
+    root.updateMatrixWorld(true);
+    cur.setFromMatrixPosition(hand.matrixWorld);
+    const speed = t > 0 ? cur.distanceTo(prev) / step : 0;
+    if (speed > best) { best = speed; bestAt = t; }
+    prev.copy(cur);
+  }
+  mixer.stopAllAction();
+  mixer.uncacheRoot(root);
+  assets.releaseHero(tpl);
+  return [Math.round(bestAt * 100) / 100, Math.round(clip.duration * 100) / 100];
+}
+
 async function main(): Promise<void> {
   document.body.style.cssText = 'margin:0;overflow:hidden;background:#05060b';
   const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -968,6 +1248,8 @@ async function main(): Promise<void> {
   const showcase = new Showcase(view);
   (window as unknown as { __showcase: Showcase; __view: WorldView }).__showcase = showcase;
   (window as unknown as { __view: WorldView }).__view = view;
+  (window as unknown as { __assets: Assets }).__assets = assets;
+  (window as unknown as { __measure: (cls: ClassId, clip: string) => [number, number] | null }).__measure = (cls, clip) => measureClip(assets, cls, clip);
   document.title = 'ready';
 }
 

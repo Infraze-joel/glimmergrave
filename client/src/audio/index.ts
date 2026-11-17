@@ -13,9 +13,10 @@
  *   victory / defeat         -> stinger, then the menu bed under the summary
  * Ambience and the tint of the score follow run.room.biome; boss chambers switch the reverb to the hall.
  */
-import { CLASSES } from '@shared/data/classes.ts';
+import { BOON_BY_ID } from '@shared/data/boons.ts';
+import { CLASSES, secondaryOf } from '@shared/data/classes.ts';
 import { STATUS } from '@shared/data/enemies.ts';
-import { BOSS_KINDS, type BossKind, type ClassId, type ElementId, type EnemyKind, type GameEvent } from '@shared/types.ts';
+import { BOSS_KINDS, ELEMENT_IDS, type BossKind, type ClassId, type ElementId, type EnemyKind, type GameEvent } from '@shared/types.ts';
 import { bus } from '../core/EventBus.ts';
 import { selfRoster, state } from '../core/GameState.ts';
 import { settings } from '../core/Settings.ts';
@@ -24,6 +25,7 @@ import { createGraph, MIX, setLevel, type AudioGraph } from './engine.ts';
 import { createMusic, MUSIC, type Music, type MusicState } from './music.ts';
 import { createBank, type Bank, type BankStats } from './samples.ts';
 import { createSfx, type Sfx } from './sfx.ts';
+import { abilityInfo } from './sfx-abilities.ts';
 
 const CONFIG = {
   /** A server 'cast' for the own hero is ignored when the local action already made the sound this recently. */
@@ -43,7 +45,13 @@ const CONFIG = {
   /** Hits this soon after a Resonance, carrying its second element, are its splash damage. */
   SPLASH_WINDOW_S: 0.08,
   MAX_TRACKED_ENEMIES: 256,
+  /** A click this soon after the profile changed is the purchase that changed it (same task, in practice 0 ms). */
+  PURCHASE_CLICK_MS: 80,
+  SET_ID_PREFIX: 'set_',
 } as const;
+
+/** What a click on a progression page bought, read from how the profile changed. */
+type Purchase = 'buy' | 'ascend' | 'talent' | 'relic' | 'unequip' | 'claim' | 'art';
 
 interface Engine {
   ctx: AudioContext;
@@ -62,7 +70,11 @@ let lastTick = -1;
 let lastHover: Element | null = null;
 let lastIntentSound = -1;
 let lastChamber = -1;
-const lastLocal = { primary: -1, secondary: -1, dash: -1 };
+const lastLocal = { primary: -1, secondary: -1, dash: -1, ultimate: -1 };
+let purchase: { kind: Purchase; at: number } | null = null;
+let profileMark = '';
+let profileParts: ReturnType<typeof profileState> | null = null;
+let legendaryShown = '';
 const lastResonance = { at: -1, el: null as ElementId | null };
 let combo = 0;
 /** What is known about living enemies from 'spawn' events (kind decides hit / cast timbres). */
@@ -125,12 +137,14 @@ function updateScene(e: Engine): void {
   if (biome) e.music.setBiome(biome);
   e.graph.setSpace(inGame && run?.chamberKind === 'boss' ? 'hall' : 'room');
   e.music.setBossKind(bossOfRun());
+  e.music.setDepth(inGame ? run?.depth ?? 0 : 0);
   if (e.ctx.currentTime < stingerUntil) return; // let the stinger breathe; a timer resumes afterwards
   e.music.setState(desiredMusic());
 }
 
 function playStinger(e: Engine, kind: 'victory' | 'defeat'): void {
-  e.music.stinger(kind);
+  const cleared = state.run?.cleared ?? 0;
+  e.music.stinger(kind, kind === 'victory' ? Math.max(1, cleared) : cleared);
   stingerUntil = e.ctx.currentTime + MUSIC.STINGER_SECONDS;
   window.clearTimeout(stingerTimer);
   stingerTimer = window.setTimeout(() => safe((eng) => { stingerUntil = 0; updateScene(eng); }), MUSIC.STINGER_SECONDS * 1000);
@@ -184,16 +198,6 @@ function classOfSlot(slot: number): ClassId | null {
   return state.roster.find((p) => p.slot === slot)?.cls ?? null;
 }
 
-/** Which class + combo step an ability id such as "knight_slash3" belongs to. */
-function describeAbility(id: string): { cls: ClassId; slot: 'primary' | 'secondary'; step: number } | null {
-  for (const def of Object.values(CLASSES)) {
-    const step = def.primary.findIndex((a) => a.id === id);
-    if (step >= 0) return { cls: def.id, slot: 'primary', step: def.primary.length === 2 && step === 1 ? 2 : step };
-    if (def.secondary.id === id) return { cls: def.id, slot: 'secondary', step: 0 };
-  }
-  return null;
-}
-
 function kindOfEnemy(id: number): EnemyKind | null {
   return enemies.get(id) ?? (id === state.run?.bossId ? state.run.bossKind : null);
 }
@@ -206,11 +210,69 @@ function onCast(e: Engine, ev: Extract<GameEvent, { e: 'cast' }>): void {
     if (!(own && now - lastLocal.dash < CONFIG.LOCAL_ECHO_S)) e.sfx.dash(own);
     return;
   }
-  const info = describeAbility(ev.ability);
+  const info = abilityInfo(ev.ability);
   if (!info) { if (!own) e.sfx.primary(classOfSlot(ev.who.id) ?? 'knight', 0, false); return; }
   if (own && now - lastLocal[info.slot] < CONFIG.LOCAL_ECHO_S) return;
-  if (info.slot === 'primary') e.sfx.primary(info.cls, info.step, own);
-  else e.sfx.secondary(info.cls, own);
+  e.sfx.ability(ev.ability, own);
+}
+
+function onBoon(e: Engine, id: string, own: boolean): void {
+  if (BOON_BY_ID.get(id)?.rarity === 'legendary') e.sfx.legendaryPicked(own);
+  else e.sfx.boon(own);
+}
+
+/** A legendary boon among the own draft cards is announced once per draft. */
+function onDraft(): void {
+  safe((e) => {
+    const legendary = state.draft.filter((offer) => BOON_BY_ID.get(offer.id)?.rarity === 'legendary').map((offer) => offer.id).join(',');
+    if (legendary && legendary !== legendaryShown) e.sfx.legendaryOffered();
+    legendaryShown = legendary;
+  });
+}
+
+const total = (levels: Record<string, number>): number => Object.values(levels).reduce((sum, n) => sum + (Number.isFinite(n) ? n : 0), 0);
+
+function profileState() {
+  const p = state.profile;
+  return {
+    meta: total(p.meta), paragon: total(p.paragon), feats: total(p.feats),
+    talents: JSON.stringify(p.talents), relics: p.relics.join(','), arts: JSON.stringify(p.arts),
+  };
+}
+
+/**
+ * The progression pages buy through GameState helpers that announce `state:profile`; the click that caused it
+ * reaches the document listener right after. Comparing the profile tells which kind of purchase it was, so each
+ * gets its own sound whatever `data-sfx` the button carries.
+ */
+function onProfile(): void {
+  const next = profileState();
+  const mark = JSON.stringify(next);
+  if (mark === profileMark) return;
+  const prev = profileParts;
+  profileMark = mark;
+  profileParts = next;
+  if (!prev) return;
+  let kind: Purchase | null = null;
+  if (next.paragon > prev.paragon) kind = 'ascend';
+  else if (next.meta > prev.meta) kind = 'buy';
+  else if (next.feats > prev.feats) kind = 'claim';
+  else if (next.talents !== prev.talents) kind = 'talent';
+  else if (next.relics !== prev.relics) kind = next.relics.length >= prev.relics.length && next.relics !== '' ? 'relic' : 'unequip';
+  else if (next.arts !== prev.arts) kind = 'art';
+  if (kind) purchase = { kind, at: performance.now() };
+}
+
+function playPurchase(e: Engine, kind: Purchase): void {
+  switch (kind) {
+    case 'buy': e.sfx.buy(); break;
+    case 'ascend': e.sfx.ascendRank(); break;
+    case 'talent': e.sfx.talentPick(); break;
+    case 'relic': e.sfx.relicEquip(); break;
+    case 'unequip': e.sfx.equip(); break;
+    case 'claim': e.sfx.claim(); break;
+    case 'art': e.sfx.artPick(); break;
+  }
 }
 
 function onHit(e: Engine, ev: Extract<GameEvent, { e: 'hit' }>): void {
@@ -254,7 +316,7 @@ function onGameEvent(ev: GameEvent): void {
       case 'spawn':
         if (enemies.size >= CONFIG.MAX_TRACKED_ENEMIES) enemies.clear();
         enemies.set(ev.id, ev.kind);
-        e.sfx.spawn(ev.kind, ev.elite);
+        e.sfx.spawn(ev.kind, ev.elite, ev.elite ? ev.affix ?? null : null);
         break;
       case 'wave': e.sfx.wave(); break;
       case 'chamberClear': e.sfx.chamberClear(); break;
@@ -262,17 +324,29 @@ function onGameEvent(ev: GameEvent): void {
         e.sfx.bossPhase(ev.phase, state.run?.bossKind ?? null);
         e.music.setBossPhase(ev.phase);
         break;
-      case 'boon': e.sfx.boon(ev.slot === own); break;
+      case 'boon': onBoon(e, ev.id, ev.slot === own); break;
       case 'doorChosen': e.sfx.doorChosen(ev.type); break;
       case 'tutorialStep': e.sfx.tutorialStep(); break;
       case 'hazardHit':
         e.sfx.hazard(ev.kind, ev.target.t === 'e' ? 'enemy' : ev.target.id === own ? 'own' : 'ally');
         break;
+      case 'zone': e.sfx.zone(ev.id, ev.kind, ev.dur, ev.el, ev.by === own); break;
+      case 'zoneEnd': e.sfx.zoneEnd(ev.id, ev.sprung); break;
+      case 'buff': e.sfx.buff(ev.id, ev.slot === own); break;
+      case 'mark': e.sfx.mark(); break;
+      case 'ultReady': e.sfx.ultReady(ev.slot === own); break;
+      case 'descend':
+        e.sfx.descend(ev.depth);
+        e.music.setDepth(ev.depth);
+        break;
+      case 'set':
+        e.sfx.setBonus(ev.tier, ELEMENT_IDS.find((el) => ev.id === `${CONFIG.SET_ID_PREFIX}${el}`) ?? null, ev.slot === own);
+        break;
     }
   });
 }
 
-function onLocalAction(action: 'primary' | 'secondary' | 'dash' | 'denied'): void {
+function onLocalAction(action: 'primary' | 'secondary' | 'dash' | 'ultimate' | 'denied'): void {
   safe((e) => {
     const now = e.ctx.currentTime;
     const cls = selfRoster()?.cls ?? state.profile.cls;
@@ -281,9 +355,12 @@ function onLocalAction(action: 'primary' | 'secondary' | 'dash' | 'denied'): voi
       if (now - lastLocal.primary < CONFIG.PRIMARY_MIN_GAP_S) return;
       const chain = CLASSES[cls].primary.length;
       combo = now - lastLocal.primary > CONFIG.COMBO_RESET_S ? 0 : (combo + 1) % chain;
-      e.sfx.primary(cls, chain === 2 && combo === 1 ? 2 : combo, true);
+      e.sfx.ability(CLASSES[cls].primary[combo].id, true);
     } else if (action === 'secondary') {
-      e.sfx.secondary(cls, true);
+      // the art chosen in the loadout replaces the standard secondary
+      e.sfx.ability(secondaryOf(CLASSES[cls], selfRoster()?.art ?? state.profile.arts[cls] ?? 0).id, true);
+    } else if (action === 'ultimate') {
+      e.sfx.ability(CLASSES[cls].ultimate.id, true);
     } else {
       e.sfx.dash(true);
     }
@@ -332,6 +409,11 @@ function playUi(e: Engine, el: Element): void {
     case 'equip': e.sfx.equip(); break;
     case 'tab': e.sfx.tab(); break;
     case 'toggle': e.sfx.toggle(); break;
+    case 'ascend': e.sfx.ascendRank(); break;
+    case 'talent': e.sfx.talentPick(); break;
+    case 'relic': e.sfx.relicEquip(); break;
+    case 'claim': e.sfx.claim(); break;
+    case 'art': e.sfx.artPick(); break;
     default: e.sfx.click(); break;
   }
 }
@@ -357,9 +439,15 @@ export function initAudio(): void {
     bus.on('state:run', ({ previousPhase }) => onRun(previousPhase));
     bus.on('game:event', onGameEvent);
     bus.on('game:localAction', ({ action }) => onLocalAction(action));
+    // run rewards booked: experience ticks, level-up fanfare, relic shards, feats — in that order
+    bus.on('game:progress', (p) => safe((e) => e.sfx.progress({ xp: p.xp, levelsGained: p.levelsGained, relics: p.relics, featsReady: p.featsReady })));
+    bus.on('state:draft', onDraft);
+    onProfile();
+    bus.on('state:profile', onProfile);
 
     // UI feedback: intents on the bus + one delegated hover / click listener for every control.
-    // Controls may name their sound with data-sfx="hover|click|confirm|back|error|buy|equip|tab|toggle".
+    // Controls may name their sound with data-sfx="hover|click|confirm|back|error|buy|equip|tab|toggle" or, on the
+    // progression pages, "ascend|talent|relic|claim|art". A purchase recognised from the profile wins over both.
     bus.on('ui:lobby', (p) => { if (p.ready !== undefined) intentSound((e) => e.sfx.ready(p.ready === true)); });
     bus.on('ui:pick', () => intentSound((e) => e.sfx.draftPick()));
     bus.on('net:error', () => safe((e) => e.sfx.error()));
@@ -371,7 +459,10 @@ export function initAudio(): void {
     });
     document.addEventListener('click', (ev) => {
       const el = interactive(ev.target);
-      if (el) safe((e) => { if (e.ctx.currentTime - lastIntentSound > CONFIG.CLICK_AFTER_INTENT_S) playUi(e, el); });
+      const bought = purchase && performance.now() - purchase.at < CONFIG.PURCHASE_CLICK_MS ? purchase.kind : null;
+      purchase = null;
+      if (bought) safe((e) => playPurchase(e, bought));
+      else if (el) safe((e) => { if (e.ctx.currentTime - lastIntentSound > CONFIG.CLICK_AFTER_INTENT_S) playUi(e, el); });
     });
   } catch (err) {
     console.warn('[audio] init failed', err);

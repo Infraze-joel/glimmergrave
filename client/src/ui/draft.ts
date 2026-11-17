@@ -1,18 +1,22 @@
 /**
- * Boon draft overlay: 3-4 cards, hotkeys 1-4, countdown, "waiting for ..." after picking.
+ * Boon draft overlay: 3-5 cards, hotkeys 1-5, countdown, "waiting for ..." after picking.
+ * Update 3: legendary rarity, the categories ultimate / class / duo, and what a boon does for the hero's sets.
  * Update 2: element keywords are coloured and explained in a footnote, infusion cards say what they would
  * resonate with, and heroes who bought Insight can reroll the offer (button or R).
  */
-import { BOON_BY_ID, BOON_TUNING, type BoonDef } from '@shared/data/boons.ts';
+import { BOON_BY_ID, SETS, setProgress, type BoonDef, type SetDef } from '@shared/data/boons.ts';
+import { REACTIONS } from '@shared/data/reactions.ts';
 import { RUN } from '@shared/constants.ts';
 import type { ElementId } from '@shared/types.ts';
 import { bus } from '../core/EventBus.ts';
 import { metaLevel, selfRoster, state } from '../core/GameState.ts';
 import { h, icon, key, setText, show, toggle } from './dom.ts';
 import { distinctElements, highlight, infusionsOf, resonanceLine, statusLine } from './elements.ts';
-import { formatBoon, formatList, maxBoonLevel, t } from './i18n.ts';
+import { setIcon, setPips, setTint } from './hud3.ts';
+import { formatBoon, formatList, maxBoonLevel, roman, t } from './i18n.ts';
 import type { IconName } from './icons.ts';
-import { boonIcon, boonTint, nameOf } from './model.ts';
+import { abilityIcon, abilityName, boonIcon, boonTint, nameOf } from './model.ts';
+import { reactionName, setName } from './text.ts';
 import { ui, UI_CONFIG } from './store.ts';
 import type { View } from './view.ts';
 
@@ -40,6 +44,31 @@ interface CardTag {
   element?: ElementId;
 }
 
+/** What picking a boon would do for one of the hero's sets. */
+export interface SetNote {
+  set: SetDef;
+  /** Different boons counted now and after the pick. */
+  have: number;
+  after: number;
+  /** Tier that the pick would switch on (0 = none). */
+  activates: number;
+}
+
+/** The sets a boon counts towards, with the progress the pick would make (an upgrade adds nothing). */
+export function boonSets(def: BoonDef | undefined, owned: readonly { id: string }[]): SetNote[] {
+  if (!def) return [];
+  const mine = SETS.filter((set) => (set.element ? def.element === set.element : def.category === set.category));
+  if (mine.length === 0) return [];
+  const isNew = !owned.some((b) => b.id === def.id);
+  const before = setProgress(owned);
+  const after = isNew ? setProgress([...owned, { id: def.id }]) : before;
+  return mine.map((set) => {
+    const was = before.find((p) => p.set === set);
+    const now = after.find((p) => p.set === set);
+    return { set, have: was?.count ?? 0, after: now?.count ?? 0, activates: (now?.tier ?? 0) > (was?.tier ?? 0) ? now?.tier ?? 0 : 0 };
+  });
+}
+
 const elementName = (el: ElementId): string => t(`element.${el}.name`);
 
 /** One-line explanation of the status / mechanic a boon talks about, with the real numbers. */
@@ -56,6 +85,15 @@ export function boonTag(def: BoonDef | undefined): CardTag | null {
   const own = selfRoster();
   const infusions = infusionsOf(own?.boons ?? []);
   const mine = distinctElements(infusions);
+  // Class boons name the ability they change (the equipped secondary variant), duo boons their reaction.
+  if (def.category === 'class' && def.cls && def.slot) {
+    const art = own?.cls === def.cls ? own.art : 0;
+    return { text: t('draft.tag.changes', { ability: abilityName(def.cls, def.slot, art) }), tone: 'info', icon: abilityIcon(def.cls, def.slot, art) };
+  }
+  if (def.category === 'duo' && def.reaction) {
+    const reaction = REACTIONS.find((r) => r.id === def.reaction);
+    if (reaction) return { text: t('draft.tag.reaction', { reaction: reactionName(reaction) }), tone: 'good', icon: 'resonance' };
+  }
   if (def.category === 'infusion' && def.element && def.slot) {
     const element = def.element;
     const replaced = infusions.find((i) => i.slot === def.slot && i.element !== element);
@@ -126,6 +164,8 @@ export function createDraft(): DraftView {
       state.draft.map((o) => `${o.id}:${o.level}`).join('|'),
       // tags depend on everybody's infusions
       state.roster.map((p) => infusionsOf(p.boons).map((i) => `${i.slot}${i.element}`).join('')).join('/'), own?.slot,
+      // set progress depends on the own boons, the class tag on the equipped art
+      (own?.boons ?? []).map((b) => b.id).join(','), own?.art,
     ].join('#');
     if (k === cardsKey) return;
     const offerChanged = !cardsKey.startsWith(`${k.split('#')[0]}#`);
@@ -149,13 +189,33 @@ export function createDraft(): DraftView {
       const tagEl = tag
         ? h('span', { class: `gg-boon-tag is-${tag.tone}`, 'data-element': tag.element ?? '' }, icon(tag.icon), h('span', null, tag.text))
         : null;
+      const setEls = boonSets(def, own?.boons ?? []).map((note) => {
+        const gained = note.after > note.have;
+        const need = note.set.need[note.after >= note.set.need[0] ? 1 : 0];
+        const label = note.activates > 0
+          ? t('draft.set.activates', { name: setName(note.set), tier: roman(note.activates) })
+          : !gained && note.have >= note.set.need[1] ? t('draft.set.done', { name: setName(note.set) })
+            : !gained ? t('draft.set.counted', { name: setName(note.set) })
+              : t('draft.set.new', { name: setName(note.set), have: note.after, need });
+        const row = h('span', {
+          class: `gg-boon-set${note.activates > 0 ? ' is-activating' : ''}${gained ? '' : ' is-counted'}`, 'data-set': note.set.id,
+          'data-after': String(note.after), 'data-activates': String(note.activates),
+        }, icon(setIcon(note.set)), h('span', null, label), setPips(note.set, note.have, note.after - note.have));
+        row.style.setProperty('--tint', setTint(note.set));
+        return row;
+      });
+      const duo = def?.category === 'duo' ? REACTIONS.find((r) => r.id === def.reaction) : undefined;
+      const emblem = duo
+        ? h('span', { class: 'gg-boon-icon gg-boon-icon--duo' }, h('i', { 'data-element': duo.pair[0] }, icon(duo.pair[0])), h('i', { 'data-element': duo.pair[1] }, icon(duo.pair[1])))
+        : h('span', { class: 'gg-boon-icon' }, icon(boonIcon(def)));
       const card = h('button', {
-        class: `gg-boon-card gg-cut gg-rarity-${rarity}${tag ? ' has-tag' : ''}`, type: 'button', 'data-testid': `draft-card-${index}`,
-        'data-tag': tag?.tone ?? '', onClick: () => pick(index),
+        class: `gg-boon-card gg-cut gg-rarity-${rarity} gg-cat-${category}${def?.cls ? ` gg-cls-${def.cls}` : ''}${tag ? ' has-tag' : ''}`,
+        type: 'button', 'data-testid': `draft-card-${index}`, 'data-tag': tag?.tone ?? '', 'data-rarity': rarity, 'data-category': category,
+        onClick: () => pick(index),
       },
         h('span', { class: 'gg-boon-hotkey' }, key(String(index + 1))),
         h('span', { class: 'gg-boon-rarity' }, icon('gem'), t(`rarity.${rarity}`)),
-        h('span', { class: 'gg-boon-icon' }, icon(boonIcon(def))),
+        emblem,
         h('span', { class: 'gg-boon-name' }, text.name),
         h('span', { class: `gg-boon-level${upgrade ? ' is-upgrade' : ''}` },
           upgrade ? `${t('draft.upgrade')} · ${t('common.level', { n: offer.level })}` : t('draft.new'),
@@ -163,10 +223,12 @@ export function createDraft(): DraftView {
         ),
         desc,
         tagEl,
+        ...setEls,
         noteEl,
         h('span', { class: 'gg-boon-category' },
           t(`category.${category}`),
           def?.element ? ` · ${t(`element.${def.element}.name`)}` : '',
+          def?.cls ? ` · ${t(`class.${def.cls}.name`)}` : '',
         ),
       );
       card.style.setProperty('--tint', boonTint(def));
@@ -193,8 +255,13 @@ export function createDraft(): DraftView {
       toggle(card, 'is-rejected', ui.picked >= 0 && ui.picked !== i);
       (card as HTMLButtonElement).disabled = ui.picked >= 0;
     });
-    const cursed = state.draft.length >= BOON_TUNING.CURSED_DRAFT_CHOICES && state.draft.length > RUN.DRAFT_CHOICES;
-    setText(sub, cursed ? t('draft.subCursed') : t('draft.sub', { n: run.chamber + 1 }));
+    // Foresight also adds a choice, so the door the party came through decides, not the number of cards.
+    const cursed = run.entered === 'cursed' && state.draft.length > RUN.DRAFT_CHOICES;
+    const depth = Math.max(0, Math.floor(run.depth ?? 0));
+    setText(sub, cursed ? t('draft.subCursed')
+      : run.chamberKind === 'boss' && !run.tutorial ? t('draft.subFinal')
+        : depth > 0 ? t('draft.subDepth', { d: roman(depth + 1), n: run.chamber + 1 })
+          : t('draft.sub', { n: run.chamber + 1 }));
     toggle(el, 'is-cursed', cursed);
     toggle(el, 'is-training', run.tutorial !== null && run.tutorial !== undefined);
     const seconds = Math.max(0, Math.ceil(run.draftTime));

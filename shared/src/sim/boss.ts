@@ -10,7 +10,7 @@ import { ENEMY_TUNING } from '../data/enemies.ts';
 import type { EnemyKind } from '../types.ts';
 import { chillSlow, damageHero, enemyDamage } from './combat.ts';
 import {
-  beginAttack, emitTelegraph, enemySpeed, isTargetHero, landAttack, livingEnemies, nearestHero, rayLength, setAnim,
+  beginAttack, emitTelegraph, enemySpeed, isTargetHero, landAttack, livingEnemies, nearestHero, rayLength, setAnim, taunting,
   spawnEnemy, steer,
 } from './enemies.ts';
 import { angleTo, DEG, TAU } from './geom.ts';
@@ -18,7 +18,7 @@ import { createMatronCooldowns, stepMatron } from './matron.ts';
 import { spawnProjectile } from './projectiles.ts';
 import { createStalkerCooldowns, firePendingShot, stepStalker } from './stalker.ts';
 import type { BossState, Enemy, EnemyAttack, Hero } from './state.ts';
-import { AI, SIM } from './tuning.ts';
+import { AI, SIM, AFFIX } from './tuning.ts';
 import type { World } from './world.ts';
 
 const CH = ENEMY_TUNING.CHAMPION;
@@ -43,6 +43,11 @@ export function createBossState(kind: EnemyKind, herald = false): BossState {
 
 export function bossTarget(w: World, e: Enemy, b: BossState, dt: number): Hero | null {
   b.retarget -= dt;
+  const taunter = taunting(w, e);
+  if (taunter) {
+    e.target = taunter.slot;
+    return taunter;
+  }
   const current = w.hero(e.target);
   if (current && isTargetHero(current) && b.retarget > 0) return current;
   b.retarget = AI.REGENT.RETARGET_SECONDS;
@@ -225,7 +230,7 @@ function stepCharge(w: World, e: Enemy, b: BossState, dt: number): void {
     const side = Math.abs(dx * dirZ - dz * dirX);
     if (side > width / 2 || along < from - e.radius || along > to + e.radius || along > b.chargeLen) continue;
     b.chargeHit.push(h.slot);
-    damageHero(w, h, enemyDamage(e, damage), e.id);
+    damageHero(w, h, enemyDamage(e, damage), e.id, true);
   }
   if (b.chargeLeft <= SIM.EPS) {
     b.chargeLeft = 0;
@@ -267,7 +272,7 @@ function stepPending(w: World, e: Enemy, b: BossState, dt: number): void {
 
 export function stepBoss(w: World, e: Enemy, dt: number): void {
   const b = e.boss as BossState;
-  const rate = dt * (1 - chillSlow(e));
+  const rate = dt * (1 - chillSlow(e)) * (e.affix === 'swift' ? AFFIX.SWIFT_ATTACK_RATE : 1);
   b.chargeCd -= rate;
   b.volleyCd -= rate;
   b.summonCd -= rate;

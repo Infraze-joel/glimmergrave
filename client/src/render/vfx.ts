@@ -32,7 +32,7 @@ export function rgb(hex: number): readonly [number, number, number] {
   return v;
 }
 
-export const TIMED = { TELEGRAPH: 0, RING: 1, SLASH: 2, RUNE: 3, FLASH: 4, STREAK: 5, DUO: 6, BEAM: 7 } as const;
+export const TIMED = { TELEGRAPH: 0, RING: 1, SLASH: 2, RUNE: 3, FLASH: 4, STREAK: 5, DUO: 6, BEAM: 7, STAMP: 8 } as const;
 
 interface TimedDecal {
   active: boolean;
@@ -351,6 +351,44 @@ export class Vfx {
     t.r = c[0] * 1.5; t.g = c[1] * 1.5; t.b = c[2] * 1.5; t.a = 0.9; t.additive = 1; t.p1 = 0; t.p2 = 0;
   }
 
+  /**
+   * Any decal shape as a one-shot: grows from d0 to d1 and fades over `dur`. p0..p2 are passed to the shape as they
+   * are (a negative p0 / p1 runs 0..1 with the effect's age instead).
+   */
+  stamp(shape: number, x: number, z: number, d0: number, d1: number, dur: number, hex: number, intensity = 1.5, additive = 1, p0 = 0, p1 = 0, p2 = 0, delay = 0, alpha = 1): void {
+    const t = this.timedSlot();
+    const c = rgb(hex);
+    t.active = true; t.kind = TIMED.STAMP; t.shape = shape; t.age = -delay; t.dur = dur; t.follow = -1;
+    t.x = x; t.y = 0.055; t.z = z; t.rot = Math.random() * 6.28; t.s0 = d0; t.s1 = d1; t.sz = p2;
+    t.r = c[0] * intensity; t.g = c[1] * intensity; t.b = c[2] * intensity; t.a = alpha; t.additive = additive; t.p1 = p0; t.p2 = p1;
+  }
+
+  /** Crystal splinters thrown outwards that tumble and drop (Shatter, breaking prisons). */
+  shards(x: number, y: number, z: number, hex: number, count: number, speed: number, size = 0.5, additive = 0.35): void {
+    const c = rgb(hex);
+    const n = Math.max(1, Math.round(count * (0.6 + 0.4 * this.density)));
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = speed * (0.5 + Math.random() * 0.7);
+      const s = size * (0.6 + Math.random() * 0.8);
+      this.particle(x + Math.sin(a) * 0.3, y + Math.random() * 0.6, z + Math.cos(a) * 0.3, Math.sin(a) * sp, 3 + Math.random() * 4, Math.cos(a) * sp,
+        0.5 + Math.random() * 0.4, s, s * 0.5, c[0] * 1.3 + 0.15, c[1] * 1.3 + 0.15, c[2] * 1.3 + 0.15, 1, SPRITE.SHARD, additive, FX.GRAVITY * 1.4, 1.2,
+        (Math.random() - 0.5) * 16, 0.8, Math.random() * 6.28);
+    }
+  }
+
+  /** Slow, dark, non-additive billows (umbra, smoke bombs). */
+  smoke(x: number, y: number, z: number, hex: number, count: number, radius: number, alpha = 0.3, life = 1.4, size = 1.3): void {
+    const c = rgb(hex);
+    const n = Math.max(1, Math.round(count * this.density));
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = Math.sqrt(Math.random()) * radius;
+      this.particle(x + Math.sin(a) * d, y + Math.random() * 0.4, z + Math.cos(a) * d, Math.sin(a) * 0.35, 0.25 + Math.random() * 0.5, Math.cos(a) * 0.35,
+        life * (0.7 + Math.random() * 0.6), size * (0.5 + Math.random() * 0.4), size * (1.1 + Math.random() * 0.6), c[0], c[1], c[2], alpha, SPRITE.GLOW, 0, 0, 0.6);
+    }
+  }
+
   // ---------------------------------------------------------------- floaters
 
   private floater(x: number, y: number, z: number, uv: UvRect, w: number, h: number, ox: number, hex: number, life: number, rise: number, hot: number): void {
@@ -396,9 +434,9 @@ export class Vfx {
 
   /** `rx..uz`: camera right / up vectors in world space, for velocity-aligned sparks. */
   update(dt: number, decals: DecalBatch, fx: BillboardBatch, ui: BillboardBatch, follow: FollowSource): void {
-    // timed decals
-    for (const t of this.timed) {
-      if (!t.active) continue;
+    // timed decals: two passes, so hostile telegraphs are always drawn on top of every friendly ground effect
+    for (let pass = 0; pass < 2; pass++) for (const t of this.timed) {
+      if (!t.active || (t.kind === TIMED.TELEGRAPH) !== (pass === 1)) continue;
       t.age += dt;
       if (t.age < 0) continue;
       if (t.follow >= 0 && follow.position(t.follow, this.followOut)) {
@@ -457,6 +495,13 @@ export class Vfx {
           const size = t.s0 + (t.s1 - t.s0) * grow;
           const alpha = Math.min(1, k * 6) * Math.min(1, (1 - k) * 4);
           decals.push(t.shape, t.x, t.y, t.z, t.rot + t.age * 0.8, size, size, t.r, t.g, t.b, t.a * alpha, t.additive, k);
+          break;
+        }
+        case TIMED.STAMP: {
+          if (k >= 1) { t.active = false; break; }
+          const e = 1 - (1 - k) * (1 - k);
+          const size = t.s0 + (t.s1 - t.s0) * e;
+          decals.push(t.shape, t.x, t.y, t.z, t.rot, size, size, t.r, t.g, t.b, t.a * (1 - k) * (1 - k * 0.5), t.additive, t.p1 < 0 ? k : t.p1, t.p2 < 0 ? k : t.p2, t.sz);
           break;
         }
         default: {

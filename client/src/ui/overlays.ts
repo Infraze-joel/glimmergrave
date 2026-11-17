@@ -58,9 +58,10 @@ function controlsReference(): HTMLElement {
     row([icon('mouseLeft', 'gg-controls-mouse')], t('controls.primary')),
     row([icon('mouseRight', 'gg-controls-mouse')], t('controls.secondary')),
     row([key(t('hud.key.dash'))], t('controls.dash')),
+    row([key(t('hud.key.ultimate'))], t('controls.ultimate')),
     row([key('3 s')], t('controls.revive')),
     row([key('Tab')], t('controls.scoreboard')),
-    row([key('1'), key('–'), key('4')], t('controls.pick')),
+    row([key('1'), key('–'), key('5')], t('controls.pick')),
     row([key('R')], t('controls.reroll')),
     row([key('Enter')], t('controls.tip')),
     row([key('Esc')], t('controls.menu')),
@@ -127,9 +128,11 @@ function howToBody(): HTMLElement {
   const lines: [IconName[], I18nKey][] = [
     [['move'], 'howto.1'],
     [['sword'], 'howto.2'],
-    [['ember', 'rime', 'storm'], 'howto.3'],
+    [['ember', 'rime', 'storm', 'umbra'], 'howto.3'],
     [['resonance'], 'howto.4'],
     [['revive', 'door'], 'howto.5'],
+    [['ultimate'], 'howto.6'],
+    [['descend', 'ascend'], 'howto.7'],
   ];
   const list = h('ol', { class: 'gg-howto' });
   lines.forEach(([icons, textKey], i) => {

@@ -53,6 +53,12 @@ export const SAMPLES = [
   { name: 'ui.toggle.2', group: 'ui.toggle', cat: 'ui', tier: 0, file: 'ui.toggle.2.mp3', dur: 0.113, gain: 0.136, bytes: 2060 },
   { name: 'ui.drop.1', group: 'ui.drop', cat: 'ui', tier: 0, file: 'ui.drop.1.mp3', dur: 0.107, gain: 0.296, bytes: 1354 },
   { name: 'ui.drop.2', group: 'ui.drop', cat: 'ui', tier: 0, file: 'ui.drop.2.mp3', dur: 0.11, gain: 0.297, bytes: 1380 },
+  { name: 'pluck.1', group: 'pluck', cat: 'ui', tier: 0, file: 'pluck.1.mp3', dur: 0.112, gain: 0.535, bytes: 1798 },
+  { name: 'pluck.2', group: 'pluck', cat: 'ui', tier: 0, file: 'pluck.2.mp3', dur: 0.143, gain: 0.411, bytes: 1902 },
+  { name: 'ui.book.1', group: 'ui.book', cat: 'ui', tier: 0, file: 'ui.book.1.mp3', dur: 0.269, gain: 0.301, bytes: 3360 },
+  { name: 'ui.book.2', group: 'ui.book', cat: 'ui', tier: 0, file: 'ui.book.2.mp3', dur: 0.151, gain: 0.472, bytes: 2686 },
+  { name: 'ui.rise.1', group: 'ui.rise', cat: 'ui', tier: 0, file: 'ui.rise.1.mp3', dur: 0.41, gain: 0.13, bytes: 5502 },
+  { name: 'ui.rise.2', group: 'ui.rise', cat: 'ui', tier: 0, file: 'ui.rise.2.mp3', dur: 0.382, gain: 0.179, bytes: 2368 },
   { name: 'swing.blade.1', group: 'swing.blade', cat: 'foley', tier: 1, file: 'swing.blade.1.mp3', dur: 0.384, gain: 0.27, bytes: 5293 },
   { name: 'swing.blade.2', group: 'swing.blade', cat: 'foley', tier: 1, file: 'swing.blade.2.mp3', dur: 0.463, gain: 0.306, bytes: 5682 },
   { name: 'swing.draw.1', group: 'swing.draw', cat: 'foley', tier: 1, file: 'swing.draw.1.mp3', dur: 0.4, gain: 0.353, bytes: 4717 },
@@ -150,6 +156,12 @@ export const SAMPLES = [
   { name: 'ping.2', group: 'ping', cat: 'magic', tier: 2, file: 'ping.2.mp3', dur: 0.126, gain: 0.43, bytes: 1928 },
   { name: 'ping.3', group: 'ping', cat: 'magic', tier: 2, file: 'ping.3.mp3', dur: 0.082, gain: 0.681, bytes: 1381 },
   { name: 'tex.fire.1', group: 'tex.fire', cat: 'bed', tier: 2, file: 'tex.fire.1.mp3', dur: 2.4, gain: 0.73, bytes: 22412 },
+  { name: 'hit.iron.1', group: 'hit.iron', cat: 'impact', tier: 2, file: 'hit.iron.1.mp3', dur: 0.407, gain: 0.722, bytes: 2498 },
+  { name: 'hit.iron.2', group: 'hit.iron', cat: 'impact', tier: 2, file: 'hit.iron.2.mp3', dur: 0.539, gain: 0.563, bytes: 3044 },
+  { name: 'arcane.1', group: 'arcane', cat: 'magic', tier: 2, file: 'arcane.1.mp3', dur: 0.877, gain: 0.317, bytes: 7835 },
+  { name: 'arcane.2', group: 'arcane', cat: 'magic', tier: 2, file: 'arcane.2.mp3', dur: 0.456, gain: 0.301, bytes: 4609 },
+  { name: 'zap.chain.1', group: 'zap.chain', cat: 'magic', tier: 2, file: 'zap.chain.1.mp3', dur: 1.236, gain: 0.188, bytes: 9939 },
+  { name: 'tex.void.1', group: 'tex.void', cat: 'bed', tier: 2, file: 'tex.void.1.mp3', dur: 1.4, gain: 0.222, bytes: 5669 },
   { name: 'tex.fireLow.1', group: 'tex.fireLow', cat: 'bed', tier: 2, file: 'tex.fireLow.1.mp3', dur: 3, gain: 0.52, bytes: 12716 },
   { name: 'door.open.1', group: 'door.open', cat: 'flow', tier: 3, file: 'door.open.1.mp3', dur: 0.913, gain: 0.477, bytes: 8853 },
   { name: 'door.open.2', group: 'door.open', cat: 'flow', tier: 3, file: 'door.open.2.mp3', dur: 1.381, gain: 0.529, bytes: 11687 },
@@ -171,10 +183,12 @@ export const SAMPLES = [
   { name: 'drum.fill.2', group: 'drum.fill', cat: 'big', tier: 3, file: 'drum.fill.2.mp3', dur: 0.723, gain: 0.665, bytes: 7214 },
   { name: 'drum.fill.3', group: 'drum.fill', cat: 'big', tier: 3, file: 'drum.fill.3.mp3', dur: 0.728, gain: 0.662, bytes: 6720 },
   { name: 'slime.1', group: 'slime', cat: 'flow', tier: 3, file: 'slime.1.mp3', dur: 0.496, gain: 1.071, bytes: 6726 },
+  { name: 'sub.drop.1', group: 'sub.drop', cat: 'big', tier: 3, file: 'sub.drop.1.mp3', dur: 0.6, gain: 0.523, bytes: 3721 },
+  { name: 'bong.1', group: 'bong', cat: 'flow', tier: 3, file: 'bong.1.mp3', dur: 0.132, gain: 0.631, bytes: 1458 },
   { name: 'bed.drone.1', group: 'bed.drone', cat: 'bed', tier: 4, file: 'bed.drone.1.mp3', dur: 3.6, gain: 0.474, bytes: 15445 },
   { name: 'bed.rumble.1', group: 'bed.rumble', cat: 'bed', tier: 4, file: 'bed.rumble.1.mp3', dur: 3.6, gain: 0.425, bytes: 14926 },
 ] as const satisfies readonly SampleInfo[];
 
 export type SampleGroup = (typeof SAMPLES)[number]['group'];
-export const AUDIO_TOTAL_BYTES = 593917;
+export const AUDIO_TOTAL_BYTES = 650306;
 export const AUDIO_TIERS = 5;

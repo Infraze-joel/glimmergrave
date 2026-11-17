@@ -10,8 +10,9 @@ import {
   type AbilitySlot, type BiomeId, type BoonStack, type BossKind, type ElementId, type EnemyKind, type RunState,
 } from '@shared/types.ts';
 import { h } from './dom.ts';
-import { getLang, roman, t, type I18nKey, type Params } from './i18n.ts';
-import { ABILITY_SLOTS } from './model.ts';
+import { REACTIONS, reactionOf, type ReactionDef } from '@shared/data/reactions.ts';
+import { getLang, roman, t, tx, type I18nKey, type Params } from './i18n.ts';
+import { HERO_SLOTS } from './model.ts';
 import type { Lang } from '../core/Settings.ts';
 
 const PERCENT = 100;
@@ -21,6 +22,7 @@ const pct = (fraction: number): number => Math.round(fraction * PERCENT);
 export function statusParams(el: ElementId): Params {
   if (el === 'ember') return { dps: STATUS.BURN.DPS, dur: STATUS.BURN.DURATION };
   if (el === 'rime') return { slow: pct(STATUS.CHILL.SLOW), dur: STATUS.CHILL.DURATION };
+  if (el === 'umbra') return { weak: pct(STATUS.WITHER.WEAKEN), leech: STATUS.WITHER.LEECH, dur: STATUS.WITHER.DURATION };
   return { vuln: pct(STATUS.SHOCK.VULNERABILITY), dur: STATUS.SHOCK.DURATION };
 }
 
@@ -46,7 +48,7 @@ export interface Infusion {
 /** Infused abilities of a hero in ability-bar order (boon ids `infuse_<element>_<slot>`). */
 export function infusionsOf(boons: BoonStack[]): Infusion[] {
   const out: Infusion[] = [];
-  for (const slot of ABILITY_SLOTS) {
+  for (const slot of HERO_SLOTS) {
     for (const stack of boons) {
       const def = BOON_BY_ID.get(stack.id);
       if (def?.category === 'infusion' && def.slot === slot && def.element) { out.push({ slot, element: def.element }); break; }
@@ -60,21 +62,28 @@ export function distinctElements(infusions: Infusion[]): ElementId[] {
   return ELEMENT_IDS.filter((el) => infusions.some((i) => i.element === el));
 }
 
+/** Name of the reaction two different elements make ("Shatter"); empty for a === b. */
 export function pairName(a: ElementId, b: ElementId): string {
-  const key = [a, b].sort().join('+');
-  return t(`pair.${key}.name` as I18nKey);
+  const reaction = reactionOf(a, b);
+  return reaction ? tx(`reaction.${reaction.id}.name`, undefined, reaction.name) : '';
 }
 
-export const ELEMENT_PAIRS: readonly [ElementId, ElementId][] = [['ember', 'rime'], ['ember', 'storm'], ['rime', 'storm']];
+/** Every pair of elements, in the order of the reaction table. */
+export const ELEMENT_PAIRS: readonly (readonly [ElementId, ElementId])[] = REACTIONS.map((r) => r.pair);
+
+/** Reactions a hero with these elements can trigger alone. */
+export function reactionsOf(elements: readonly ElementId[]): ReactionDef[] {
+  return REACTIONS.filter((r) => elements.includes(r.pair[0]) && elements.includes(r.pair[1]));
+}
 
 // ------------------------------------------------------------------ keyword colouring of plain descriptions
 
-type Tone = 'ember' | 'rime' | 'storm' | 'res';
+type Tone = 'ember' | 'rime' | 'storm' | 'umbra' | 'res';
 
 /** Words that name an element, its status or Resonance, per language (matched in boon descriptions). */
 const KEYWORDS: Record<Lang, RegExp> = {
-  en: /\b(?:(?<ember>Burn(?:ing|s)?|Ember)|(?<rime>Chill(?:ed|s)?|Rime)|(?<storm>Shock(?:ed|s)?|Storm)|(?<res>Resonance))\b/gi,
-  de: /(?<![\wäöüß])(?:(?<ember>Brand|Glut)|(?<rime>Kälte|unterkühlte\w*|Reif)|(?<storm>Schock|geschockte\w*|Sturm)|(?<res>Resonanz))(?![a-zäöüß])/gi,
+  en: /\b(?:(?<ember>Burn(?:ing|s)?|Ember)|(?<rime>Chill(?:ed|s)?|Rime)|(?<storm>Shock(?:ed|s)?|Storm)|(?<umbra>Wither(?:ed|s)?|Umbra)|(?<res>Resonances?))\b/gi,
+  de: /(?<![\wäöüß])(?:(?<ember>Brand|Glut)|(?<rime>Kälte|unterkühlte\w*|Reif)|(?<storm>Schock|geschockte\w*|Sturm)|(?<umbra>Verfall|Umbra)|(?<res>Resonanz(?:en)?))(?![a-zäöüß])/gi,
 };
 
 /** Splits a plain sentence into text nodes and element-coloured keyword spans. */
@@ -83,7 +92,7 @@ export function highlight(text: string): Node[] {
   let last = 0;
   for (const match of text.matchAll(KEYWORDS[getLang()])) {
     const groups = match.groups ?? {};
-    const tone = (['ember', 'rime', 'storm', 'res'] as const).find((name): name is Tone => groups[name] !== undefined);
+    const tone = (['ember', 'rime', 'storm', 'umbra', 'res'] as const).find((name): name is Tone => groups[name] !== undefined);
     if (!tone) continue;
     if (match.index > last) out.push(document.createTextNode(text.slice(last, match.index)));
     out.push(h('span', { class: `gg-kw gg-kw--${tone}` }, match[0]));

@@ -60,8 +60,8 @@ export const RUN = {
   /** Extra enemy count per additional player (multiplicative). */
   COUNT_PER_EXTRA_PLAYER: 0.3,
   /** Enemy health / damage growth per chamber index. */
-  HP_GROWTH_PER_CHAMBER: 0.22,
-  DAMAGE_GROWTH_PER_CHAMBER: 0.12,
+  HP_GROWTH_PER_CHAMBER: 0.3,
+  DAMAGE_GROWTH_PER_CHAMBER: 0.2,
   /**
    * Oath (difficulty) levels 0..3: enemy hp, enemy damage, enemy speed multipliers. Levels above 3 are
    * extrapolated by oathScale() up to OATH_MAX. Winning at level n unlocks n + 1.
