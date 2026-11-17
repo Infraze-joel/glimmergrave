@@ -22,6 +22,8 @@ export interface CharacterUniforms {
   uEmissive: { value: Color };
   /** 1 = solid, 0 = fully dissolved. */
   uFade: { value: number };
+  /** rgb = fresnel rim colour (status read: burn orange, chill ice, shock violet), a = strength. */
+  uRim: { value: Vector4 };
 }
 
 export interface CharacterMaterial {
@@ -43,6 +45,7 @@ uniform vec4 uCloth;
 uniform vec3 uGlow;
 uniform vec3 uEmissive;
 uniform float uFade;
+uniform vec4 uRim;
 varying vec3 vMask;
 varying vec3 vTintC;
 `;
@@ -64,13 +67,17 @@ diffuseColor.rgb *= 1.0 - vMask.x;
 
 const FRAG_EMISSIVE = /* glsl */ `
 totalEmissiveRadiance += mix( uGlow, vTintC, vMask.z ) * vMask.x + uEmissive;
+if ( uRim.a > 0.001 ) {
+  float rimF = 1.0 - clamp( dot( normal, normalize( vViewPosition ) ), 0.0, 1.0 );
+  totalEmissiveRadiance += uRim.rgb * ( rimF * rimF * uRim.a );
+}
 `;
 
 const FRAG_FLASH = /* glsl */ `
 gl_FragColor.rgb = mix( gl_FragColor.rgb, uFlash.rgb, uFlash.a );
 `;
 
-const CACHE_KEY = 'gg-character-v1';
+const CACHE_KEY = 'gg-character-v2';
 
 export function createCharacterMaterial(map: Texture): CharacterMaterial {
   const uniforms: CharacterUniforms = {
@@ -80,6 +87,7 @@ export function createCharacterMaterial(map: Texture): CharacterMaterial {
     uGlow: { value: new Color(0xffffff) },
     uEmissive: { value: new Color(0x000000) },
     uFade: { value: 1 },
+    uRim: { value: new Vector4(1, 1, 1, 0) },
   };
   const material = new MeshLambertMaterial({ map });
   material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {

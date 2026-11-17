@@ -11,16 +11,27 @@ export type ConnError = ErrorCode | 'unreachable' | 'connection_lost';
 
 export interface EventMap {
   // ---- UI intents (emitted by ui/, handled by net/ or game/)
-  'ui:create': { name: string; cls: ClassId };
+  /** `tutorial: true` starts the solo training session instead of a lobby. */
+  'ui:create': { name: string; cls: ClassId; tutorial?: boolean };
   'ui:join': { code: string; name: string; cls: ClassId };
   'ui:lobby': { cls?: ClassId; ready?: boolean; oath?: number };
   'ui:start': undefined;
   'ui:pick': { index: number };
+  /** Spend a draft reroll (state.draftRerolls > 0). */
+  'ui:reroll': undefined;
+  /** Look or permanent upgrades changed (emitted by core/GameState helpers); net/ resends the loadout in a lobby. */
+  'ui:loadout': undefined;
   'ui:toLobby': undefined;
   /** Leave the session and return to the main menu. */
   'ui:leave': undefined;
   /** The pause / settings overlay opened or closed (the online game keeps running). */
   'ui:overlay': { open: boolean };
+  /**
+   * Ask the 3D view to present a hero of this class (with the profile's look for it) while no chamber is
+   * shown — used by the wardrobe / class picker. `screenX` is the horizontal screen position (0..1) the hero
+   * should be centred on, so the UI can keep that area free. null hides the showcase.
+   */
+  'ui:showcase': { cls: ClassId; screenX: number } | null;
   /** First user gesture happened — audio may start. */
   'ui:gesture': undefined;
 
@@ -36,6 +47,8 @@ export interface EventMap {
   'state:roster': undefined;
   'state:run': { previousPhase: RunPhase | null };
   'state:draft': undefined;
+  /** state.profile changed (Glimmer, upgrades, looks, record). */
+  'state:profile': undefined;
   /** HUD-relevant values changed (emitted at most once per snapshot). */
   'state:hud': undefined;
 

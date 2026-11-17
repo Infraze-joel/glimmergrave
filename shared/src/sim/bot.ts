@@ -8,10 +8,11 @@ import { CLASSES } from '../data/classes.ts';
 import { ENEMIES, ENEMY_TUNING } from '../data/enemies.ts';
 import {
   BTN, EF, PF,
-  type BoonOffer, type BoonStack, type ClassId, type ElementId, type EnemySnap, type GameEvent, type InputCmd,
-  type PlayerSnap, type ProjectileSnap, type RoomLayout, type RunState,
+  type BoonOffer, type BoonStack, type ClassId, type ElementId, type EnemySnap, type GameEvent, type Hazard, type InputCmd,
+  type PlayerSnap, type ProjectileSnap, type RoomLayout, type RunState, type TutorialState,
 } from '../types.ts';
 import { angleDiff, inArc, inLine, sweepHit } from './geom.ts';
+import { HAZARD_TIMING, hazardState, type HazardState } from './hazards.ts';
 import { Rng } from './rng.ts';
 import type { World } from './world.ts';
 
@@ -51,6 +52,12 @@ const BOT = {
   LOW_PARTY_HP: 0.65,
   DOOR_STAND_DISTANCE: 0.8,
   STRAFE_SECONDS: 1.6,
+  /** Hazards: melee bots that fight within LURE_RANGE of one stand LURE_STANDOFF outside its edge, the hazard between them and the pack. */
+  HAZARD_LURE_RANGE: 7, HAZARD_LURE_STANDOFF: 0.8, HAZARD_LURE_TARGET_RANGE: 9,
+  /** Soul wisps: ranged bots shoot them inside this range; everyone strikes them when they are in reach. */
+  WISP_SHOOT_RANGE: 8, WISP_PRIORITY_RANGE: 4.5,
+  /** Tutorial script. */
+  TUTORIAL_DASH_LEAD_SECONDS: 0.2, TUTORIAL_STAND: { x: 0, z: 1.5 }, TUTORIAL_HAZARD_STANDOFF: 1.8, TUTORIAL_STORM_DASH_RANGE: 3.6, TUTORIAL_CLOSE_RANGE: 3,
 } as const;
 
 interface Tele {
@@ -66,7 +73,12 @@ interface Tele {
   src: number;
 }
 
-const PROJECTILE_SPEED: Record<string, number> = { boneArrow: ENEMY_TUNING.ARROW_SPEED, hexOrb: ENEMY_TUNING.REGENT.VOLLEY_SPEED };
+/** Assumed speeds for a projectile seen for the first time; afterwards its velocity is measured between views. */
+const PROJECTILE_SPEED: Record<string, number> = {
+  boneArrow: ENEMY_TUNING.ARROW_SPEED, hexOrb: ENEMY_TUNING.REGENT.VOLLEY_SPEED, boneSpear: ENEMY_TUNING.STALKER.SPEAR_SPEED,
+  soulWisp: ENEMY_TUNING.MATRON.WISP_SPEED,
+};
+const MELEE_KINDS: ReadonlySet<string> = new Set(['minion', 'warrior']);
 const RANGED: ReadonlySet<ClassId> = new Set<ClassId>(['mage', 'rogue']);
 
 const BOON_SCORE: Record<string, number> = {
@@ -93,6 +105,12 @@ export class BotBrain {
   private strafeUntil = 0;
   private lastButtons = 0;
   private aim = Math.PI;
+  /** Projectile positions of the previous view (to measure velocities). */
+  private prevX = new Map<number, number>();
+  private prevZ = new Map<number, number>();
+  private prevTick = -1;
+  private hazardScratch: HazardState = { phase: 'idle', t: 0 };
+  private hazardTele: Tele = { shape: 'circle', x: 0, z: 0, rot: 0, r: 0, w: 0, seen: -1e9, lands: 0, until: 0, src: -1 };
 
   constructor(slot: number, cls: ClassId, seed = 1, opts: BotOptions = {}) {
     this.slot = slot;
@@ -206,10 +224,24 @@ export class BotBrain {
       this.lastButtons = 0;
       return cmd;
     }
-    this.combat(view, me, room, cmd);
+    const tutorial = view.run.tutorial;
+    if (tutorial) this.tutorial(view, me, room, cmd, tutorial);
+    else this.combat(view, me, room, cmd);
+    this.rememberProjectiles(view);
     this.lastButtons = cmd.buttons;
     this.aim = cmd.aim;
     return cmd;
+  }
+
+  private rememberProjectiles(view: BotView): void {
+    this.prevX.clear();
+    this.prevZ.clear();
+    for (const p of view.projectiles) {
+      if (!p.hostile) continue;
+      this.prevX.set(p.id, p.x);
+      this.prevZ.set(p.id, p.z);
+    }
+    this.prevTick = view.tick;
   }
 
   private moveTo(cmd: InputCmd, me: PlayerSnap, x: number, z: number, stop: number): void {
@@ -240,6 +272,23 @@ export class BotBrain {
       if (view.tick - t.seen < this.reactionTicks) continue;
       if (!insideTele(t, x, z, margin)) continue;
       if (!worst || t.lands < worst.lands) worst = t;
+    }
+    // Floor hazards that are warning or active count like a telegraph (their state is a pure function of the tick).
+    const room = view.run.room;
+    if (room) {
+      for (const hz of room.hazards) {
+        const dx = x - hz.x;
+        const dz = z - hz.z;
+        const reach = hz.r + margin;
+        if (dx * dx + dz * dz > reach * reach) continue;
+        const state = hazardState(hz, view.tick, this.hazardScratch);
+        if (state.phase === 'idle') continue;
+        const lands = state.phase === 'active' ? view.tick : view.tick + Math.round(((1 - state.t) * HAZARD_TIMING.WARN) / TICK_DT);
+        if (worst && worst.lands <= lands) continue;
+        const t = this.hazardTele;
+        t.x = hz.x; t.z = hz.z; t.r = hz.r; t.lands = lands; t.until = lands;
+        worst = t;
+      }
     }
     return worst;
   }
@@ -296,9 +345,20 @@ export class BotBrain {
       const rx = me.x - p.x;
       const rz = me.z - p.z;
       if (rx * rx + rz * rz > BOT.PROJECTILE_SCAN_RADIUS * BOT.PROJECTILE_SCAN_RADIUS) continue;
-      const speed = PROJECTILE_SPEED[p.kind] ?? 10;
-      const vx = Math.sin(p.rot) * speed;
-      const vz = Math.cos(p.rot) * speed;
+      let vx: number;
+      let vz: number;
+      const px = this.prevX.get(p.id);
+      const pz = this.prevZ.get(p.id);
+      const elapsed = (view.tick - this.prevTick) * TICK_DT;
+      if (px !== undefined && pz !== undefined && elapsed > 0 && (p.x !== px || p.z !== pz)) {
+        vx = (p.x - px) / elapsed;
+        vz = (p.z - pz) / elapsed;
+      } else {
+        const assumed = PROJECTILE_SPEED[p.kind] ?? 10;
+        vx = Math.sin(p.rot) * assumed;
+        vz = Math.cos(p.rot) * assumed;
+      }
+      const speed = Math.hypot(vx, vz) || 1;
       const t = (rx * vx + rz * vz) / (speed * speed);
       if (t <= 0 || t > BOT.PROJECTILE_HORIZON_SECONDS) continue;
       const mx = rx - vx * t;
@@ -395,6 +455,52 @@ export class BotBrain {
       }
     }
 
+    // Soul wisps home in on heroes but pop when struck: strike one that is in reach, shoot one that is near.
+    let wisp: ProjectileSnap | null = null;
+    let wispD = Infinity;
+    for (const p of view.projectiles) {
+      if (!p.hostile || p.kind !== 'soulWisp') continue;
+      const d = Math.hypot(p.x - me.x, p.z - me.z);
+      if (d < wispD) { wispD = d; wisp = p; }
+    }
+    if (wisp) {
+      const reach = ranged ? BOT.WISP_SHOOT_RANGE : range + 0.3;
+      const urgent = wispD <= BOT.WISP_PRIORITY_RANGE || !target || wispD < targetD;
+      if (wispD <= reach && urgent && (!ranged || this.lineOfFire(room, me.x, me.z, wisp.x, wisp.z))) {
+        cmd.aim = Math.atan2(wisp.x - me.x, wisp.z - me.z);
+        cmd.aimDist = wispD;
+        wantPrimary = true;
+        wantSecondary = false;
+      }
+    }
+
+    // Fight next to a floor hazard when one is close: stand just outside it with the hazard between us and the pack.
+    if (!ranged && target && MELEE_KINDS.has(target.kind) && targetD <= BOT.HAZARD_LURE_TARGET_RANGE && room.hazards.length > 0) {
+      let best: Hazard | null = null;
+      let bestD: number = BOT.HAZARD_LURE_RANGE;
+      for (const hz of room.hazards) {
+        const d = Math.hypot(hz.x - me.x, hz.z - me.z) - hz.r;
+        if (d < bestD) { bestD = d; best = hz; }
+      }
+      if (best) {
+        let ax = best.x - target.x;
+        let az = best.z - target.z;
+        const ad = Math.hypot(ax, az);
+        if (ad > 0.5) {
+          ax /= ad;
+          az /= ad;
+          const sx = best.x + ax * (best.r + BOT.HAZARD_LURE_STANDOFF);
+          const sz = best.z + az * (best.r + BOT.HAZARD_LURE_STANDOFF);
+          const sd = Math.hypot(sx - me.x, sz - me.z);
+          // Only when the anchor is on our side already (never walk through the hazard to get there).
+          const cross = sweepHit(me.x, me.z, sx, sz, best.x, best.z, best.r + BOT.TELEGRAPH_MARGIN) >= 0;
+          if (!cross && this.inRoom(room, sx, sz, WORLD.PLAYER_RADIUS)) {
+            if (sd > 0.4) { mx = (sx - me.x) / sd; mz = (sz - me.z) / sd; } else { mx = 0; mz = 0; }
+          }
+        }
+      }
+    }
+
     // Revive a fallen ally when possible.
     let ally: PlayerSnap | null = null;
     let allyD = Infinity;
@@ -470,6 +576,89 @@ export class BotBrain {
     // SECONDARY and DASH trigger on a rising edge: pulse them.
     if (wantSecondary && (this.lastButtons & BTN.SECONDARY) === 0) cmd.buttons |= BTN.SECONDARY;
     if (wantDash && (this.lastButtons & BTN.DASH) === 0) cmd.buttons |= BTN.DASH;
+  }
+  // ------------------------------------------------------------------ tutorial
+
+  /** Plays the training session from what a client sees: the step id, the marker, telegraphs and the snapshot. */
+  private tutorial(view: BotView, me: PlayerSnap, room: RoomLayout, cmd: InputCmd, tut: TutorialState): void {
+    this.pruneTelegraphs(view);
+    switch (tut.step) {
+      case 'move':
+        if (tut.marker) this.moveTo(cmd, me, tut.marker.x, tut.marker.z, 0.3);
+        cmd.aim = Math.atan2(cmd.moveX, cmd.moveZ) || this.aim;
+        break;
+      case 'dash': {
+        // Wait inside the announced lane and dash out of it at the last moment (i-frames carry us through).
+        let lane: Tele | null = null;
+        for (const t of this.telegraphs) if (t.shape === 'line' && insideTele(t, me.x, me.z, 0)) lane = t;
+        if (!lane) {
+          this.moveTo(cmd, me, BOT.TUTORIAL_STAND.x, BOT.TUTORIAL_STAND.z, 0.5);
+          break;
+        }
+        cmd.aim = lane.rot + Math.PI;
+        const left = (lane.lands - view.tick) * TICK_DT;
+        if (left <= BOT.TUTORIAL_DASH_LEAD_SECONDS && me.dashCharges >= 1) {
+          cmd.moveX = Math.cos(lane.rot);
+          cmd.moveZ = -Math.sin(lane.rot);
+          if ((this.lastButtons & BTN.DASH) === 0) cmd.buttons |= BTN.DASH;
+        }
+        break;
+      }
+      case 'hazard': {
+        const hz = room.hazards[0];
+        let foe: EnemySnap | null = null;
+        for (const e of view.enemies) if (e.hp > 0 && e.anim !== 'death') foe = e;
+        if (!hz) break;
+        // Keep the hazard between us and the foe, circling around its edge instead of crossing it.
+        const hold = hz.r + BOT.TUTORIAL_HAZARD_STANDOFF;
+        let wx = tut.marker ? tut.marker.x - hz.x : hold;
+        let wz = tut.marker ? tut.marker.z - hz.z : 0;
+        if (foe && Math.hypot(foe.x - hz.x, foe.z - hz.z) > 0.5) { wx = hz.x - foe.x; wz = hz.z - foe.z; }
+        const want = Math.atan2(wx, wz);
+        const rx = me.x - hz.x;
+        const rz = me.z - hz.z;
+        const rd = Math.hypot(rx, rz) || 1;
+        const at = Math.atan2(rx, rz);
+        const diff = angleDiff(want, at);
+        const radial = Math.max(-1, Math.min(1, hold - rd));
+        const turn = Math.abs(diff) < 0.15 ? 0 : Math.sign(diff);
+        cmd.moveX = (rx / rd) * radial + Math.cos(at) * turn;
+        cmd.moveZ = (rz / rd) * radial - Math.sin(at) * turn;
+        if (!this.inRoom(room, me.x + cmd.moveX, me.z + cmd.moveZ, WORLD.PLAYER_RADIUS)) { cmd.moveX = (rx / rd) * radial; cmd.moveZ = (rz / rd) * radial; }
+        cmd.aim = Math.atan2(-rx, -rz);
+        break;
+      }
+      case 'secondary':
+      case 'storm': {
+        this.combat(view, me, room, cmd);
+        let foe: EnemySnap | null = null;
+        let foeD = Infinity;
+        for (const e of view.enemies) {
+          if (e.hp <= 0 || e.anim === 'death' || e.anim === 'spawn') continue;
+          const d = Math.hypot(e.x - me.x, e.z - me.z);
+          if (d < foeD) { foeD = d; foe = e; }
+        }
+        if (!foe || foeD <= 0.5) break;
+        const dirX = (foe.x - me.x) / foeD;
+        const dirZ = (foe.z - me.z) / foeD;
+        // The targets stand still: walk up to them (ranged classes would otherwise keep their distance).
+        if (foeD > BOT.TUTORIAL_CLOSE_RANGE) { cmd.moveX = dirX; cmd.moveZ = dirZ; }
+        if (tut.step === 'secondary') {
+          cmd.aim = Math.atan2(dirX, dirZ);
+          cmd.aimDist = foeD;
+          if (foeD <= BOT.TUTORIAL_STORM_DASH_RANGE && me.cdSecondary <= 0 && (this.lastButtons & BTN.SECONDARY) === 0) cmd.buttons |= BTN.SECONDARY;
+        } else if (foeD <= BOT.TUTORIAL_STORM_DASH_RANGE && me.dashCharges >= 1 && (foe.flags & EF.SHOCK) === 0) {
+          // Dash straight through the foe so the infused dash marks it.
+          cmd.moveX = dirX;
+          cmd.moveZ = dirZ;
+          if ((this.lastButtons & BTN.DASH) === 0) cmd.buttons |= BTN.DASH;
+        }
+        break;
+      }
+      default:
+        this.combat(view, me, room, cmd);
+        break;
+    }
   }
 }
 

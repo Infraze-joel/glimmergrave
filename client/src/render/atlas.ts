@@ -8,6 +8,8 @@ const DIGIT = { W: 44, H: 60, Y: 0 } as const;
 const ICON_SIZE = 64;
 const ICON_Y = 64;
 const NAME = { W: 384, H: 56, Y: 144, COLS: 2 } as const;
+/** Word mark shown on a Resonance burst; drawn white so the two element colours can tint its halves. */
+const WORD = { TEXT: 'RESONANCE', X: 0, Y: 288, W: 560, H: 96 } as const;
 const OUTLINE = 'rgba(6, 6, 12, 0.95)';
 const FONT_STACK = '"Trebuchet MS", "Segoe UI", system-ui, sans-serif';
 
@@ -173,6 +175,9 @@ export class Atlas {
   readonly bang: UvRect;
   readonly icons = {} as Record<IconName, UvRect>;
   readonly names: UvRect[] = [];
+  /** Left and right half of the word mark, each tinted with one element colour. */
+  readonly wordHalves: [UvRect, UvRect];
+  readonly wordAspect = WORD.W / WORD.H;
   /** Width / height of a name cell, for sizing the sprite. */
   readonly nameAspect = NAME.W / NAME.H;
   readonly digitAspect = DIGIT.W / DIGIT.H;
@@ -216,6 +221,15 @@ export class Atlas {
       this.names.push(rect(x, y, NAME.W, NAME.H));
       this.nameText.push('');
     }
+
+    ctx.font = `900 76px ${FONT_STACK}`;
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 14;
+    ctx.strokeStyle = OUTLINE;
+    ctx.strokeText(WORD.TEXT, WORD.X + WORD.W / 2, WORD.Y + WORD.H / 2 + 2, WORD.W - 28);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(WORD.TEXT, WORD.X + WORD.W / 2, WORD.Y + WORD.H / 2 + 2, WORD.W - 28);
+    this.wordHalves = [rect(WORD.X, WORD.Y, WORD.W / 2, WORD.H), rect(WORD.X + WORD.W / 2, WORD.Y, WORD.W / 2, WORD.H)];
 
     this.texture = new CanvasTexture(this.canvas);
     this.texture.colorSpace = SRGBColorSpace;

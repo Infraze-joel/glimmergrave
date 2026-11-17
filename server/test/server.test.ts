@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { NET } from '@shared/constants.ts';
 import { INPUT_BYTES } from '@shared/protocol.ts';
+import { DEFAULT_LOOK } from '@shared/data/meta.ts';
 import { BTN, PF } from '@shared/types.ts';
 import { parseOrigins } from '../src/main.ts';
 import { boot, Client, lobby, sleep, startRun, V } from './helpers.ts';
@@ -73,11 +74,12 @@ describe('create / join', () => {
     expect(w.token.length).toBeGreaterThanOrEqual(16);
     const roster = await c.next('roster');
     expect(roster.oath).toBe(0);
-    expect(roster.players).toEqual([{ slot: 0, name: 'Ada b', cls: 'rogue', ready: false, connected: true, host: true, boons: [] }]);
+    expect(roster.players).toEqual([{ slot: 0, name: 'Ada b', cls: 'rogue', look: DEFAULT_LOOK, ready: false, connected: true, host: true, boons: [] }]);
     const run = await c.next('run');
     expect(run.state.phase).toBe('lobby');
     expect(run.state.room).toBeNull();
-    expect((await c.next('draft')).options).toEqual([]);
+    expect(run.state).toMatchObject({ bossKind: null, rewards: [], tutorial: null });
+    expect(await c.next('draft')).toEqual({ t: 'draft', options: [], rerolls: 0 });
   });
 
   it('join: next free slot, duplicates of a class allowed, everyone gets the roster, tokens stay private', async () => {

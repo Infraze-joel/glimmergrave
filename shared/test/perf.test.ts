@@ -2,17 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { NET, WORLD } from '@shared/constants.ts';
 import { encodeSnapshot, encodeSnapshotBody } from '@shared/protocol.ts';
 import { spawnProjectile } from '@shared/sim/projectiles.ts';
-import type { EnemyKind } from '@shared/types.ts';
+import type { EnemyKind, Hazard } from '@shared/types.ts';
 import { World } from '@shared/sim/index.ts';
 import { Pad, runBots } from './harness.ts';
 
 const report = (text: string): void => { process.stdout.write(`${text}\n`); };
 
 describe('performance', () => {
-  it('World.step() with 4 heroes + 48 enemies + 60 projectiles averages well under 1.5 ms', () => {
+  it('World.step() with 4 heroes + 48 enemies + 60 projectiles + 8 hazards averages well under 1.5 ms', () => {
     const w = new World();
     (['knight', 'barbarian', 'mage', 'rogue'] as const).forEach((cls, slot) => w.addPlayer(slot, cls, `P${slot}`));
-    w.startSandbox(9);
+    // Eight hazards of all three kinds, spread over the arena and out of phase with each other.
+    const hazards: Hazard[] = Array.from({ length: 8 }, (_, i) => ({
+      x: ((i % 4) - 1.5) * 9, z: i < 4 ? -7 : 7, r: 2, kind: (['spikes', 'vent', 'frost'] as const)[i % 3]!, period: 4 + (i % 3), phase: i / 8,
+    }));
+    w.startSandbox(9, { seed: 9, biome: 'forge', w: 40, d: 30, obstacles: [], hazards, spawns: [{ x: -3.3, z: 12.5 }, { x: -1.1, z: 12.5 }, { x: 1.1, z: 12.5 }, { x: 3.3, z: 12.5 }] });
     const kinds: EnemyKind[] = ['minion', 'minion', 'minion', 'warrior', 'archer', 'mage'];
     const fill = (): void => {
       let i = w.enemies.length;
@@ -24,6 +28,8 @@ describe('performance', () => {
       }
       if (!w.enemies.some((e) => e.kind === 'regent')) { const b = w.spawnEnemy('regent', 0, -8); if (b) { b.spawnTime = 0; b.hp = b.maxHp = 1e7; } }
       if (!w.enemies.some((e) => e.kind === 'champion')) { const b = w.spawnEnemy('champion', 6, -8); if (b) { b.spawnTime = 0; b.hp = b.maxHp = 1e7; } }
+      if (!w.enemies.some((e) => e.kind === 'matron')) { const b = w.spawnEnemy('matron', -6, -8); if (b) { b.spawnTime = 0; b.hp = b.maxHp = 1e7; b.hp = b.maxHp * 0.2; } }
+      if (!w.enemies.some((e) => e.kind === 'stalker')) { const b = w.spawnEnemy('stalker', -10, 6); if (b) { b.spawnTime = 0; b.hp = b.maxHp = 1e7; b.hp = b.maxHp * 0.2; } }
       for (let p = w.projectiles.length; p < 60; p++) {
         spawnProjectile(w, {
           kind: 'hexOrb', x: ((p * 17) % 20) - 10, z: ((p * 29) % 16) - 8, rot: p * 0.7, speed: 9, radius: 0.35, range: 26, damage: 1,
@@ -62,10 +68,12 @@ describe('performance', () => {
     for (let i = 0; i < 2000; i++) encodeSnapshot(w.tick, w.getSelfState(i % 4), encodeSnapshotBody(w.getSnapshotBody()));
     const encodeMs = (performance.now() - t1) / 2000;
     const hz = NET.TICK_HZ / NET.SNAPSHOT_EVERY;
-    report(`\nperf: World.step avg ${avg.toFixed(3)} ms (4 heroes, ${(enemies / N).toFixed(0)} enemies, ${(projectiles / N).toFixed(0)} projectiles); `
+    report(`\nperf: World.step avg ${avg.toFixed(3)} ms (4 heroes, ${(enemies / N).toFixed(0)} enemies, ${(projectiles / N).toFixed(0)} projectiles, ${w.room.hazards.length} hazards, 4 bosses incl. phase-3 matron + stalker); `
       + `snapshot ${frame.byteLength} bytes (${w.enemies.length} enemies, ${w.projectiles.length} projectiles) = ${((frame.byteLength * hz) / 1000).toFixed(1)} kB/s per client at ${hz} Hz; `
       + `build+encode ${encodeMs.toFixed(3)} ms`);
     expect(enemies / N).toBeGreaterThanOrEqual(46);
+    expect(w.room.hazards).toHaveLength(8);
+    expect(w.hazardPhase).toHaveLength(8);
     expect(projectiles / N).toBeGreaterThanOrEqual(60);
     expect(avg).toBeLessThan(1.5);
     expect(frame.byteLength).toBeLessThan(1400);

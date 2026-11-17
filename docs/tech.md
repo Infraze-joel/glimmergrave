@@ -8,7 +8,7 @@
 | Server | Node 22+ and `ws` | tiny authoritative WebSocket server; runs as a Netlify Server next to the site (ADR 0002) or in any container |
 | Tests | Vitest (unit + integration), node:test + puppeteer-core (browser e2e) | |
 | Assets | KayKit packs (CC0) optimised with glTF-Transform (meshopt) | see docs/ASSETS.md |
-| Audio | Web Audio API, procedural | zero downloads, no licensing risk |
+| Audio | Web Audio API: CC0 samples (Kenney) layered with synthesis, generative score | see docs/AUDIO.md; samples load lazily after the first gesture |
 
 ## Layout
 

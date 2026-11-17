@@ -68,9 +68,61 @@ test('joining with an unknown session code shows an error and stays in the menu'
   await c.close();
 });
 
+test('training starts from the menu, explains the first step and advances when it is done', async () => {
+  const c = await newClient(browser);
+  await c.page.click(tid('menu-name'), { clickCount: 3 });
+  await c.page.type(tid('menu-name'), 'Novice');
+  await c.page.click(tid('menu-training'));
+  await waitScreen(c.page, 'game');
+  await c.page.waitForSelector(`${tid('tutorial-panel')}[data-step="move"]`, { timeout: 15000 });
+  const first = (await gameText(c.page)).run.tutorial;
+  assert.equal(first.total, 10);
+  assert.ok(first.marker, 'the move step has a ground marker');
+  // Walk to the marker with real key presses until the server moves on to the next step.
+  const deadline = Date.now() + 30000;
+  let step = 'move';
+  while (step === 'move' && Date.now() < deadline) {
+    const t = await gameText(c.page);
+    step = t.run.tutorial?.step ?? 'done';
+    const me = t.players.find((p) => p.slot === t.conn.slot);
+    if (step !== 'move' || !me || !t.run.tutorial.marker) continue;
+    const dx = t.run.tutorial.marker.x - me.x;
+    const dz = t.run.tutorial.marker.z - me.z;
+    const keys = [];
+    if (Math.abs(dx) > 0.4) keys.push(dx > 0 ? 'KeyD' : 'KeyA');
+    if (Math.abs(dz) > 0.4) keys.push(dz > 0 ? 'KeyS' : 'KeyW');
+    for (const k of keys) await c.page.keyboard.down(k);
+    await sleep(250);
+    for (const k of keys) await c.page.keyboard.up(k);
+  }
+  assert.equal(step, 'attack', 'reaching the marker starts the attack step');
+  await c.page.waitForSelector(`${tid('tutorial-panel')}[data-step="attack"]`, { timeout: 10000 });
+  assert.deepEqual(c.problems, []);
+  await c.close();
+});
+
+test('Glimmer buys a permanent upgrade that survives a reload', async () => {
+  const c = await newClient(browser, '/', { glimmer: 500 });
+  await c.page.click(tid('menu-armory'));
+  await c.page.waitForSelector(tid('armory-root'), { timeout: 10000 });
+  assert.equal(await c.page.$eval(tid('armory-wallet'), (el) => el.dataset.glimmer), '500');
+  await c.page.click(tid('armory-buy-vitality'));
+  await c.page.waitForFunction(() => document.querySelector('[data-testid="armory-wallet"]')?.dataset.glimmer === '460', { timeout: 20000 });
+  await open(c.page, '/');
+  const profile = await c.page.evaluate(() => window.__game.state.profile);
+  assert.equal(profile.glimmer, 460);
+  assert.equal(profile.meta.vitality, 1);
+  await c.close();
+});
+
 test('two independent clients create and join a session', async () => {
   a = await newClient(browser);
   b = await newClient(browser);
+  // Alva dresses her knight in the wardrobe first; the look must reach the other client.
+  await a.page.click(tid('menu-wardrobe'));
+  await a.page.waitForSelector(tid('wardrobe-root'), { timeout: 10000 });
+  await a.page.click(tid('wardrobe-color-3'));
+  await a.page.click(tid('page-close'));
   code = await host(a.page, 'Alva', 'knight');
   assert.match(code, /^[A-Z2-9]{5}$/);
   await join(b.page, 'Bero', code.toLowerCase(), 'mage');
@@ -84,6 +136,7 @@ test('two independent clients create and join a session', async () => {
   assert.equal(tb.conn.slot, 1);
   assert.deepEqual(ta.roster.map((p) => [p.name, p.cls, p.host]), [['Alva', 'knight', true], ['Bero', 'mage', false]]);
   assert.deepEqual(tb.roster.map((p) => p.name), ['Alva', 'Bero']);
+  assert.equal(tb.roster[0].look.color, 3, 'the host look chosen in the wardrobe is synced to the other client');
   // A scripted third player keeps the run going even if the test-driven heroes get knocked down.
   bots = startBots(code, 1, 'rogue');
   await a.page.waitForFunction(() => document.querySelectorAll('[data-testid^="lobby-slot-"][data-connected="true"]').length === 3, { timeout: 30000 });
@@ -180,9 +233,10 @@ test('reloading the page rejoins the same slot in the running game', async () =>
 test('the game stays playable with 150 ms of added latency', async () => {
   proxy.lag.oneWayMs = 75;
   proxy.lag.jitterMs = 20;
-  await sleep(11000);
+  // The displayed ping is smoothed over several 2 s samples, so give it time to climb.
+  const lagged = await eventually(async () => (await gameText(a.page)).conn.pingMs > 120, 30000, 1000);
   const ping = (await gameText(a.page)).conn.pingMs;
-  assert.ok(ping > 120, `ping should reflect the added latency (was ${ping.toFixed(0)} ms)`);
+  assert.ok(lagged, `ping should reflect the added latency (was ${ping.toFixed(0)} ms)`);
   let worst = 0;
   for (const key of ['KeyD', 'KeyS', 'KeyA', 'KeyW']) {
     await a.page.keyboard.down(key);
@@ -216,17 +270,29 @@ test('a disconnecting client is flagged for the others and the run goes on', asy
 });
 
 test('leaving the session returns to the main menu', async () => {
-  if (await screen(a.page) === 'game') {
-    await a.page.keyboard.press('Escape');
-    await a.page.waitForSelector(tid('pause-leave'), { timeout: 5000 });
-    await a.page.click(tid('pause-leave'));
-    await a.page.waitForSelector(tid('pause-leave-confirm'), { timeout: 5000 });
-    await a.page.click(tid('pause-leave-confirm'));
-  } else {
-    // The run already ended (the idle test heroes were overrun): leave from the summary instead.
-    await a.page.click(tid('summary-leave'));
+  // Through the pause menu while the run is on, or from the summary if the run has ended meanwhile
+  // (the idle test heroes can be overrun). A screen change in between simply leads to another attempt.
+  for (let attempt = 0; attempt < 4 && (await screen(a.page)) !== 'menu'; attempt++) {
+    try {
+      if (await screen(a.page) === 'game') {
+        if (!(await a.page.$(tid('pause-leave')))) await a.page.keyboard.press('Escape');
+        await a.page.waitForSelector(tid('pause-leave'), { timeout: 8000 });
+        await a.page.click(tid('pause-leave'));
+      } else {
+        await a.page.click(tid('summary-leave'));
+      }
+      // The pause menu and the summary / lobby use two different confirmation dialogs.
+      const confirm = `${tid('pause-leave-confirm')}, ${tid('leave-confirm')}`;
+      await a.page.waitForSelector(confirm, { timeout: 8000 });
+      await a.page.click(confirm);
+      await sleep(500);
+    } catch { /* screen changed under us: try again */ }
   }
-  await waitScreen(a.page, 'menu');
+  if (await screen(a.page) !== 'menu') {
+    await a.page.screenshot({ path: '/tmp/e2e-leave-fail.png' });
+    const ids = await a.page.evaluate(() => [...document.querySelectorAll('[data-testid]')].map((e) => e.dataset.testid).join(' '));
+    assert.fail(`still on screen ${await screen(a.page)}; visible test ids: ${ids}; problems: ${a.problems.slice(-3).join(' | ')}`);
+  }
   assert.equal((await gameText(a.page)).conn.status, 'offline');
   const fatal = a.problems.filter((p) => !/WebSocket connection|ERR_CONNECTION/.test(p));
   assert.deepEqual(fatal, [], 'no console errors during the whole session');

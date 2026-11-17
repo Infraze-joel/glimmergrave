@@ -80,9 +80,16 @@ export async function launch() {
 }
 
 /** An independent client: its own browser context (separate storage), page, and captured console problems. */
-export async function newClient(browser, path = '/') {
+/** `profile` (optional) is merged into the stored player profile before the game loads (e.g. { glimmer: 500 }). */
+export async function newClient(browser, path = '/', profile = null) {
   const context = await browser.createBrowserContext();
   const page = await context.newPage();
+  if (profile) {
+    await page.evaluateOnNewDocument((patch) => {
+      const key = 'glimmergrave.profile.v1';
+      if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(patch));
+    }, profile);
+  }
   await page.setViewport({ width: 1280, height: 720 });
   const problems = [];
   page.on('console', (m) => { if (m.type() === 'error') problems.push(m.text()); });

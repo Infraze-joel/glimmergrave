@@ -3,23 +3,32 @@
  * Static structure is built once, the ~15 Hz `syncHud` only touches text / custom properties that changed.
  */
 import { RUN, WORLD } from '@shared/constants.ts';
-import { ENEMY_TUNING } from '@shared/data/enemies.ts';
-import { PF, type AbilitySlot, type DoorType, type GameEvent, type PlayerSnap } from '@shared/types.ts';
+import { PF, type AbilitySlot, type BiomeId, type DoorType, type EnemyKind, type GameEvent, type PlayerSnap } from '@shared/types.ts';
 import { self, selfRoster, state } from '../core/GameState.ts';
+import { createCoach } from './coach.ts';
 import { h, icon, key, retrigger, setAttr, setText, setVar, show, toggle } from './dom.ts';
+import { actTitle, bossLabel, chamberActs, enemyName, phaseThresholds } from './elements.ts';
 import { DOOR_TEXT_PARAMS, formatBoon, roman, t, type I18nKey } from './i18n.ts';
 import { ABILITY_ICON, ABILITY_SLOTS, infusionOf, maxDashCharges, nameOf } from './model.ts';
-import { UI_CONFIG } from './store.ts';
+import { ui, UI_CONFIG } from './store.ts';
+import { createStrip } from './strip.ts';
+import { createTips } from './tips.ts';
 import type { View } from './view.ts';
 import type { IconName } from './icons.ts';
 
 const PERCENT = 100;
 const DOOR_LEGEND: readonly DoorType[] = ['boon', 'blessing', 'cursed', 'boss'];
+/** Icon of a boss / champion on the chamber track and the boss bar. */
+export const BOSS_ICON: Partial<Record<EnemyKind, IconName>> = { champion: 'elite', regent: 'boss', matron: 'matron', stalker: 'stalker' };
 
 export interface HudView extends View {
   syncHud(): void;
   onEvent(ev: GameEvent): void;
   onLocalAction(action: 'primary' | 'secondary' | 'dash' | 'denied'): void;
+  /** Enter in game: closes the visible tip. Returns false when there was none. */
+  dismissTip(): boolean;
+  /** The game screen was left. */
+  reset(): void;
 }
 
 interface PartyFrame {
@@ -124,51 +133,102 @@ export function createHud(): HudView {
   const bossFill = h('i', { class: 'gg-boss-fill' });
   const bossGhost = h('i', { class: 'gg-boss-ghost' });
   const bossMarks = h('div', { class: 'gg-boss-marks' });
-  const boss = h('div', { class: 'gg-boss', 'data-testid': 'hud-boss' },
-    h('div', { class: 'gg-boss-head' }, icon('boss'), bossName),
+  const bossIcon = h('span', { class: 'gg-boss-icon' });
+  const boss = h('div', { class: 'gg-boss', 'data-testid': 'hud-boss', 'data-boss': '' },
+    h('div', { class: 'gg-boss-head' }, bossIcon, bossName),
     h('div', { class: 'gg-boss-bar' }, bossGhost, bossFill, bossMarks),
   );
   const bannerTitle = h('div', { class: 'gg-banner-title' });
   const bannerSub = h('div', { class: 'gg-banner-sub' });
   const banner = h('div', { class: 'gg-banner', role: 'status' }, bannerTitle, bannerSub);
   const bossSlot = h('div', { class: 'gg-boss-slot' });
-  const topCentre = h('div', { class: 'gg-hud-tc' }, track, waveLine, bossSlot, banner);
+  const coach = createCoach();
+  const coachSlot = h('div', { class: 'gg-coach-slot' });
+  const topCentre = h('div', { class: 'gg-hud-tc' }, coachSlot, track, waveLine, bossSlot, banner);
   let trackKey = '';
   let bossKey = '';
   let bannerTimer = 0;
+  let actBannerUntil = 0;
+  let lastBiome: BiomeId | null = null;
+  let lastChamber = -1;
 
-  const showBanner = (title: string, sub: string, tone: string): void => {
+  const showBanner = (title: string, sub: string, tone: string, ms: number = UI_CONFIG.BANNER_MS): void => {
     setText(bannerTitle, title);
     setText(bannerSub, sub);
     banner.dataset.tone = tone;
+    setVar(banner, '--banner-ms', `${ms}ms`);
     retrigger(banner, 'is-on');
     window.clearTimeout(bannerTimer);
-    bannerTimer = window.setTimeout(() => banner.classList.remove('is-on'), UI_CONFIG.BANNER_MS);
+    bannerTimer = window.setTimeout(() => banner.classList.remove('is-on'), ms);
   };
 
   const renderTrack = (): void => {
     const run = state.run;
     if (!run) return;
-    const k = `${run.chamber}|${run.oath}|${run.entered}`;
+    const acts = chamberActs(ui.biomes);
+    const k = `${run.chamber}|${run.oath}|${run.entered}|${run.finalBoss}|${acts.join('')}|${[...ui.biomes.values()].join(',')}`;
     if (k === trackKey) return;
     trackKey = k;
     setAttr(track, 'data-chamber', String(run.chamber));
+    const finalName = enemyName(run.finalBoss ?? 'regent');
     const list = h('ol', { class: 'gg-track-list', 'aria-label': t('hud.chamber', { n: run.chamber + 1, m: RUN.CHAMBERS.length }) });
+    const currentAct = acts[Math.min(run.chamber, acts.length - 1)];
     RUN.CHAMBERS.forEach((kind, i) => {
+      const act = acts[i];
+      const actStart = i === 0 || acts[i - 1] !== act;
+      if (actStart) {
+        // Any chamber of the act that was already visited tells its biome.
+        const seenAt = acts.findIndex((other, index) => other === act && ui.biomes.has(index));
+        const biome = seenAt >= 0 ? ui.biomes.get(seenAt) ?? null : null;
+        list.append(h('li', {
+          class: `gg-track-act${act === currentAct ? ' is-current' : act < currentAct ? ' is-done' : ''}`,
+          'data-biome': biome ?? '', 'data-act': String(act + 1), title: actTitle(act, biome),
+        }, roman(act + 1)));
+      }
       const cls = i < run.chamber ? 'is-done' : i === run.chamber ? 'is-current' : '';
       const cursed = i === run.chamber && run.entered === 'cursed' ? ' is-cursed' : '';
-      list.append(h('li', { class: `gg-track-node is-${kind} ${cls}${cursed}`, title: t(`chamber.${kind}`) }, icon(kind)));
+      const final = kind === 'boss';
+      list.append(h('li', {
+        class: `gg-track-node is-${kind} ${cls}${cursed}${actStart ? ' is-act-start' : ''}`,
+        title: final ? t('hud.finalBoss', { name: finalName }) : t(`chamber.${kind}`),
+      }, icon(final ? BOSS_ICON[run.finalBoss] ?? 'boss' : kind)));
     });
     const badge = run.oath > 0
       ? h('span', { class: 'gg-oath-badge', title: t('oath.badge', { n: roman(run.oath) }) }, icon('bell'), roman(run.oath))
       : null;
-    track.replaceChildren(...(badge ? [badge, list] : [list]));
+    const final = h('span', { class: 'gg-track-final', 'data-boss': run.finalBoss ?? 'regent', title: t('hud.finalBoss', { name: finalName }) }, finalName);
+    track.replaceChildren(...(badge ? [badge, list, final] : [list, final]));
+  };
+
+  /** Announces a new act when the biome changes (or the run begins). Nothing after a reload mid-run. */
+  const trackAct = (): void => {
+    const run = state.run;
+    if (!run || !run.room || run.tutorial) return;
+    if (run.chamber === 0 && lastChamber !== 0) lastBiome = null;
+    const biome = run.room.biome;
+    const fresh = lastBiome === null ? run.chamber === 0 && lastChamber !== 0 : biome !== lastBiome;
+    if (fresh && run.phase !== 'combat') return; // announce once the fight in the new act starts
+    lastChamber = run.chamber;
+    lastBiome = biome;
+    if (!fresh) return;
+    const act = chamberActs(ui.biomes)[Math.min(run.chamber, RUN.CHAMBERS.length - 1)] ?? 0;
+    showBanner(actTitle(act, biome), t(`biome.${biome}.hint`), `biome-${biome}`, UI_CONFIG.ACT_BANNER_MS);
+    banner.dataset.act = String(act + 1);
+    actBannerUntil = performance.now() + UI_CONFIG.ACT_BANNER_MS;
   };
 
   const syncRun = (): void => {
     const run = state.run;
     if (!run) return;
+    const training = run.tutorial !== null && run.tutorial !== undefined;
+    toggle(el, 'gg-hud--training', training);
+    if (training && !coach.el.isConnected) coachSlot.append(coach.el);
+    else if (!training && coach.el.isConnected) coach.el.remove();
+    if (training) coach.sync();
     renderTrack();
+    trackAct();
+    strip.sync();
+    tips.onRun();
     const combat = run.phase === 'combat';
     setText(waveText,
       combat ? t('hud.wave', { n: Math.max(1, run.wave), m: Math.max(1, run.waveCount) })
@@ -181,19 +241,20 @@ export function createHud(): HudView {
     toggle(el, 'gg-hud--draft', run.phase === 'draft');
     toggle(el, 'gg-hud--calm', !combat);
 
-    const k = `${run.chamberKind}`;
+    const label = bossLabel(run);
+    const k = `${label.kind}|${label.herald}|${run.chamberKind}`;
     if (k !== bossKey) {
       bossKey = k;
-      const regent = run.chamberKind === 'boss';
-      setText(bossName, regent ? t('enemy.regent.name') : t('enemy.champion.name'));
-      toggle(boss, 'is-regent', regent);
+      setText(bossName, label.name);
+      bossIcon.replaceChildren(icon(BOSS_ICON[label.kind] ?? 'boss'));
+      setAttr(boss, 'data-boss', label.kind);
+      toggle(boss, 'is-regent', run.chamberKind === 'boss');
+      toggle(boss, 'is-herald', label.herald);
       bossMarks.replaceChildren();
-      if (regent) {
-        for (const threshold of ENEMY_TUNING.REGENT.PHASE_THRESHOLDS) {
-          const mark = h('i');
-          mark.style.left = pct(threshold);
-          bossMarks.append(mark);
-        }
+      for (const threshold of phaseThresholds(label)) {
+        const mark = h('i');
+        mark.style.left = pct(threshold);
+        bossMarks.append(mark);
       }
     }
   };
@@ -278,7 +339,7 @@ export function createHud(): HudView {
     if (run?.phase === 'doors') {
       const types = DOOR_LEGEND.filter((type) => run.doors.some((d) => d.type === type));
       const shown = types.length > 0 ? types : DOOR_LEGEND.slice(0, 3);
-      renderPrompt(`doors|${shown.join(',')}|${run.doors.map((d) => d.type).join(',')}`, () => {
+      renderPrompt(`doors|${shown.join(',')}|${run.doors.map((d) => d.type).join(',')}|${run.finalBoss}`, () => {
         const legend = h('div', { class: 'gg-door-legend' });
         for (const type of shown) {
           const fill = h('i');
@@ -289,7 +350,7 @@ export function createHud(): HudView {
             icon(type),
             h('div', null,
               h('b', null, t(`door.${type}.name`)),
-              h('span', null, t(`door.${type}.desc`, DOOR_TEXT_PARAMS)),
+              h('span', null, t(`door.${type}.desc`, { ...DOOR_TEXT_PARAMS, boss: enemyName(run.finalBoss ?? 'regent') })),
             ),
             h('div', { class: 'gg-door-progress' }, fill),
           ));
@@ -395,6 +456,10 @@ export function createHud(): HudView {
     toggle(abilityBar, 'is-downed', me !== null && me.state !== 'alive');
   };
 
+  // ------------------------------------------------------------ element strip, combo counter, tips
+  const strip = createStrip();
+  const tips = createTips();
+
   // ------------------------------------------------------------ root
   const el = h('div', { class: 'gg-hud', 'data-testid': 'hud-root' },
     vignette,
@@ -402,8 +467,9 @@ export function createHud(): HudView {
     topCentre,
     h('div', { class: 'gg-hud-tr' }, h('div', { class: 'gg-net' }, ping, roomCode), feed),
     reconnectSlot,
+    tips.el,
     h('div', { class: 'gg-hud-bl' }, vitals),
-    h('div', { class: 'gg-hud-bc' }, prompt, abilityBar),
+    h('div', { class: 'gg-hud-bc' }, prompt, h('div', { class: 'gg-ability-row' }, abilityBar, strip.el)),
   );
   show(prompt, false);
 
@@ -450,6 +516,7 @@ export function createHud(): HudView {
     syncParty();
     syncAbilities(me);
     syncPrompt();
+    tips.pump();
     const hp = state.bossHp;
     if (hp !== null && !boss.isConnected) bossSlot.append(boss);
     else if (hp === null && boss.isConnected) boss.remove();
@@ -472,25 +539,33 @@ export function createHud(): HudView {
 
   const onEvent = (ev: GameEvent): void => {
     const own = state.conn.slot;
+    tips.onEvent(ev);
     switch (ev.e) {
+      case 'resonance':
+        strip.onResonance(ev.a, ev.b, ev.by);
+        break;
+      case 'tutorialStep':
+        coach.celebrate(ev.step);
+        break;
       case 'wave': {
+        if (state.run?.tutorial || (ev.wave <= 1 && performance.now() < actBannerUntil)) break;
         const final = ev.wave >= ev.waveCount && ev.waveCount > 1;
         showBanner(final ? t('toast.waveFinal') : t('toast.wave', { n: ev.wave }),
           final ? t('hud.wave', { n: ev.wave, m: ev.waveCount }) : t('toast.waveSub', { m: ev.waveCount }), 'wave');
         break;
       }
       case 'chamberClear':
-        showBanner(t('toast.chamberClear'), t('toast.chamberClearSub'), 'clear');
+        if (!state.run?.tutorial) showBanner(t('toast.chamberClear'), t('toast.chamberClearSub'), 'clear');
         break;
       case 'bossPhase':
         showBanner(
-          t('toast.bossPhase', {
-            name: state.run?.chamberKind === 'elite' ? t('enemy.champion.name') : t('enemy.regent.name'), n: roman(ev.phase),
-          }),
+          t('toast.bossPhase', { name: state.run ? bossLabel(state.run).name : enemyName('regent'), n: roman(ev.phase) }),
           t('toast.bossPhaseSub'), 'boss');
         break;
       case 'doorChosen':
-        showBanner(t(`toast.door.${ev.type}`), t(`toast.door.${ev.type}Sub`), `door-${ev.type}`);
+        if (state.run?.tutorial) break;
+        showBanner(t(`toast.door.${ev.type}`),
+          t(`toast.door.${ev.type}Sub`, { boss: enemyName(state.run?.finalBoss ?? 'regent') }), `door-${ev.type}`);
         break;
       case 'boon': {
         if (ev.slot === own) break;
@@ -519,5 +594,19 @@ export function createHud(): HudView {
     if (!me || me.dashCharges <= 0) flash('dash', 'is-denied', UI_CONFIG.DENIED_FLASH_MS);
   };
 
-  return { el, sync, syncHud, onEvent, onLocalAction, dispose: () => window.clearTimeout(bannerTimer) };
+  const reset = (): void => {
+    tips.reset();
+    strip.reset();
+    feed.replaceChildren();
+    banner.classList.remove('is-on');
+    lastBiome = null;
+    lastChamber = -1;
+    actBannerUntil = 0;
+  };
+
+  return {
+    el, sync, syncHud, onEvent, onLocalAction, reset,
+    dismissTip: () => tips.dismiss(),
+    dispose: () => { window.clearTimeout(bannerTimer); coach.dispose?.(); strip.dispose?.(); tips.dispose?.(); },
+  };
 }

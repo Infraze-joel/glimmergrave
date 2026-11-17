@@ -28,7 +28,7 @@ export const NET = {
   PING_INTERVAL_MS: 2000,
   /** No message from a client for this long = treated as disconnected. */
   CLIENT_TIMEOUT_MS: 10_000,
-  PROTOCOL_VERSION: 1,
+  PROTOCOL_VERSION: 2,
 } as const;
 
 export const TICK_DT = 1 / NET.TICK_HZ;
@@ -56,12 +56,12 @@ export const RUN = {
   DRAFT_TIMEOUT_SECONDS: 45,
   DRAFT_CHOICES: 3,
   /** Extra enemy health per additional player (multiplicative). */
-  HP_PER_EXTRA_PLAYER: 0.6,
+  HP_PER_EXTRA_PLAYER: 0.56,
   /** Extra enemy count per additional player (multiplicative). */
-  COUNT_PER_EXTRA_PLAYER: 0.4,
+  COUNT_PER_EXTRA_PLAYER: 0.3,
   /** Enemy health / damage growth per chamber index. */
-  HP_GROWTH_PER_CHAMBER: 0.18,
-  DAMAGE_GROWTH_PER_CHAMBER: 0.07,
+  HP_GROWTH_PER_CHAMBER: 0.22,
+  DAMAGE_GROWTH_PER_CHAMBER: 0.12,
   /** Oath (difficulty) levels 0..3: enemy hp, enemy damage, enemy speed multipliers. */
   OATH: [
     { hp: 1.0, damage: 1.0, speed: 1.0 },

@@ -4,16 +4,21 @@
  *   npx tsx server/src/tools/botClient.ts --url ws://localhost:8787 --code ABCDE --bots 2
  *   npx tsx server/src/tools/botClient.ts --create --bots 3 --cls mage,knight,rogue --latency 120 --jitter 40
  *
+ *   npx tsx server/src/tools/botClient.ts --tutorial --cls mage --once
+ *
  * Flags: --url, --code, --create, --bots N, --cls a,b,c, --name prefix, --oath 0-3, --wait N (players needed before
  * the hosting bot starts; default = --bots), --latency ms / --jitter ms (one-way delay applied to every message in
- * BOTH directions, so the round trip is about twice that), --once (exit after the first run), --quiet.
+ * BOTH directions, so the round trip is about twice that), --once (exit after the first run), --quiet,
+ * --meta max (every bot claims fully upgraded permanent upgrades; default: none), --tutorial (one bot plays the
+ * training session instead of a run; implies --create --bots 1).
  */
 import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
 import { NET, TICK_DT } from '../../../shared/src/constants.ts';
+import { DEFAULT_LOOK, META_UPGRADES } from '../../../shared/src/data/meta.ts';
 import { decodeSnapshot, encodeInput, type ClientMsg, type ServerMsg } from '../../../shared/src/protocol.ts';
 import { BotBrain, type BotView } from '../../../shared/src/sim/bot.ts';
-import { CLASS_IDS, type BoonOffer, type ClassId, type RosterEntry, type RunState, type Snapshot } from '../../../shared/src/types.ts';
+import { CLASS_IDS, type BoonOffer, type ClassId, type Loadout, type RosterEntry, type RunState, type Snapshot } from '../../../shared/src/types.ts';
 
 export interface BotClientOptions {
   url: string;
@@ -22,6 +27,10 @@ export interface BotClientOptions {
   /** Join this room; omit together with `create: true` to host a new one. */
   code?: string;
   create?: boolean;
+  /** Create a solo training session instead of a lobby (implies `create`). */
+  tutorial?: boolean;
+  /** Look and permanent upgrade levels sent with create / join (default: default look, no upgrades). */
+  loadout?: Loadout;
   /** Host only: start once this many players are connected and everyone else is ready. */
   startWhenPlayers?: number;
   /** Host only: oath level to set. */
@@ -38,6 +47,10 @@ export interface BotClientOptions {
   reconnect?: boolean;
   log?: (line: string) => void;
 }
+
+export const defaultLoadout = (): Loadout => ({ look: { ...DEFAULT_LOOK }, meta: META_UPGRADES.map(() => 0) });
+/** A loadout that claims the highest level of every permanent upgrade. */
+export const maxLoadout = (): Loadout => ({ look: { ...DEFAULT_LOOK }, meta: META_UPGRADES.map((def) => def.costs.length) });
 
 const BOT_CLIENT = {
   PICK_DELAY_MS: 700,
@@ -85,6 +98,8 @@ export class BotClient {
   token = '';
   roster: RosterEntry[] = [];
   run: RunState | null = null;
+  /** Rerolls left, as reported by the last private draft message. */
+  rerolls = 0;
   snapshot: Snapshot | null = null;
   /** Counters for tests and the status line. */
   snapshots = 0;
@@ -142,11 +157,14 @@ export class BotClient {
         settled = true;
         if (err) reject(err); else resolve();
       };
+      const loadout = this.opts.loadout ?? defaultLoadout();
       const first: ClientMsg = this.token
         ? { t: 'rejoin', v: NET.PROTOCOL_VERSION, code: this.code, token: this.token }
-        : this.opts.create || !this.opts.code
-          ? { t: 'create', v: NET.PROTOCOL_VERSION, name: this.opts.name, cls: this.opts.cls }
-          : { t: 'join', v: NET.PROTOCOL_VERSION, code: this.opts.code, name: this.opts.name, cls: this.opts.cls };
+        : this.opts.tutorial
+          ? { t: 'create', v: NET.PROTOCOL_VERSION, name: this.opts.name, cls: this.opts.cls, loadout, tutorial: true }
+          : this.opts.create || !this.opts.code
+            ? { t: 'create', v: NET.PROTOCOL_VERSION, name: this.opts.name, cls: this.opts.cls, loadout }
+            : { t: 'join', v: NET.PROTOCOL_VERSION, code: this.opts.code, name: this.opts.name, cls: this.opts.cls, loadout };
       const ws = new WebSocket(this.opts.url, { perMessageDeflate: false, handshakeTimeout: 8000 });
       this.ws = ws;
       ws.binaryType = 'nodebuffer';
@@ -269,6 +287,7 @@ export class BotClient {
         this.onRun(msg.state);
         break;
       case 'draft':
+        this.rerolls = msg.rerolls;
         this.onDraft(msg.options);
         break;
       case 'ev':
@@ -394,10 +413,12 @@ interface Args {
   once: boolean;
   quiet: boolean;
   timeScale: number;
+  metaMax: boolean;
+  tutorial: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { url: 'ws://localhost:8787', code: '', create: false, bots: 1, classes: [], name: 'Bot', latency: 0, jitter: 0, once: false, quiet: false, timeScale: 1 };
+  const args: Args = { url: 'ws://localhost:8787', code: '', create: false, bots: 1, classes: [], name: 'Bot', latency: 0, jitter: 0, once: false, quiet: false, timeScale: 1, metaMax: false, tutorial: false };
   const num = (v: string | undefined, name: string): number => {
     const n = Number(v);
     if (v === undefined || !Number.isFinite(n)) throw new Error(`--${name} needs a number`);
@@ -426,11 +447,19 @@ function parseArgs(argv: string[]): Args {
       case '--jitter': args.jitter = Math.max(0, num(value, 'jitter')); i++; break;
       case '--timescale': args.timeScale = Math.max(0.1, num(value, 'timescale')); i++; break;
       case '--once': args.once = true; break;
+      case '--meta': {
+        if (value !== 'max' && value !== 'none') throw new Error('--meta needs "max" or "none"');
+        args.metaMax = value === 'max';
+        i++;
+        break;
+      }
+      case '--tutorial': args.tutorial = true; args.create = true; args.bots = 1; break;
       case '--quiet': args.quiet = true; break;
       default: throw new Error(`unknown argument "${flag}"`);
     }
   }
-  if (!args.create && !args.code) throw new Error('pass --code ABCDE to join a room or --create to host one');
+  if (args.tutorial) args.bots = 1;
+  if (!args.create && !args.code) throw new Error('pass --code ABCDE to join a room, --create to host one or --tutorial');
   return args;
 }
 
@@ -452,10 +481,13 @@ async function cli(): Promise<void> {
       url: args.url, name: `${args.name}${i + 1}`, cls, code: hosting ? undefined : code, create: hosting,
       startWhenPlayers: hosting ? (args.wait ?? args.bots) : undefined, oath: hosting ? args.oath : undefined,
       relobbyAfterMs: hosting && !args.once ? 6000 : undefined, latencyMs: args.latency, jitterMs: args.jitter,
-      timeScale: args.timeScale, seed: 1 + i, reconnect: true, log,
+      timeScale: args.timeScale, seed: 1 + i, reconnect: true, log, tutorial: args.tutorial,
+      loadout: args.metaMax ? maxLoadout() : defaultLoadout(),
     });
     bot.onRunEnd = (phase, run) => {
-      say(`[${bot.opts.name}] run over: ${phase} in chamber ${run.chamber + 1}/8 after ${Math.round(run.elapsed)} s (snapshots ${bot.snapshots}, rtt ${Math.round(bot.rttMs)} ms)`);
+      const glimmer = run.rewards.find((r) => r.slot === bot.slot)?.glimmer ?? 0;
+      const what = run.tutorial ? `tutorial ${phase === 'victory' ? 'completed' : 'failed'} (${run.tutorial.total} steps)` : `run over: ${phase} in chamber ${run.chamber + 1}/8 vs ${run.finalBoss}`;
+      say(`[${bot.opts.name}] ${what} after ${Math.round(run.elapsed)} s, +${glimmer} glimmer (snapshots ${bot.snapshots}, rtt ${Math.round(bot.rttMs)} ms)`);
       if (args.once && ++finished >= bots.length) shutdown(0);
     };
     bot.onClose = (expected) => {
@@ -475,7 +507,8 @@ async function cli(): Promise<void> {
     setInterval(() => {
       const b = bots[0];
       if (!b || !b.run) return;
-      say(`status: ${b.run.phase} chamber ${b.run.chamber + 1} wave ${b.run.wave}/${b.run.waveCount} players ${b.roster.filter((p) => p.connected).length} t=${Math.round(b.run.elapsed)}s`);
+      const where = b.run.tutorial ? `tutorial step ${b.run.tutorial.index + 1}/${b.run.tutorial.total} (${b.run.tutorial.step})` : `chamber ${b.run.chamber + 1} wave ${b.run.wave}/${b.run.waveCount}`;
+      say(`status: ${b.run.phase} ${where} players ${b.roster.filter((p) => p.connected).length} t=${Math.round(b.run.elapsed)}s`);
     }, 10000).unref();
   }
   process.on('SIGINT', () => shutdown(0));

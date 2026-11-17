@@ -62,6 +62,11 @@ export class SnapshotBuffer {
     else this.offset += (sample - this.offset) * OFFSET_RISE_RATE;
   }
 
+  /** Fractional server tick that is being rendered at local time `now` (0 before the first snapshot). */
+  renderTick(now: number): number {
+    return Number.isNaN(this.offset) ? 0 : Math.max(0, (now - this.offset - NET.INTERP_DELAY_MS) / TICK_MS);
+  }
+
   /** Interpolated state for rendering at local time `now`. The returned arrays/rows are reused every call. */
   sample(now: number): Frame {
     const snaps = this.snaps;

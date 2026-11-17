@@ -4,9 +4,10 @@ import { CLASS_IDS, type ClassId } from '@shared/types.ts';
 import { bus } from '../core/EventBus.ts';
 import { isHost, saveProfile, selfRoster, state } from '../core/GameState.ts';
 import { copyText, h, icon, setText, show, toggle } from './dom.ts';
-import { formatList, roman, t } from './i18n.ts';
+import { formatInt, formatList, roman, t } from './i18n.ts';
 import { inviteLink, MAX_OATH, oathDescription, oathName, rosterBySlot } from './model.ts';
-import { UI_CONFIG, type ModalKind } from './store.ts';
+import { UI_CONFIG, type ModalKind, type PageKind } from './store.ts';
+import { lookColor } from './wardrobe.ts';
 import type { View } from './view.ts';
 import { motes } from './menu.ts';
 
@@ -30,7 +31,7 @@ function startInfo(): StartInfo {
   return { can: false, reason: t('lobby.reason.othersNotReady', { names: formatList(names) }) };
 }
 
-export function createLobby(openModal: (kind: ModalKind) => void): LobbyView {
+export function createLobby(openModal: (kind: ModalKind) => void, openPage: (page: PageKind) => void): LobbyView {
   // ---- code + invite
   const code = h('div', { class: 'gg-lobby-code', 'data-testid': 'lobby-code' });
   const feedback = (btn: HTMLButtonElement, label: HTMLElement, original: string) => async (): Promise<void> => {
@@ -53,7 +54,7 @@ export function createLobby(openModal: (kind: ModalKind) => void): LobbyView {
   let slotsKey = '';
   const renderSlots = (): void => {
     // Rebuild only when something visible changed (net:status fires on every ping update).
-    const key = JSON.stringify([state.conn.slot, state.roster.map((p) => [p.slot, p.name, p.cls, p.ready, p.connected, p.host])]);
+    const key = JSON.stringify([state.conn.slot, state.roster.map((p) => [p.slot, p.name, p.cls, p.ready, p.connected, p.host, p.look?.color ?? 0])]);
     if (key === slotsKey) return;
     slotsKey = key;
     slots.replaceChildren();
@@ -75,9 +76,11 @@ export function createLobby(openModal: (kind: ModalKind) => void): LobbyView {
         : p.ready
           ? h('div', { class: 'gg-slot-state is-ready' }, icon('check'), t('lobby.ready'))
           : h('div', { class: 'gg-slot-state' }, icon('hourglass'), t('lobby.notReady'));
-      slots.append(h('div', {
+      const cloth = lookColor(p.look?.color ?? 0);
+      const card = h('div', {
         class: `gg-slot gg-cut gg-cls-${p.cls}${own ? ' is-own' : ''}${p.ready && p.connected ? ' is-ready' : ''}${p.connected ? '' : ' is-off'}`,
         'data-testid': `lobby-slot-${slot}`, 'data-ready': String(p.ready), 'data-connected': String(p.connected),
+        'data-look-color': String(p.look?.color ?? 0),
       },
         p.host ? h('span', { class: 'gg-slot-host', title: t('lobby.host') }, icon('boss'), t('lobby.host')) : null,
         own ? h('span', { class: 'gg-slot-you' }, t('common.you')) : null,
@@ -85,7 +88,11 @@ export function createLobby(openModal: (kind: ModalKind) => void): LobbyView {
         h('div', { class: 'gg-slot-name' }, p.name),
         h('div', { class: 'gg-slot-class' }, t(`class.${p.cls}.name`)),
         status,
-      ));
+        h('i', { class: 'gg-slot-cloth', 'aria-hidden': 'true' }),
+      );
+      // Cloth colour of the hero's look as an accent (index 0 keeps the class colour).
+      if (cloth) card.style.setProperty('--look', cloth);
+      slots.append(card);
     }
   };
 
@@ -100,6 +107,18 @@ export function createLobby(openModal: (kind: ModalKind) => void): LobbyView {
     classButtons.set(cls, btn);
     classRow.append(btn);
   }
+
+  // ---- own loadout: wardrobe + armory
+  const walletText = h('b', { class: 'gg-menu-wallet gg-num' });
+  const wardrobeBtn = h('button', {
+    class: 'gg-btn gg-cut gg-btn--ghost gg-btn--small', type: 'button', 'data-testid': 'lobby-wardrobe', 'data-sfx': 'click',
+    onClick: () => openPage('wardrobe'),
+  }, icon('wardrobe'), h('span', null, t('menu.wardrobe')));
+  const armoryBtn = h('button', {
+    class: 'gg-btn gg-cut gg-btn--ghost gg-btn--small', type: 'button', 'data-testid': 'lobby-armory', 'data-sfx': 'click',
+    onClick: () => openPage('armory'),
+  }, icon('armory'), h('span', null, t('menu.armory')), walletText);
+  const loadoutRow = h('div', { class: 'gg-lobby-loadout' }, wardrobeBtn, armoryBtn);
 
   // ---- oath
   const oathButtons: HTMLButtonElement[] = [];
@@ -152,6 +171,7 @@ export function createLobby(openModal: (kind: ModalKind) => void): LobbyView {
         h('div', { class: 'gg-lobby-panel gg-cut' },
           h('div', { class: 'gg-label' }, t('lobby.yourClass')),
           classRow,
+          loadoutRow,
         ),
         h('div', { class: 'gg-lobby-panel gg-cut gg-lobby-oath' },
           h('div', { class: 'gg-label' }, t('oath.label'), oathNote),
@@ -196,6 +216,8 @@ export function createLobby(openModal: (kind: ModalKind) => void): LobbyView {
       btn.setAttribute('aria-checked', String(on));
     }
     syncOath();
+    setText(walletText, state.profile.glimmer > 0 ? formatInt(state.profile.glimmer) : '');
+    show(walletText, state.profile.glimmer > 0);
     const ready = me?.ready ?? false;
     toggle(readyBtn, 'is-on', ready);
     readyBtn.setAttribute('aria-pressed', String(ready));

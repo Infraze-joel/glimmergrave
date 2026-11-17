@@ -15,7 +15,8 @@ Die Wardens of the Last Bell steigen in das Glimmergrave hinab, eine versunkene 
 **Resonance**: Fähigkeiten lassen sich mit Ember, Rime oder Storm aufladen. Trifft ein Element einen Gegner,
 der bereits ein *anderes* trägt, entlädt sich das in einer Explosion, die das neue Element auf umstehende
 Gegner überträgt. Allein baut man sich Kombinationen über mehrere Fähigkeiten, in der Gruppe ergänzen sich die
-Spieler. Vollständiges Konzept: [`docs/gameplan.md`](docs/gameplan.md).
+Spieler. Jeder Run führt durch drei Biome zu einem von drei Endbossen, und mit dem verdienten Glimmer werden
+die Helden dauerhaft stärker. Vollständiges Konzept: [`docs/gameplan.md`](docs/gameplan.md).
 
 ## 2. Gameplay-Loop
 
@@ -24,9 +25,25 @@ Spieler. Vollständiges Konzept: [`docs/gameplan.md`](docs/gameplan.md).
 3. Kammer geräumt → jeder wählt 1 von 3 Boons (33 Stück, bis zu 3 Stufen); gefallene Helden stehen wieder auf.
 4. Zwei Ausgänge öffnen sich (Boon / Blessing / Cursed). Die Gruppe entscheidet, indem sie sich gemeinsam in
    einen Durchgang stellt.
-5. Acht Kammern: Kampf ×3, Elite (Crypt Champion), Kampf ×2, Elite, Boss (Bone Regent, 3 Phasen).
-6. Sieg oder Niederlage → Auswertung → zurück in die Lobby. Ein Sieg schaltet die nächste Oath-Stufe
-   (Schwierigkeit 0–3) frei.
+5. Acht Kammern in drei Akten: Kampf ×3, Elite (Crypt Champion), Kampf ×2, Herold (schwächere Form eines
+   Bosses, der in diesem Run nicht der Endboss ist), Endboss. Der Endboss wechselt pro Run: Bone Regent,
+   Hex Matron oder Ossuary Stalker, alle mit drei Phasen.
+6. Akt 1 spielt in der Gruft, Akt 2 und 3 in den überfluteten Katakomben und der Glutschmiede (Reihenfolge
+   wechselt). Jedes Biom hat eigene Raumformen, Hindernisse und Bodenfallen (Stacheln, Frostnebel,
+   Feuerdüsen), die Helden und Gegner treffen.
+7. Sieg oder Niederlage → Auswertung mit verdientem Glimmer → Rüstkammer → nächster Run. Ein Sieg schaltet
+   die nächste Oath-Stufe (Schwierigkeit 0–3) frei.
+
+**Dauerhafter Fortschritt:** Glimmer gibt es für jeden Run. In der Rüstkammer kauft man neun Upgrades in
+Stufen (Leben, Schaden, Tempo, Cooldowns, Neuwürfe, Start-Infusion, robustere Wiederbelebung, mehr Glimmer).
+Ohne Upgrades gewinnt ein geübter Solo-Spieler etwa jeden dritten Run, voll ausgebaut etwa vier von fünf
+(mit Bots gemessen).
+
+**Anpassung:** Stofffarbe, Kopfbedeckung, Umhang und drei Ausrüstungsvarianten pro Klasse, rein optisch,
+mit 3D-Vorschau.
+
+**Einstieg:** Ein geführtes Training (etwa drei Minuten) erklärt Bewegung, Dash, die drei Elemente, Resonance,
+Fallen, Boon-Auswahl und Türen. Danach helfen die Element-Leiste im HUD, einmalige Hinweise und der Kodex.
 
 Ein Run dauert etwa 10–15 Minuten.
 
@@ -42,6 +59,7 @@ Ein Run dauert etwa 10–15 Minuten.
 | neben gefallenem Verbündeten stehen (3 s) | Wiederbeleben |
 | Tab (halten) | Übersicht: Statistik und Boons |
 | 1–4 | Boon-Karte wählen |
+| R | Boon-Auswahl neu würfeln (mit dem Upgrade „Einsicht") |
 | Esc | Pause-/Einstellungsmenü |
 
 ## 4. Technische Architektur
@@ -70,6 +88,8 @@ liegen in `shared/src/data/*` und `shared/src/constants.ts`. Mehr: [`docs/tech.m
 - **Eigener Held:** Client-Vorhersage mit demselben Bewegungscode wie der Server
   (`shared/src/sim/movement.ts`), Abgleich über die bestätigte Eingabenummer, Korrekturen werden geglättet.
 - **Alle anderen Entitäten:** Interpolation 120 ms in der Vergangenheit.
+- **Ausrüstung und Upgrades:** Der Client schickt Aussehen und Upgrade-Stufen mit; der Server begrenzt jede
+  Stufe auf ihr Maximum. Glimmer-Belohnungen berechnet der Server, gespeichert wird im Browser.
 - **Sitzungen:** Codes ohne verwechselbare Zeichen, max. 4 Spieler, Beitritt nur in der Lobby.
   Verbindungsabbruch: Slot bleibt 90 s reserviert, Wiederbeitritt per geheimem Token (auch nach Neuladen der
   Seite, automatisch). Host-Wechsel, wenn der Host geht.
@@ -162,8 +182,9 @@ TypeScript 7, Three.js r187 (WebGL), Vite 8, Node.js 22, `ws` 8, esbuild, Vitest
 ## 11. Assets und Lizenzen
 
 Alle 3D-Modelle, Texturen und Animationen stammen aus drei **KayKit**-Paketen von Kay Lousberg unter
-**CC0 1.0** (frei, auch kommerziell, keine Namensnennung nötig). Audio wird zur Laufzeit synthetisiert, es gibt
-keine Audiodateien. Icons und Favicon sind eigene SVGs. Quellen und Pipeline: [`docs/ASSETS.md`](docs/ASSETS.md).
+**CC0 1.0** (frei, auch kommerziell, keine Namensnennung nötig). Soundeffekte stammen aus CC0-Paketen von
+Kenney, ergänzt um synthetische Schichten für die Elemente; die Musik wird zur Laufzeit erzeugt. Quellen,
+Lizenzen und Pipeline: [`docs/AUDIO.md`](docs/AUDIO.md). Icons und Favicon sind eigene SVGs. Quellen und Pipeline: [`docs/ASSETS.md`](docs/ASSETS.md).
 Bibliotheken: MIT (three, ws, vite, …), Cinzel: SIL Open Font License.
 
 ## 12. Bekannte Einschränkungen
@@ -179,15 +200,22 @@ Bibliotheken: MIT (three, ws, vite, …), Cinzel: SIL Open Font License.
 - **Keine echte FPS-Messung.** Die Testumgebung hat keine GPU (Software-Rendering). Gemessen sind
   Rechenzeit pro Frame, Draw Calls, Dreiecke, Speicher und Netzlast, nicht die Bildrate auf echter Hardware.
 - **Nur Chrome getestet** (headless). Firefox und Edge sind ungetestet.
-- **Audio wurde nie angehört**, nur technisch geprüft (keine Fehler, Pegel per Offline-Rendering).
-- **Sieg im Browser nicht durchgespielt.** Bots gewinnen Runs in den Server-Tests; die Browser-Sitzungen
-  endeten mit Niederlagen (Kammer 6 und Boss). Die Sieg-Auswertung ist nur mit Beispieldaten geprüft.
+- **Audio wurde nie angehört**, nur technisch geprüft (alle 146 Dateien dekodierbar, keine Fehler, Pegel per
+  Offline-Rendering). Die Sounds sind nach Dateiname und Messwerten ausgewählt, nicht nach Gehör. Zum Anhören:
+  `npm run dev`, dann `http://localhost:5173/?audiodemo` (jeder Sound und jede Musikstimmung auf Knöpfen).
+- **Update 2 ist nur von Bots und Tests gespielt.** Die neuen Bosse, Biome, Fallen, das Training und die
+  Upgrade-Balance hat noch kein Mensch gespielt. Aus der Spielkamera sind die neuen Bosse vor allem an
+  Kopfschmuck und Waffe zu erkennen.
+- **Sieg im Browser von mir nicht durchgespielt.** Bots gewinnen Runs in den Server-Tests; meine
+  Browser-Sitzungen endeten mit Niederlagen. Die Sieg-Auswertung ist nur mit Beispieldaten geprüft.
 - **Balance** ist ausschließlich mit Bots abgestimmt, nicht mit menschlichen Spielern.
 - **Eine Server-Instanz.** Räume liegen im Arbeitsspeicher; ein Neustart (auf Netlify spätestens alle
   8 Stunden und bei jedem Deploy) beendet laufende Sitzungen, mehrere Instanzen bräuchten Routing pro Raumcode.
 - **WebSocket/TCP:** bei Paketverlust können kurze Hänger entstehen.
-- Kein Beitritt in einen laufenden Run (nur Wiederbeitritt), kein Gamepad, keine Touch-Steuerung,
-  keine Konten; Fortschritt (Statistik, Oath-Stufen) liegt lokal im Browser.
+- Kein Beitritt in einen laufenden Run (nur Wiederbeitritt), kein Gamepad, keine Touch-Steuerung.
+- **Keine Konten:** Statistik, Glimmer, Upgrades und Aussehen liegen im Browser. Wer den Speicher löscht,
+  verliert sie; wer ihn manipuliert, kann sich höchstens voll ausgebaute Upgrades geben (der Server begrenzt
+  die Stufen).
 - Die visuelle Abnahme der 3D-Darstellung erfolgte anhand von Screenshots bei sehr niedriger Bildrate.
 
 ## 13. Durchgeführte Tests
@@ -195,11 +223,13 @@ Bibliotheken: MIT (three, ws, vite, …), Cinzel: SIL Open Font License.
 | Prüfung | Ergebnis |
 |---|---|
 | Frische Installation (`npm ci` in neuem Klon), Typprüfung, Lint | fehlerfrei |
-| Unit- und Integrationstests (`npm test`) | 185 Tests in 14 Dateien bestanden (auch unter Node 24) |
+| Unit- und Integrationstests (`npm test`) | 311 Tests in 19 Dateien bestanden |
 | – Protokoll, Bewegung, Fähigkeiten, Status/Resonance, Boons, Draft, Gegner, Telegraph-Fairness, Director, Determinismus | enthalten |
 | – Server mit echten WebSocket-Clients: Erstellen/Beitreten/Wiederbeitritt, ungültiger Code, voller Raum, falsche Version, kaputte/zu große Nachrichten, Ratenlimit, Host-Wechsel, Abbruch im Run, Ablauf der Frist, Rückkehr zur Lobby | enthalten |
 | – Zwei Bots spielen einen ganzen Run, auch mit 150 ± 50 ms Latenz | bestanden |
-| Browser-Tests gegen den Produktions-Build (`npm run test:e2e`), Seite und WebSocket auf derselben Adresse | 12 Tests bestanden |
+| Browser-Tests gegen den Produktions-Build (`npm run test:e2e`), Seite und WebSocket auf derselben Adresse | 14 Tests bestanden |
+| – Update 2: Training startet aus dem Menü und rückt nach dem ersten Schritt vor; Upgrade-Kauf übersteht ein Neuladen; gewähltes Aussehen kommt beim anderen Client an | enthalten |
+| – Update 2 im Server: alle drei Bosse und Herolde mit Bots, Telegraph-Fairness, Biom- und Fallen-Regeln, jedes Upgrade, Belohnungen, Neuwürfe, Tutorial (auch mit passivem Spieler) | in den 311 Tests enthalten |
 | – Start ohne Konsolenfehler mit Netlify-Headern (CSP), `/ws/health`, 404-Seite führt zurück und erhält `?join=` | enthalten |
 | – Zwei unabhängige Browser-Clients: Host/Join, Bereit-Status, nur der Host kann starten | enthalten |
 | – Bewegung und Kampf synchron zwischen den Clients, 150 ms Latenz, Neuladen → Wiederbeitritt, Verbindungsabbruch, Verlassen | enthalten |
@@ -215,20 +245,28 @@ nachgestellt (liest `netlify.toml`), nicht auf Netlify selbst.
 
 ## 14. Performance-Ergebnisse
 
-Gemessen in einem 4-Spieler-Kampf in Kammer 6 über 90 s (Chrome headless, 2 CPU-Kerne, ohne GPU):
+Chrome headless, 2 CPU-Kerne, ohne GPU. Die erste Zeile stammt aus einem 4-Spieler-Kampf vor Update 2 und
+wurde danach nicht neu gemessen; die übrigen Werte sind von Update 2.
 
 | Größe | Wert |
 |---|---|
-| Rechenzeit Hauptthread pro Frame (Logik, Animation, Effekte; ohne GPU-Zeichnen) | Ø 1,75 ms, max. 4,3 ms (Budget bei 60 FPS: 16,6 ms) |
-| Gegner gleichzeitig | Ø 27, max. 47 |
-| Draw Calls / Dreiecke bei 47 Gegnern | 137 / 245 000 |
-| JS-Heap | 34 MB → 38 MB nach 90 s, Spitze 45 MB |
-| Netzwerk pro Client | 10,4 kB/s empfangen, 0,4 kB/s gesendet |
-| Server: `World.step` (4 Helden, 47 Gegner, 61 Projektile) | Ø 0,12 ms |
-| Download | Spielcode 82 kB + three.js 172 kB + CSS 11 kB (gzip); Modelle 4,2 MB (ca. 2,1 MB gzip) |
+| Rechenzeit Hauptthread pro Frame (ohne GPU-Zeichnen), vor Update 2 | Ø 1,75 ms, max. 4,3 ms (Budget bei 60 FPS: 16,6 ms) |
+| Draw Calls / Dreiecke im Stresstest (44 Gegner, 55 Projektile, 8 Fallen) | Gruft 133 / 245 000, Katakomben 137 / 261 000, Schmiede 142 / 247 000 |
+| Server: `World.step` (4 Helden, 47 Gegner, 61 Projektile, 8 Fallen) | Ø 0,14–0,23 ms |
+| Snapshot bei 47 Gegnern | 1243 Byte (15 pro Sekunde) |
+| Download (gzip) | Spielcode ca. 150 kB + three.js 172 kB; Modelle 4,9 MB; Sounds 0,6 MB, werden erst nach der ersten Eingabe nachgeladen |
 
-Bots, Balance bei Oath 0: Solo-Sieg 57 % (40 Runs), 4er-Gruppe 71 % (24 Runs), Sieg nach Ø 9,8 bzw. 10,7
-Spielminuten, Bosskampf Ø 76–121 s.
+Bots, Balance bei Oath 0 (8 Seeds pro Solo-Klasse, 5 pro Gruppe, je Endboss):
+
+| | Sieg | Ø Dauer Sieg | Bosskampf Ø |
+|---|---|---|---|
+| Solo ohne Upgrades | 34 % | 11,3 min | 127 s |
+| 4er-Gruppe ohne Upgrades | 62 % | 12,2 min | 107 s |
+| Solo mit allen Upgrades | 79 % | 9,2 min | 94 s |
+| 4er-Gruppe mit allen Upgrades | 100 % | 9,6 min | 81 s |
+
+Die Werte schwanken je nach Seeds um etwa ±6 Prozentpunkte. Eine voll ausgebaute 4er-Gruppe aus Bots verliert
+nie; für sie sind die höheren Oath-Stufen gedacht.
 
 ## 15. Verifikation mit zwei echten Clients
 

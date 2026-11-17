@@ -29,7 +29,12 @@ const STYLE: Record<ProjectileKind, Style> = {
   knife: { mesh: 'dagger', color: 0xe6f0ff, y: 1.05, glow: 0.45, trail: 1.5, trailWidth: 0.22, scale: 0.85, spin: 22, motes: 0 },
   boneArrow: { mesh: 'skel_arrow', color: PALETTE.hostile, y: 1.1, glow: 0.85, trail: 2.2, trailWidth: 0.3, scale: 1.9, spin: 0, motes: 0 },
   hexOrb: { mesh: null, color: PALETTE.hostileMagic, y: 1.0, glow: 1.45, trail: 1.5, trailWidth: 0.6, scale: 1, spin: 0, motes: 10 },
+  // Stalker: a long heavy bolt with a blinding trail. Matron: a slow homing ghost-light with a wavering tail.
+  boneSpear: { mesh: 'skel_arrow', color: PALETTE.sickly, y: 1.15, glow: 1.3, trail: 6.5, trailWidth: 0.55, scale: 4.2, spin: 0, motes: 26 },
+  soulWisp: { mesh: null, color: PALETTE.hexGreen, y: 1.25, glow: 1.9, trail: 0, trailWidth: 0, scale: 1, spin: 0, motes: 9 },
 };
+
+const WISP = { TAIL: 7, SPACING: 0.34, WAVE: 0.34, DANGER_RADIUS: 1.5 } as const;
 
 interface Proj {
   id: number;
@@ -95,7 +100,8 @@ export class Projectiles {
       p.kind = s.kind;
       p.hostile = s.hostile;
       const style = STYLE[s.kind];
-      p.color = s.hostile ? (s.kind === 'hexOrb' ? PALETTE.hostileMagic : PALETTE.hostile)
+      p.color = s.kind === 'boneSpear' || s.kind === 'soulWisp' ? style.color
+        : s.hostile ? (s.kind === 'hexOrb' ? PALETTE.hostileMagic : PALETTE.hostile)
         : s.element > 0 && s.element <= ELEMENT_IDS.length ? ELEMENT_COLOR[ELEMENT_IDS[s.element - 1]] : style.color;
       if (Math.hypot(s.x - p.x, s.z - p.z) > CAMERA.SNAP_DISTANCE) p.age = 0;
       p.x = s.x; p.z = s.z; p.rot = s.rot;
@@ -134,8 +140,10 @@ export class Projectiles {
       }
       // trail (flat streak behind the projectile), glow and a light pool on the floor
       const len = style.trail * fade;
-      decals.push(DECAL.STREAK, p.x - sin * len * 0.5, style.y - 0.05, p.z - cos * len * 0.5, p.rot, style.trailWidth, len,
-        c[0] * 1.6, c[1] * 1.6, c[2] * 1.6, 0.85, 1);
+      if (len > 0) {
+        decals.push(DECAL.STREAK, p.x - sin * len * 0.5, style.y - 0.05, p.z - cos * len * 0.5, p.rot, style.trailWidth, len,
+          c[0] * 1.6, c[1] * 1.6, c[2] * 1.6, 0.85, 1);
+      }
       decals.push(DECAL.DISC, p.x, 0.04, p.z, 0, style.glow * 2.2, style.glow * 2.2, c[0], c[1], c[2], 0.3, 1, 0);
       const pulse = 1 + 0.12 * Math.sin(time * 24 + p.id);
       fx.push(SPRITE.GLOW, p.x, style.y, p.z, style.glow * pulse, style.glow * pulse, c[0] * 1.8, c[1] * 1.8, c[2] * 1.8, 1, 1, style.mesh ? 0.4 : 1.6);
@@ -145,6 +153,33 @@ export class Projectiles {
         fx.push(SPRITE.SPARK, p.x, style.y, p.z, 0.62, 0.62, c[0] * 2.2, c[1] * 2.2, c[2] * 2.2, 0.9, 1, 0, time * 7 + p.id);
       } else if (p.kind === 'arcBolt') {
         fx.push(SPRITE.SPARK, p.x, style.y, p.z, 0.42, 0.42, 2.2, 2.2, 2.2, 1, 1, 0, time * 9 + p.id);
+      } else if (p.kind === 'boneSpear') {
+        // white-hot core streak inside the wide trail, a hostile ground lane and a hard head flare
+        const h = rgb(PALETTE.hostile);
+        decals.push(DECAL.STREAK, p.x - sin * len * 0.3, style.y, p.z - cos * len * 0.3, p.rot, 0.2, len * 0.6, 2.6, 2.5, 2, 1, 1);
+        decals.push(DECAL.STREAK, p.x - sin * len * 0.4, 0.05, p.z - cos * len * 0.4, p.rot, 1.1, len * 0.8, h[0], h[1], h[2], 0.5, 1);
+        fx.push(SPRITE.SPARK, p.x + sin * 0.9, style.y, p.z + cos * 0.9, 0.7, 0.7, 2.6, 2.4, 1.6, 1, 1, 0, Math.PI / 4);
+      } else if (p.kind === 'soulWisp') {
+        // a ghost-light: bright head, hollow dark eye, and a tail of fading lights that wavers behind it
+        const v = rgb(PALETTE.hexViolet);
+        const h = rgb(PALETTE.hostile);
+        const breathe = 1 + 0.18 * Math.sin(time * 6 + p.id * 1.7);
+        fx.push(SPRITE.GLOW, p.x, style.y, p.z, 0.44, 0.44, 0.02, 0.05, 0.02, 0.85, 0, 0);
+        fx.push(SPRITE.GLOW, p.x, style.y, p.z, 2.9 * breathe, 2.9 * breathe, v[0], v[1], v[2], 0.3, 1, 0);
+        for (let k = 1; k <= WISP.TAIL; k++) {
+          const f = 1 - k / (WISP.TAIL + 1);
+          const wave = Math.sin(time * 7 - k * 0.9 + p.id) * WISP.WAVE * (k / WISP.TAIL);
+          const tx = p.x - sin * k * WISP.SPACING * fade + cos * wave;
+          const tz = p.z - cos * k * WISP.SPACING * fade - sin * wave;
+          const ty = style.y + Math.sin(time * 5 - k * 0.7 + p.id) * 0.12 * (k / WISP.TAIL);
+          const mix = k / WISP.TAIL;
+          fx.push(SPRITE.GLOW, tx, ty, tz, (0.25 + 0.75 * f) * 0.95, (0.25 + 0.75 * f) * 0.95,
+            (c[0] * (1 - mix) + v[0] * mix) * 1.7, (c[1] * (1 - mix) + v[1] * mix) * 1.7, (c[2] * (1 - mix) + v[2] * mix) * 1.7, 0.9 * f, 1, 1.2);
+        }
+        // the ring on the floor is its reach: step out of it or outrun it
+        const d = WISP.DANGER_RADIUS * 2;
+        decals.push(DECAL.ZONE, p.x, 0.05, p.z, 0, d, d, h[0] * 1.3, h[1] * 1.3, h[2] * 1.3, 0.55 * fade, 0.3, 0);
+        decals.push(DECAL.DISC, p.x, 0.045, p.z, 0, d * 1.5, d * 1.5, c[0], c[1], c[2], 0.2, 1, 0);
       }
       if (style.motes > 0) {
         p.moteAcc += style.motes * vfx.density * dt;

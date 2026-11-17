@@ -13,3 +13,10 @@ Deferred items. Promote one into a milestone before working on it.
 - [ ] Menu backdrop: show a slowly orbiting crypt diorama behind the main menu.
 - [ ] More content: second boss, more enemy affixes, class-specific boons, daily seed.
 - [ ] Narrower / fainter archer aim lines when many archers fire at once.
+- [ ] Human playtest of update 2: boss readability from the game camera, hazard fairness, upgrade pacing
+      (Glimmer per run vs. prices), training length.
+- [ ] Listening pass on the new audio (`?audiodemo`): jingles and the sci-fi-derived bolt/zap layers were
+      picked by analysis, not by ear; add positional panning and footsteps.
+- [ ] Remove telegraph decals when an enemy is staggered out of its windup (a cancelled Matron beam still flashes).
+- [ ] Tips: dismiss by click; coach texts should follow rebinding once key rebinding exists.
+- [ ] Accounts or signed saves if progression ever needs to be tamper-proof.

@@ -25,6 +25,20 @@ export const DECAL = {
   ZONE: 9,
   STREAK: 10,
   RUNE: 11,
+  /** Six-armed frost sigil: chill plate under enemies, frost hazard fixture. p0 = inner fill. */
+  FROST: 12,
+  /** Energy ribbon along +z: quad covers the lane. p0 = white-hot core 0..1. */
+  BEAM: 13,
+  /** Hazard warning: an iris closing from the rim to the centre. p0 = progress. */
+  WARN: 14,
+  /** Vent grate fixture. p0 = glow between the bars. */
+  GRATE: 15,
+  /** Spike plate fixture. p0 = highlight. */
+  PLATE: 16,
+  /** Two-colour shockwave (Resonance). p0 = thickness, p1..p3 = second colour. */
+  DUO: 17,
+  /** Friendly guidance ring (tutorial). p1..p3 = second colour. */
+  MARKER: 18,
 } as const;
 
 export const SPRITE = {
@@ -34,6 +48,10 @@ export const SPRITE = {
   BAR: 3,
   FLAME: 4,
   PLATE: 5,
+  /** Filled element pip with a dark rim (status row). */
+  PIP: 6,
+  /** Jagged lightning bolt along the quad's height; param = seed. */
+  ARC: 7,
 } as const;
 
 const DECAL_STRIDE = 16;
@@ -152,12 +170,73 @@ void main() {
     float w = 1.0 - abs( vUv.x );
     float t = vUv.y * 0.5 + 0.5;
     a = w * w * t * t;
-  } else {                          // RUNE: summoning circle, p0 progress
+  } else if ( shape == 11 ) {       // RUNE: summoning circle, p0 progress
     float ring1 = band( edge - 0.06, 0.04, 0.03 );
     float ring2 = band( rm - vHalf.x * 0.62, 0.03, 0.03 );
     float ticks = step( 0.72, fract( ( ang / ( 2.0 * PI ) + uTime * 0.12 ) * 10.0 ) ) * step( 0.62, r ) * step( r, 0.93 );
     float core = ( 1.0 - smoothstep( 0.0, 0.62, r ) ) * 0.35 * vParam.x;
     a = ring1 + ring2 * 0.7 + ticks * 0.55 + core;
+  } else if ( shape == 12 ) {       // FROST sigil
+    float sector = PI / 3.0;
+    float a6 = abs( fract( ang / sector + 0.5 ) - 0.5 ) * sector;     // angle to the nearest arm
+    float across = a6 * rm;
+    float arm = band( across, 0.035, 0.03 ) * step( r, 0.84 );
+    float twig = band( across - ( 0.84 - r ) * vHalf.x * 0.42, 0.03, 0.03 ) * step( 0.34, r ) * step( r, 0.84 );
+    float ring1 = band( edge - 0.06, 0.035, 0.03 );
+    float ring2 = band( rm - vHalf.x * 0.3, 0.025, 0.03 );
+    float fill = ( 1.0 - r ) * step( r, 1.0 );
+    a = ring1 + arm * 0.9 + twig * 0.65 + ring2 * 0.6 + fill * vParam.x;
+    col = mix( col, vec3( 1.0 ), ( arm + ring1 ) * 0.35 );
+  } else if ( shape == 13 ) {       // BEAM
+    float w = 1.0 - abs( vUv.x );
+    float along = ( vUv.y * 0.5 + 0.5 ) * vHalf.y * 2.0;
+    float flow = 0.72 + 0.28 * sin( along * 1.7 - uTime * 26.0 + sin( uTime * 7.0 + along * 0.4 ) * 2.0 );
+    float ends = smoothstep( 0.0, 0.5, along ) * smoothstep( vHalf.y * 2.0, vHalf.y * 2.0 - 0.8, along );
+    a = pow( w, 1.5 ) * flow * ends;
+    col = mix( col, vec3( 1.0 ), pow( w, 5.0 ) * 0.85 * vParam.x );
+  } else if ( shape == 14 ) {       // WARN: closing iris
+    float inside = step( r, 1.0 );
+    float outline = band( edge - 0.06, 0.06, aa );
+    float fillR = ( 1.0 - vParam.x ) * vHalf.x;
+    float fill = smoothstep( fillR - 0.04, fillR, rm ) * inside;
+    float lead = band( rm - fillR, 0.07, 0.08 ) * inside * step( vParam.x, 0.999 );
+    float dash = step( 0.5, fract( ang / ( 2.0 * PI ) * 12.0 - uTime * 0.6 ) );
+    float blink = 0.72 + 0.28 * sin( uTime * ( 8.0 + 24.0 * vParam.x ) );
+    a = inside * 0.05 + fill * 0.3 * blink + lead * 0.75 + outline * mix( 0.6, 1.0, dash );
+    col = mix( col, vec3( 1.0 ), lead * 0.55 );
+  } else if ( shape == 15 ) {       // GRATE
+    float inside = 1.0 - smoothstep( 0.84, 0.88, r );
+    float rim = band( edge - 0.08, 0.07, 0.03 );
+    float bar = step( 0.42, fract( vUv.x * vHalf.x * 3.4 + 0.25 ) );
+    float cross = step( 0.9, fract( vUv.y * vHalf.x * 1.1 + 0.5 ) );
+    float slot = inside * bar * ( 1.0 - cross );
+    vec3 iron = vec3( 0.07, 0.065, 0.075 );
+    col = mix( iron, vColor.rgb * ( 0.22 + 1.9 * vParam.x ), slot );
+    col = mix( col, iron * 2.4, rim );
+    a = max( inside * 0.94, rim );
+  } else if ( shape == 16 ) {       // PLATE
+    float inside = 1.0 - smoothstep( 0.88, 0.92, r );
+    float rim = band( edge - 0.07, 0.06, 0.03 );
+    vec2 cell = fract( vUv * vHalf.x * 2.3 + 0.5 ) - 0.5;
+    float hole = ( 1.0 - smoothstep( 0.17, 0.23, length( cell ) ) ) * step( r, 0.74 );
+    vec3 steel = vColor.rgb * ( 0.16 + 0.12 * vParam.x );
+    col = mix( steel, vec3( 0.012 ), hole );
+    col = mix( col, vColor.rgb * ( 0.55 + 0.7 * vParam.x ), rim );
+    a = max( inside * 0.94, rim );
+  } else if ( shape == 17 ) {       // DUO shockwave
+    float t = clamp( ( 1.0 - r ) / max( vParam.x, 0.02 ), 0.0, 1.0 );
+    float crest = band( edge - 0.06, 0.05, 0.05 );
+    a = step( r, 1.0 ) * ( 1.0 - t ) * ( 1.0 - t ) + crest;
+    float swirl = smoothstep( 0.32, 0.68, 0.5 + 0.5 * sin( ang * 3.0 + r * 8.0 - uTime * 9.0 ) );
+    col = mix( vColor.rgb, vParam.yzw, swirl );
+    col += vec3( 1.0 ) * crest * 0.15;
+  } else {                          // MARKER
+    float ring = band( edge - 0.09, 0.06, 0.03 );
+    float dash = step( 0.3, fract( ang / ( 2.0 * PI ) * 10.0 + uTime * 0.18 ) );
+    float pr = fract( uTime * 0.65 );
+    float pulse = band( rm - vHalf.x * ( 1.0 - pr ) * 0.86, 0.05, 0.05 ) * ( 1.0 - pr );
+    a = ring * mix( 0.3, 1.0, dash ) + pulse * 0.9 + step( r, 1.0 ) * ( 0.02 + 0.012 * sin( uTime * 3.0 ) );
+    col = mix( vColor.rgb, vParam.yzw, clamp( pulse * 1.4, 0.0, 1.0 ) );
   }
   a = clamp( a, 0.0, 1.0 ) * vColor.a;
   if ( a < 0.004 ) discard;
@@ -234,9 +313,23 @@ void main() {
     float core = 1.0 - smoothstep( 0.0, 0.7, d + y * 0.9 );
     col = mix( col, col * 0.6 + vec3( 0.75, 0.7, 0.5 ), core );
     col *= 1.0 + core * 0.6;
-  } else {                          // PLATE: rounded dark plate behind labels
+  } else if ( mode == 5 ) {         // PLATE: rounded dark plate behind labels
     vec2 q = abs( vQuad );
     a = ( 1.0 - smoothstep( 0.9, 1.0, q.x ) ) * ( 1.0 - smoothstep( 0.7, 1.0, q.y ) );
+  } else if ( mode == 6 ) {         // PIP
+    a = 1.0 - smoothstep( 0.9, 1.0, r );
+    float inner = 1.0 - smoothstep( 0.68, 0.78, r );
+    col = mix( vec3( 0.02, 0.02, 0.05 ), col * ( 0.78 + 0.2 * vQuad.y ), inner );
+  } else {                          // ARC
+    float y = vQuad.y * 0.5 + 0.5;
+    float s = vMisc.z;
+    float x = sin( y * 9.0 + s ) * 0.3 + sin( y * 23.0 + s * 1.7 ) * 0.17 + sin( y * 51.0 + s * 2.3 ) * 0.07;
+    x *= sin( y * 3.14159 );
+    float d = abs( vQuad.x - x );
+    float core = 1.0 - smoothstep( 0.0, 0.06, d );
+    float halo = 1.0 - smoothstep( 0.0, 0.22, d );
+    col = mix( col, vec3( 1.0 ), core );
+    a = max( halo * 0.55, core ) * smoothstep( 0.0, 0.06, y ) * smoothstep( 1.0, 0.94, y );
   }
   a *= vColor.a;
   if ( a < 0.004 ) discard;
@@ -317,7 +410,7 @@ export class DecalBatch extends QuadBatch {
   /** `sx`/`sz` are full sizes in metres; round shapes use sx as the diameter. `rgb` may exceed 1 (bloom). */
   push(
     shape: number, x: number, y: number, z: number, rot: number, sx: number, sz: number,
-    r: number, g: number, b: number, a: number, additive = 0, p0 = 0, p1 = 0, p2 = 0,
+    r: number, g: number, b: number, a: number, additive = 0, p0 = 0, p1 = 0, p2 = 0, p3 = 0,
   ): void {
     if (this.count >= this.capacity) return;
     const d = this.data;
@@ -325,7 +418,7 @@ export class DecalBatch extends QuadBatch {
     d[i++] = x; d[i++] = y; d[i++] = z; d[i++] = rot;
     d[i++] = sx; d[i++] = sz; d[i++] = shape; d[i++] = additive;
     d[i++] = r; d[i++] = g; d[i++] = b; d[i++] = a;
-    d[i++] = p0; d[i++] = p1; d[i++] = p2; d[i] = 0;
+    d[i++] = p0; d[i++] = p1; d[i++] = p2; d[i] = p3;
   }
 }
 

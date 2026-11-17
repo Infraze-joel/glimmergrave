@@ -6,7 +6,7 @@ import type { AbilitySlot, ElementId } from '../types.ts';
 import { angleDiff, angleTo, DEG } from './geom.ts';
 import { maxDashCharges } from './boons.ts';
 import type { Enemy, Hero } from './state.ts';
-import { SIM } from './tuning.ts';
+import { META, SIM } from './tuning.ts';
 import type { World } from './world.ts';
 
 export const isBoss = (e: Enemy): boolean => e.boss !== null;
@@ -30,7 +30,7 @@ export function enemyDamage(e: Enemy, base: number): number {
   return base * e.damageMul * weaken;
 }
 
-function setStatus(w: World, e: Enemy, el: ElementId, by: Hero | null, potency: number): void {
+export function setStatus(w: World, e: Enemy, el: ElementId, by: Hero | null, potency: number): void {
   const changed = e.status !== el;
   e.status = el;
   e.statusPotency = potency;
@@ -75,7 +75,11 @@ export function killEnemy(w: World, e: Enemy, by: number): void {
   e.kbX = 0;
   e.kbZ = 0;
   clearStatus(e);
-  if (e.boss) e.boss.slams.length = 0;
+  if (e.boss) {
+    e.boss.slams.length = 0;
+    e.boss.seqLeft = 0;
+    if (e.id === w.run.bossId && w.run.chamberKind === 'elite') w.director.elitesSlain++;
+  }
   e.anim = 'death';
   e.animSeq++;
   w.emit({ e: 'kill', id: e.id, kind: e.kind, x: e.x, z: e.z, by });
@@ -100,7 +104,7 @@ export function rawDamageEnemy(w: World, e: Enemy, amount: number, by: number, e
 
 function burst(w: World, x: number, z: number, a: ElementId, b: ElementId, h: Hero, potency: number): void {
   const radius = STATUS.RESONANCE.RADIUS * (1 + h.stats.wideResonance);
-  const damage = STATUS.RESONANCE.DAMAGE * (1 + h.stats.amplifier);
+  const damage = STATUS.RESONANCE.DAMAGE * (1 + h.stats.amplifier) * (1 + h.meta.might);
   w.emit({ e: 'resonance', x, z, r: radius, a, b, by: h.slot });
   w.emit({ e: 'aoe', x, z, r: radius, el: b, hostile: false });
   for (const o of w.enemies) {
@@ -148,7 +152,10 @@ export function applyElement(w: World, e: Enemy, el: ElementId, h: Hero, potency
 function interrupt(e: Enemy): void {
   e.attack = null;
   e.poiseDamage = 0;
-  if (e.boss) e.boss.slams.length = 0;
+  if (e.boss) {
+    e.boss.slams.length = 0;
+    e.boss.seqLeft = 0;
+  }
 }
 
 export function stunEnemy(e: Enemy, seconds: number): void {
@@ -174,7 +181,8 @@ export interface StrikeOpts {
  */
 export function strikeEnemy(w: World, h: Hero, e: Enemy, base: number, slot: AbilitySlot, opts: StrikeOpts): boolean {
   if (!isTargetable(e)) return false;
-  let dmg = base;
+  if (w.tutorial && slot === 'secondary') w.tutorial.secondaryHits++;
+  let dmg = base * (1 + h.meta.might);
   if (slot === 'primary') dmg *= 1 + h.stats.primaryDamage;
   else if (slot === 'secondary') dmg *= 1 + h.stats.secondaryDamage;
   dmg *= 1 + h.aura;
@@ -253,6 +261,8 @@ export function downHero(w: World, h: Hero): void {
   h.barrier = 0;
   h.invuln = 0;
   h.oathbondTime = 0;
+  h.burnTime = 0;
+  h.chillTime = 0;
   h.anim = 'downed';
   h.animSeq++;
   h.animTime = 0;
@@ -269,10 +279,11 @@ export function downHero(w: World, h: Hero): void {
 export function reviveHero(w: World, h: Hero, by: number, hpFraction: number, iframes: number): void {
   if (h.state !== 'downed') return;
   h.state = 'alive';
-  h.hp = Math.max(1, Math.min(h.maxHp, Math.round(h.maxHp * hpFraction)));
+  // Resolve (permanent upgrade): more health and a guaranteed window of invulnerability on every revive.
+  h.hp = Math.max(1, Math.min(h.maxHp, Math.round(h.maxHp * hpFraction * (1 + h.meta.resolve))));
   h.revive = 0;
   h.secondWindTimer = 0;
-  h.invuln = iframes;
+  h.invuln = h.meta.resolve > 0 ? Math.max(iframes, META.RESOLVE_INVULNERABILITY) : iframes;
   h.barrierDelay = BOON_TUNING.BARRIER_RECHARGE_DELAY;
   h.anim = 'idle';
   h.animSeq++;
@@ -302,6 +313,12 @@ export function damageHero(w: World, h: Hero, amount: number, by: number): boole
   h.damageTaken += amount;
   w.emit({ e: 'hit', target: { t: 'p', id: h.slot }, x: h.body.x, z: h.body.z, dmg: Math.max(1, Math.round(amount)), crit: false, el: null, by });
   if (dmg <= 0) return true;
+  loseHealth(w, h, dmg);
+  return true;
+}
+
+/** Health loss after shields: hit animation, last stand, the tutorial's floor at 1 health, downing, oathbond. */
+function loseHealth(w: World, h: Hero, dmg: number): void {
   h.hp -= dmg;
   if (h.animTime <= 0) {
     h.anim = 'hit';
@@ -309,18 +326,43 @@ export function damageHero(w: World, h: Hero, amount: number, by: number): boole
     h.animTime = SIM.HIT_ANIM_SECONDS;
   }
   if (h.hp <= 0) {
-    if (h.stats.lastStand && !h.lastStandUsed) {
+    if (w.tutorial) {
+      // Nobody dies in the training session.
+      h.hp = 1;
+    } else if (h.stats.lastStand && !h.lastStandUsed) {
       h.lastStandUsed = true;
       h.hp = 1;
       h.invuln = BOON_TUNING.LAST_STAND_INVULNERABILITY;
     } else {
       downHero(w, h);
-      return true;
+      return;
     }
   }
   if (h.oathbondArmed && h.hp < h.maxHp * SIM.OATHBOND_HP_THRESHOLD) {
     h.oathbondArmed = false;
     triggerOathbond(h);
   }
-  return true;
+}
+
+/**
+ * Damage over time on a hero (burning after a fire vent). Shields absorb it, but i-frames do not stop it and it
+ * grants none.
+ */
+export function dotHero(w: World, h: Hero, amount: number, el: ElementId): void {
+  if (h.state !== 'alive' || w.run.phase !== 'combat' || amount <= 0) return;
+  let dmg = amount;
+  if (h.tempShield > 0) {
+    const absorbed = Math.min(h.tempShield, dmg);
+    h.tempShield -= absorbed;
+    dmg -= absorbed;
+  }
+  if (h.barrier > 0 && dmg > 0) {
+    const absorbed = Math.min(h.barrier, dmg);
+    h.barrier -= absorbed;
+    dmg -= absorbed;
+  }
+  h.barrierDelay = BOON_TUNING.BARRIER_RECHARGE_DELAY;
+  h.damageTaken += amount;
+  w.emit({ e: 'hit', target: { t: 'p', id: h.slot }, x: h.body.x, z: h.body.z, dmg: Math.max(1, Math.round(amount)), crit: false, el, by: -1 });
+  if (dmg > 0) loseHealth(w, h, dmg);
 }

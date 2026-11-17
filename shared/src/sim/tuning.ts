@@ -32,6 +32,16 @@ export const SIM = {
   HIT_ANIM_SECONDS: 0.2,
   /** Input magnitude above which a hero plays its run animation. */
   RUN_ANIM_THRESHOLD: 0.1,
+  /** Damage dealt to a hero's `fragile` projectile target counts as destroyed within this extra reach. */
+  WISP_HIT_PAD: 0.1,
+} as const;
+
+/** Permanent upgrades (values themselves live in data/meta.ts). */
+export const META = {
+  /** Seconds of invulnerability a hero with `resolve` gets when revived. */
+  RESOLVE_INVULNERABILITY: 2,
+  /** Choices of the attunement draft at run start. */
+  ATTUNEMENT_CHOICES: 3,
 } as const;
 
 export const AI = {
@@ -82,6 +92,29 @@ export const AI = {
     PHASE_PAUSE: 1.2, PHASE2_CADENCE: 0.8, PHASE3_CADENCE: 0.7, MIN_GAP: 0.75, CHASE_PATIENCE: 3,
     RETARGET_SECONDS: 6,
   },
+  MATRON: {
+    KEEP_BAND: 2, MIN_GAP: 0.75, PHASE_PAUSE: 1.2, PHASE2_CADENCE: 0.85, PHASE3_CADENCE: 0.7,
+    RING_RECOVER: 0.9, RING_WAVE_INTERVAL: 0.6, RING_TELEGRAPH_RADIUS: 2.5, RING_COOLDOWN: 3.5,
+    SPIRAL_RECOVER: 1.2, SPIRAL_COOLDOWN: 12,
+    BEAM_RECOVER: 1.3, BEAM_COOLDOWN: 11, FIRST_BEAM: 9,
+    BLAST_RECOVER: 1.0, BLAST_COOLDOWN: 8, FIRST_BLAST: 3.5,
+    WISP_RECOVER: 0.8, WISP_COOLDOWN: 12, FIRST_WISP: 6, WISP_SPAWN_OFFSET: 1.4,
+    SUMMON_CAST: 1.0, SUMMON_RECOVER: 0.8,
+    BLINK_MIN_HERO_DISTANCE: 5, BLINK_RETRY_SECONDS: 1.5, BLINK_GAP: 0.5,
+    /** A blast circle for another hero is only added when it keeps this much free space to every other circle. */
+    BLAST_MIN_GAP: 1.4,
+  },
+  STALKER: {
+    KEEP_BAND: 2, MIN_GAP: 0.7, PHASE_PAUSE: 1.0, PHASE2_CADENCE: 0.85, PHASE3_CADENCE: 0.7,
+    FAN_RECOVER: 0.8, FAN_TELEGRAPH_WIDTH: 0.9, FAN_COOLDOWN: 2.5,
+    SPEAR_RECOVER: 1.1, SPEAR_COOLDOWN: 9, FIRST_SPEAR: 4.5,
+    LEAP_RECOVER: 1.2, LEAP_COOLDOWN: 9, FIRST_LEAP: 6, LEAP_POUNCE_MIN_DISTANCE: 7, LEAP_POUNCE_CHANCE: 0.5,
+    LEAP_WALL_MARGIN: 1.5, LEAP_MIN_HERO_DISTANCE: 5.5,
+    TRAP_CAST: 0.5, TRAP_RECOVER: 0.6, TRAP_COOLDOWN: 13, FIRST_TRAP: 8, TRAP_SCATTER: 3.5, TRAP_MIN_GAP: 1,
+    FRENZY_RECOVER: 2.2, FRENZY_COOLDOWN: 15,
+  },
+  /** Hazards: enemies steer around warning / active hazards with this much extra clearance. */
+  HAZARD_PAD: 0.5, HAZARD_PUSH: 1.4,
   /** Bosses: first-attack delays, minimum lane length for a charge, chance to pick a non-nearest target. */
   BOSS_FIRST_GAP: 1, BOSS_FIRST_CHARGE: 3, BOSS_FIRST_VOLLEY: 4, CHARGE_MIN_LANE: 3, BOSS_RANDOM_TARGET_CHANCE: 0.35,
   REGENT_CLOSE_VOLLEY_CHANCE: 0.35,
@@ -89,10 +122,74 @@ export const AI = {
   SUMMON_RING_MAX: 4,
 } as const;
 
+/**
+ * Layout profile of a biome (rooms stay rectangles with circular obstacles):
+ *  crypt   – pillared halls: mirrored pillars, columns and clutter; a few spike traps from chamber 1 on
+ *  flooded – wide and open, few large obstacles, clusters of frost mist
+ *  forge   – long rooms cut into lanes by rows of anvils / stalagmites / braziers, fire vents in the lanes
+ */
+export const BIOME = {
+  crypt: {
+    W_MIN: 26, W_MAX: 38, D_MIN: 20, D_MAX: 28, OBSTACLES_MIN: 4, OBSTACLES_MAX: 10,
+    HAZARDS_MIN: 2, HAZARDS_MAX: 4, HAZARDS_FROM_CHAMBER: 1, HAZARD_R_MIN: 1.4, HAZARD_R_MAX: 1.9, PERIOD_MIN: 4.5, PERIOD_MAX: 6.5,
+  },
+  flooded: {
+    W_MIN: 34, W_MAX: 42, D_MIN: 24, D_MAX: 30, OBSTACLES_MIN: 2, OBSTACLES_MAX: 5,
+    CLUSTERS_MIN: 2, CLUSTERS_MAX: 3, CLUSTER_SIZE_MIN: 2, CLUSTER_SIZE_MAX: 3, CLUSTER_SPREAD: 2.6,
+    HAZARD_R_MIN: 1.7, HAZARD_R_MAX: 2.3, PERIOD_MIN: 7, PERIOD_MAX: 9,
+  },
+  forge: {
+    W_MIN: 24, W_MAX: 28, D_MIN: 30, D_MAX: 36, ROWS_MIN: 1, ROWS_MAX: 2, ROW_STEP_MIN: 5, ROW_STEP_MAX: 6.5,
+    /** Chance that a slot in a row stays empty (a wider gap between lanes); a row never ends up with fewer than ROW_MIN obstacles if it can help it. */
+    ROW_SKIP_CHANCE: 0.25, ROW_MIN: 3,
+    HAZARDS_MIN: 3, HAZARDS_MAX: 5, HAZARD_R_MIN: 1.5, HAZARD_R_MAX: 1.9, PERIOD_MIN: 5.5, PERIOD_MAX: 7.5,
+  },
+  /** Boss arenas: hazards of the biome's kind near the walls. */
+  BOSS: { HAZARDS_MIN: 2, HAZARDS_MAX: 4, HAZARD_R: 2, PERIOD_MIN: 6, PERIOD_MAX: 8, EDGE_BAND: 4.5 },
+  /** Minimum distance of a hazard's edge to spawn points, to the edge of a door zone, to obstacles, walls and other hazards. */
+  HAZARD_SPAWN_CLEARANCE: 4, HAZARD_DOOR_CLEARANCE: 2, HAZARD_OBSTACLE_GAP: 0.4, HAZARD_WALL_GAP: 1.2, HAZARD_GAP: 2.4,
+  HAZARD_ATTEMPTS: 200,
+  /** No room ever has more hazards than this. */
+  MAX_HAZARDS: 8,
+  /** Grid step of the walkability check that guarantees a hazard-free route from the spawns to every door. */
+  PATH_GRID: 0.5,
+  /** Wave composition: weight multipliers per biome (the cost budget is unchanged). */
+  KIND_BIAS: {
+    crypt: { minion: 1, warrior: 1, archer: 1, mage: 1 },
+    flooded: { minion: 0.9, warrior: 0.75, archer: 1.4, mage: 1.35 },
+    forge: { minion: 1, warrior: 1.9, archer: 0.8, mage: 0.8 },
+  },
+  /** Chamber index at which act 2 and act 3 begin (act 1 is always the crypt). */
+  ACT_STARTS: [0, 3, 6],
+} as const;
+
+export const TUTORIAL = {
+  ROOM_W: 26, ROOM_D: 20,
+  /** Seconds between finishing a step and the next one starting. */
+  STEP_LINGER: 0.9,
+  MOVE_MARKER: { x: 0, z: 1.5, r: 1.6 },
+  DUMMY_RESPAWN_SECONDS: 1.2,
+  ATTACK_DUMMIES: [{ x: -3, z: -2.5 }, { x: 0, z: -4 }, { x: 3, z: -2.5 }], ATTACK_DUMMY_HP: 45,
+  /** The training warrior and its slow lane attack (DASH_EVERY = pause between two attacks). */
+  DASH_ATTACKER: { x: 0, z: -6.5 }, DASH_WINDUP: 1.5, DASH_EVERY: 2, DASH_FIRST: 1.2, DASH_WIDTH: 3.2, DASH_DAMAGE: 8,
+  /** After this many attacks any avoided attack counts, with or without a dash. */
+  DASH_FALLBACK_ATTEMPTS: 5,
+  GROUP_DUMMIES: [{ x: -1.1, z: -3.6 }, { x: 1.1, z: -3.6 }, { x: 0, z: -5.2 }, { x: 0, z: -2.2 }], GROUP_DUMMY_HP: 320, SECONDARY_HITS: 2,
+  ELEMENT_DUMMIES: [{ x: -2.4, z: -3 }, { x: 2.4, z: -3 }], ELEMENT_DUMMY_HP: 420,
+  /** After this long in the `storm` step any Resonance counts. */
+  STORM_FALLBACK_SECONDS: 30,
+  /** The training hazard is almost always warning or active, so a foe that walks across it is certain to be caught. */
+  HAZARD: { x: -6, z: 0.5, r: 2.2, period: 2.8 },
+  CHASER_OFFSET: 5, CHASER_HP: 400, CHASER_SPEED_MUL: 0.4, CHASER_DAMAGE_MUL: 0.3, HAZARD_MARKER_OFFSET: 4, HAZARD_MARKER_R: 1.3,
+  OBSTACLES: [{ x: 9, z: -2.5, r: 0.9 }, { x: 9, z: 3, r: 0.9 }],
+} as const;
+
 export const DIRECTOR = {
   ROOM_W_MIN: 26, ROOM_W_MAX: 38, ROOM_D_MIN: 20, ROOM_D_MAX: 28,
   BOSS_ROOM_W: 40, BOSS_ROOM_D: 30,
   OBSTACLES_MIN: 4, OBSTACLES_MAX: 10, BOSS_OBSTACLES: 4,
+  /** Escort budget of the herald fight (fraction of a regular wave) and its number of waves. */
+  HERALD_ESCORT_BUDGET: 0.3, HERALD_WAVES: 1,
   /** Minimum free space between obstacle surfaces, walls and spawn points. */
   OBSTACLE_GAP: 3, WALL_CLEARANCE: 3, SPAWN_CLEARANCE: 4, DOOR_CLEARANCE: 4.5,
   SPAWN_WALL_OFFSET: 2.5, SPAWN_SPACING: 2.2,
@@ -109,14 +206,14 @@ export const DIRECTOR = {
   NEXT_WAVE_ALIVE: 2,
   WAVE_TIMEOUT: 28,
   /** Wave budget = (BASE + PER_CHAMBER * chamber) * party scaling. */
-  BUDGET_BASE: 12, BUDGET_PER_CHAMBER: 2.0,
+  BUDGET_BASE: 15, BUDGET_PER_CHAMBER: 2.1,
   WAVES_EARLY: 3, WAVES_LATE: 4, WAVES_LATE_FROM_CHAMBER: 2,
   ELITE_WAVES: 2, ELITE_ESCORT_BUDGET: 0.45, ELITE_REINFORCE_BUDGET: 0.6,
   KIND_WEIGHT: { minion: 5, warrior: 2.2, archer: 2.2, mage: 1.4 },
   /** Caps on simultaneously spawned ranged enemies per wave: base + per hero. */
   ARCHER_CAP_BASE: 2, ARCHER_CAP_PER_HERO: 1, MAGE_CAP_BASE: 1, MAGE_CAP_PER_HERO: 0.5,
   /** Extra enemy damage per additional hero (parties share the pressure and can revive each other). */
-  DAMAGE_PER_EXTRA_PLAYER: 0.05,
+  DAMAGE_PER_EXTRA_PLAYER: 0,
   CLEAR_DELAY: 0.8,
   /** Room generation details. */
   OBSTACLE_GRID: 0.25, CENTRED_OBSTACLE_CHANCE: 0.2, BOSS_PILLAR_INSET: 3, BOSS_PILLAR_RADIUS: 0.9,

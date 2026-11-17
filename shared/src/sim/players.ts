@@ -2,11 +2,13 @@
 import { TICK_DT, WORLD } from '../constants.ts';
 import { BOON_TUNING } from '../data/boons.ts';
 import { CLASSES } from '../data/classes.ts';
+import { HAZARD } from '../data/enemies.ts';
 import { BTN, type ClassId, type InputCmd } from '../types.ts';
 import { dashRechargeSeconds, dashSweep, heroMoveSpeed, lungeSweep, startAbilities, stepAbilities } from './abilities.ts';
 import { emptyStats, maxDashCharges } from './boons.ts';
-import { reviveHero } from './combat.ts';
+import { dotHero, reviveHero } from './combat.ts';
 import { clamp, finite, TAU } from './geom.ts';
+import { computeMeta } from './meta.ts';
 import { stepMovement } from './movement.ts';
 import { emptyInput, type Hero } from './state.ts';
 import { SIM } from './tuning.ts';
@@ -15,18 +17,22 @@ import type { World } from './world.ts';
 const BUTTON_MASK = BTN.PRIMARY | BTN.SECONDARY | BTN.DASH | BTN.INTERACT;
 const MAX_SEQ = 0xffffffff;
 
-export function createHero(slot: number, cls: ClassId, name: string): Hero {
+/** `metaLevels` are the hero's permanent upgrade levels (clamped here); they survive resets and class changes. */
+export function createHero(slot: number, cls: ClassId, name: string, metaLevels?: readonly number[]): Hero {
   const def = CLASSES[cls];
+  const meta = computeMeta(metaLevels);
+  const maxHp = def.maxHp + meta.stats.hp;
   return {
     slot, name, cls, def, connected: true,
     body: { x: 0, z: 0, dashTime: 0, dashDirX: 0, dashDirZ: 1, rootTime: 0, moveSpeed: def.moveSpeed },
-    rot: Math.PI, hp: def.maxHp, maxHp: def.maxHp, barrier: 0, barrierDelay: 0, tempShield: 0, tempShieldTime: 0,
+    rot: Math.PI, hp: maxHp, maxHp, barrier: 0, barrierDelay: 0, tempShield: 0, tempShieldTime: 0,
     state: 'alive', anim: 'idle', animSeq: 0, animTime: 0,
     queue: [], input: emptyInput(), ackSeq: 0, prevButtons: 0, pressPrimary: 0, pressSecondary: 0, pressDash: 0,
     lockTime: 0, lockMoveMul: 1, comboIndex: 0, comboTime: 0, primaryCd: 0, secondaryCd: 0, secondaryCdMax: def.secondary.cooldown,
     dashCharges: def.dashCharges, dashRecharge: 0, dashHit: new Set(), pending: [], spin: null, lunge: null, invuln: 0,
     boons: [], stats: emptyStats(), lastStandUsed: false, oathbondTime: 0, oathbondArmed: true, aura: 0,
-    revive: 0, secondWindTimer: 0, draft: [], inDoor: false,
+    revive: 0, secondWindTimer: 0, draft: [], draftOpts: null, rerolls: meta.stats.rerolls, metaLevels: meta.levels, meta: meta.stats,
+    burnTime: 0, burnTimer: 0, chillTime: 0, inDoor: false,
     run: { slot, damage: 0, kills: 0, resonances: 0, revives: 0, downs: 0 },
     damageTaken: 0,
   };
@@ -34,7 +40,7 @@ export function createHero(slot: number, cls: ClassId, name: string): Hero {
 
 /** Back to a fresh, boon-less hero (new run or return to the lobby). Keeps slot, class, name and connection. */
 export function resetHero(h: Hero): void {
-  const fresh = createHero(h.slot, h.cls, h.name);
+  const fresh = createHero(h.slot, h.cls, h.name, h.metaLevels);
   fresh.connected = h.connected;
   fresh.ackSeq = h.ackSeq;
   fresh.input = { ...h.input, buttons: 0, moveX: 0, moveZ: 0 };
@@ -54,6 +60,8 @@ export function placeHero(h: Hero, x: number, z: number): void {
   h.lockMoveMul = 1;
   h.inDoor = false;
   h.revive = 0;
+  h.burnTime = 0;
+  h.chillTime = 0;
 }
 
 /** Untrusted input: every field is forced into its legal range before it reaches the simulation. */
@@ -125,6 +133,15 @@ export function stepHero(w: World, h: Hero): void {
   h.invuln = tickDown(h.invuln, dt);
   h.animTime = tickDown(h.animTime, dt);
   h.oathbondTime = tickDown(h.oathbondTime, dt);
+  h.chillTime = tickDown(h.chillTime, dt);
+  if (h.burnTime > 0) {
+    h.burnTime = tickDown(h.burnTime, dt);
+    h.burnTimer -= dt;
+    if (h.burnTimer <= SIM.EPS) {
+      h.burnTimer += HAZARD.VENT.BURN_TICK;
+      dotHero(w, h, HAZARD.VENT.BURN_DPS * HAZARD.VENT.BURN_TICK, 'ember');
+    }
+  }
   if (h.comboTime > 0) {
     h.comboTime = tickDown(h.comboTime, dt);
     if (h.comboTime <= SIM.EPS) h.comboIndex = 0;

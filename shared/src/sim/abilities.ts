@@ -1,24 +1,29 @@
 /** Hero abilities: activation rules, windups and hit detection in the XZ plane. */
 import { BOON_TUNING } from '../data/boons.ts';
 import { COMBO_WINDOW, DASH, type AbilityDef } from '../data/classes.ts';
+import { HAZARD } from '../data/enemies.ts';
 import { BTN, ELEMENT_IDS, type AbilitySlot, type InputCmd } from '../types.ts';
 import { isTargetable, strikeEnemy } from './combat.ts';
 import { clamp, DEG, inArc, segDist } from './geom.ts';
 import { startDash } from './movement.ts';
-import { spawnProjectile } from './projectiles.ts';
+import { popFragileArc, popFragileCircle, popFragileSegment, spawnProjectile } from './projectiles.ts';
 import type { Hero, PendingHit } from './state.ts';
 import { SIM } from './tuning.ts';
 import type { World } from './world.ts';
 
-/** Speed handed to stepMovement this tick: class speed x boons x haste x ability move multiplier. */
+/** Speed handed to stepMovement this tick: class speed x upgrades x boons x haste x chill x ability move multiplier. */
 export function heroMoveSpeed(h: Hero): number {
-  let speed = h.def.moveSpeed * h.stats.moveSpeed;
+  let speed = h.def.moveSpeed * h.stats.moveSpeed * (1 + h.meta.moveSpeed);
   if (h.oathbondTime > 0) speed *= 1 + BOON_TUNING.OATHBOND_HASTE;
+  if (h.chillTime > 0) speed *= 1 - HAZARD.FROST.SLOW;
   if (h.lockTime > SIM.EPS) speed *= h.lockMoveMul;
   return speed;
 }
 
-export const dashRechargeSeconds = (h: Hero): number => DASH.COOLDOWN / h.stats.dashRecharge;
+export const dashRechargeSeconds = (h: Hero): number => DASH.COOLDOWN / (h.stats.dashRecharge * (1 + h.meta.dashHaste));
+
+/** Secondary cooldown after boons (quick_wits shortens it) and the celerity upgrade (recharges faster). */
+export const secondaryCooldown = (h: Hero): number => (h.def.secondary.cooldown * (1 - h.stats.secondaryCdr)) / (1 + h.meta.secondaryHaste);
 
 const elementCode = (h: Hero, slot: AbilitySlot): number => {
   const inf = h.stats.infusion[slot];
@@ -59,7 +64,7 @@ function activate(w: World, h: Hero, def: AbilityDef, slot: AbilitySlot, cmd: In
     h.comboTime = lock + COMBO_WINDOW;
     h.pressPrimary = 0;
   } else {
-    const cd = def.cooldown * (1 - h.stats.secondaryCdr);
+    const cd = secondaryCooldown(h);
     h.secondaryCd = cd;
     h.secondaryCdMax = cd;
     h.pressSecondary = 0;
@@ -109,6 +114,7 @@ function release(w: World, h: Hero, p: PendingHit): void {
         if (!isTargetable(e) || !inArc(x, z, p.aim, def.range, arc, e.x, e.z, e.radius)) continue;
         strikeEnemy(w, h, e, def.damage, p.slot, { fromX: x, fromZ: z, stun: def.stun, knockback: def.knockback });
       }
+      popFragileArc(w, h.slot, x, z, p.aim, def.range, arc);
       break;
     }
     case 'projectile': {
@@ -135,6 +141,7 @@ function release(w: World, h: Hero, p: PendingHit): void {
         if (dx * dx + dz * dz > reach * reach) continue;
         strikeEnemy(w, h, e, def.damage, p.slot, { fromX: p.tx, fromZ: p.tz, stun: def.stun, knockback: def.knockback });
       }
+      popFragileCircle(w, h.slot, p.tx, p.tz, def.radius);
       break;
     }
     case 'spin':
@@ -167,6 +174,7 @@ export function lungeSweep(w: World, h: Hero, fromX: number, fromZ: number): voi
     lunge.hit.add(e.id);
     strikeEnemy(w, h, e, def.damage, 'secondary', { fromX, fromZ, stun: def.stun, knockback: def.knockback });
   }
+  popFragileSegment(w, h.slot, fromX, fromZ, h.body.x, h.body.z, def.radius);
 }
 
 /** Infused dashes strike (and mark) every enemy near the dash path once. */
@@ -205,6 +213,7 @@ export function stepAbilities(w: World, h: Hero, dt: number): void {
         if (dx * dx + dz * dz > reach * reach) continue;
         strikeEnemy(w, h, e, def.damage, 'secondary', { fromX: h.body.x, fromZ: h.body.z, stun: def.stun, knockback: def.knockback });
       }
+      popFragileCircle(w, h.slot, h.body.x, h.body.z, def.radius);
       if (spin.pulsesLeft <= 0) h.spin = null;
     }
   }

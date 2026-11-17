@@ -1,22 +1,28 @@
 /**
  * Audio entry point. `initAudio()` only wires listeners; the AudioContext is created on the first
- * 'ui:gesture'. Audio is strictly optional: every path is guarded so a missing / blocked Web Audio API
- * can never throw into the game.
+ * 'ui:gesture', and only then do the samples start loading (tier by tier, in the background). Audio is
+ * strictly optional: every path is guarded so a missing / blocked Web Audio API or a failed download can
+ * never throw into the game — until a sample is decoded its event plays the synthesised fallback.
  *
  * Music state machine (crossfades of ~1.5 s):
  *   screen loading           -> none
  *   screen menu / lobby      -> menu
- *   screen game, combat      -> combat | elite | boss (by run.chamberKind; boss intensity follows 'bossPhase')
+ *   screen game, combat      -> combat | elite | boss (by run.chamberKind; the boss piece follows the boss kind,
+ *                               its intensity follows 'bossPhase')
  *   screen game, draft/doors -> calm
  *   victory / defeat         -> stinger, then the menu bed under the summary
+ * Ambience and the tint of the score follow run.room.biome; boss chambers switch the reverb to the hall.
  */
 import { CLASSES } from '@shared/data/classes.ts';
-import type { ClassId, GameEvent } from '@shared/types.ts';
+import { STATUS } from '@shared/data/enemies.ts';
+import { BOSS_KINDS, type BossKind, type ClassId, type ElementId, type EnemyKind, type GameEvent } from '@shared/types.ts';
 import { bus } from '../core/EventBus.ts';
 import { selfRoster, state } from '../core/GameState.ts';
 import { settings } from '../core/Settings.ts';
+import { createAmbience, type Ambience } from './ambience.ts';
 import { createGraph, MIX, setLevel, type AudioGraph } from './engine.ts';
-import { createAmbience, createMusic, MUSIC, type Ambience, type Music, type MusicState } from './music.ts';
+import { createMusic, MUSIC, type Music, type MusicState } from './music.ts';
+import { createBank, type Bank, type BankStats } from './samples.ts';
 import { createSfx, type Sfx } from './sfx.ts';
 
 const CONFIG = {
@@ -28,12 +34,21 @@ const CONFIG = {
   COMBO_RESET_S: 1.1,
   SUSPEND_DELAY_MS: 120,
   DRAFT_TICK_SECONDS: 5,
-  HOVER_SELECTOR: 'button, [role="button"], [role="radio"], [role="switch"]',
+  HOVER_SELECTOR: 'button, [role="button"], [role="radio"], [role="switch"], [role="tab"], [data-sfx]',
+  SFX_ATTRIBUTE: 'data-sfx',
+  /** A click is silent when a bus-driven interface sound (ready, draft pick) was played this recently. */
+  CLICK_AFTER_INTENT_S: 0.06,
+  /** Burn ticks are a few points of ember damage; anything this small and elemental is a tick, not a blow. */
+  TICK_DAMAGE_FACTOR: 1.5,
+  /** Hits this soon after a Resonance, carrying its second element, are its splash damage. */
+  SPLASH_WINDOW_S: 0.08,
+  MAX_TRACKED_ENEMIES: 256,
 } as const;
 
 interface Engine {
   ctx: AudioContext;
   graph: AudioGraph;
+  bank: Bank;
   music: Music;
   sfx: Sfx;
   ambience: Ambience;
@@ -45,8 +60,13 @@ let stingerUntil = 0;
 let stingerTimer = 0;
 let lastTick = -1;
 let lastHover: Element | null = null;
+let lastIntentSound = -1;
+let lastChamber = -1;
 const lastLocal = { primary: -1, secondary: -1, dash: -1 };
+const lastResonance = { at: -1, el: null as ElementId | null };
 let combo = 0;
+/** What is known about living enemies from 'spawn' events (kind decides hit / cast timbres). */
+const enemies = new Map<number, EnemyKind>();
 
 type AudioContextCtor = typeof AudioContext;
 
@@ -87,9 +107,24 @@ function desiredMusic(): MusicState {
   }
 }
 
-function updateMusic(e: Engine): void {
-  if (state.screen === 'game') e.ambience.start();
-  else e.ambience.stop();
+function asBoss(kind: EnemyKind | null | undefined): BossKind | null {
+  return kind && (BOSS_KINDS as readonly string[]).includes(kind) ? (kind as BossKind) : null;
+}
+
+/** The boss whose piece the 'boss' state should play. */
+function bossOfRun(): BossKind {
+  const run = state.run;
+  return asBoss(run?.bossKind) ?? run?.finalBoss ?? 'regent';
+}
+
+function updateScene(e: Engine): void {
+  const run = state.run;
+  const inGame = state.screen === 'game';
+  const biome = inGame ? run?.room?.biome ?? 'crypt' : null;
+  e.ambience.setBiome(biome);
+  if (biome) e.music.setBiome(biome);
+  e.graph.setSpace(inGame && run?.chamberKind === 'boss' ? 'hall' : 'room');
+  e.music.setBossKind(bossOfRun());
   if (e.ctx.currentTime < stingerUntil) return; // let the stinger breathe; a timer resumes afterwards
   e.music.setState(desiredMusic());
 }
@@ -98,7 +133,7 @@ function playStinger(e: Engine, kind: 'victory' | 'defeat'): void {
   e.music.stinger(kind);
   stingerUntil = e.ctx.currentTime + MUSIC.STINGER_SECONDS;
   window.clearTimeout(stingerTimer);
-  stingerTimer = window.setTimeout(() => safe((eng) => { stingerUntil = 0; updateMusic(eng); }), MUSIC.STINGER_SECONDS * 1000);
+  stingerTimer = window.setTimeout(() => safe((eng) => { stingerUntil = 0; updateScene(eng); }), MUSIC.STINGER_SECONDS * 1000);
 }
 
 function start(): void {
@@ -112,12 +147,20 @@ function start(): void {
     if (!Ctor) { failed = true; return; }
     const ctx = new Ctor({ latencyHint: 'interactive' });
     const graph = createGraph(ctx);
-    engine = { ctx, graph, music: createMusic(graph), sfx: createSfx(graph), ambience: createAmbience(graph) };
+    const bank = createBank(ctx);
+    const sfx = createSfx(graph, bank);
+    engine = { ctx, graph, bank, sfx, music: createMusic(graph, sfx.player), ambience: createAmbience(graph, sfx.player) };
     graph.master.gain.value = 0;
     applyVolumes(engine);
     void ctx.resume().catch(() => undefined);
-    window.setInterval(() => safe((e) => { if (e.ctx.state === 'running') e.music.schedule(); }), MUSIC.TICK_MS);
-    updateMusic(engine);
+    // Samples arrive in the background; nothing waits for them.
+    void bank.load();
+    window.setInterval(() => safe((e) => {
+      if (e.ctx.state !== 'running') return;
+      e.music.schedule();
+      e.ambience.schedule();
+    }), MUSIC.TICK_MS);
+    updateScene(engine);
   } catch (err) {
     failed = true;
     engine = null;
@@ -137,8 +180,8 @@ function onVisibility(): void {
   });
 }
 
-function classOfSlot(slot: number): ClassId {
-  return state.roster.find((p) => p.slot === slot)?.cls ?? 'knight';
+function classOfSlot(slot: number): ClassId | null {
+  return state.roster.find((p) => p.slot === slot)?.cls ?? null;
 }
 
 /** Which class + combo step an ability id such as "knight_slash3" belongs to. */
@@ -151,8 +194,12 @@ function describeAbility(id: string): { cls: ClassId; slot: 'primary' | 'seconda
   return null;
 }
 
+function kindOfEnemy(id: number): EnemyKind | null {
+  return enemies.get(id) ?? (id === state.run?.bossId ? state.run.bossKind : null);
+}
+
 function onCast(e: Engine, ev: Extract<GameEvent, { e: 'cast' }>): void {
-  if (ev.who.t === 'e') { e.sfx.enemyCast(); return; }
+  if (ev.who.t === 'e') { e.sfx.enemyCast(ev.ability, kindOfEnemy(ev.who.id)); return; }
   const own = ev.who.id === state.conn.slot;
   const now = e.ctx.currentTime;
   if (ev.ability === 'dash') {
@@ -160,22 +207,42 @@ function onCast(e: Engine, ev: Extract<GameEvent, { e: 'cast' }>): void {
     return;
   }
   const info = describeAbility(ev.ability);
-  if (!info) { if (!own) e.sfx.primary(classOfSlot(ev.who.id), 0, false); return; }
+  if (!info) { if (!own) e.sfx.primary(classOfSlot(ev.who.id) ?? 'knight', 0, false); return; }
   if (own && now - lastLocal[info.slot] < CONFIG.LOCAL_ECHO_S) return;
   if (info.slot === 'primary') e.sfx.primary(info.cls, info.step, own);
   else e.sfx.secondary(info.cls, own);
+}
+
+function onHit(e: Engine, ev: Extract<GameEvent, { e: 'hit' }>): void {
+  const own = state.conn.slot;
+  if (ev.target.t === 'p') { e.sfx.hurt(ev.target.id === own, ev.dmg); return; }
+  const kind = kindOfEnemy(ev.target.id);
+  const now = e.ctx.currentTime;
+  const splash = ev.el !== null && ev.el === lastResonance.el && now - lastResonance.at < CONFIG.SPLASH_WINDOW_S;
+  const burn = ev.el === 'ember' && !ev.crit && ev.dmg <= STATUS.BURN.DPS * CONFIG.TICK_DAMAGE_FACTOR;
+  e.sfx.hit({
+    dmg: ev.dmg, crit: ev.crit, el: ev.el, own: ev.by === own,
+    shielded: ev.dmg <= 0,
+    boss: kind === 'champion' || asBoss(kind) !== null || ev.target.id === state.run?.bossId,
+    weapon: classOfSlot(ev.by),
+    tick: ev.by < 0 || splash || burn,
+  });
 }
 
 function onGameEvent(ev: GameEvent): void {
   safe((e) => {
     const own = state.conn.slot;
     switch (ev.e) {
-      case 'hit':
-        if (ev.target.t === 'p') e.sfx.hurt(ev.target.id === own, ev.dmg);
-        else e.sfx.hit({ dmg: ev.dmg, crit: ev.crit, el: ev.el, own: ev.by === own });
+      case 'hit': onHit(e, ev); break;
+      case 'kill':
+        e.sfx.kill(ev.kind, ev.by === own);
+        enemies.delete(ev.id);
         break;
-      case 'kill': e.sfx.kill(ev.kind, ev.by === own); break;
-      case 'resonance': e.sfx.resonance(ev.a, ev.b, ev.by === own); break;
+      case 'resonance':
+        lastResonance.at = e.ctx.currentTime;
+        lastResonance.el = ev.b;
+        e.sfx.resonance(ev.a, ev.b, ev.by === own);
+        break;
       case 'status': e.sfx.status(ev.el); break;
       case 'telegraph': e.sfx.telegraph(ev.dur); break;
       case 'cast': onCast(e, ev); break;
@@ -184,15 +251,23 @@ function onGameEvent(ev: GameEvent): void {
       case 'down': e.sfx.down(ev.slot === own); break;
       case 'revived': e.sfx.revived(ev.slot === own); break;
       case 'shieldBreak': e.sfx.shieldBreak(); break;
-      case 'spawn': e.sfx.spawn(ev.kind, ev.elite); break;
+      case 'spawn':
+        if (enemies.size >= CONFIG.MAX_TRACKED_ENEMIES) enemies.clear();
+        enemies.set(ev.id, ev.kind);
+        e.sfx.spawn(ev.kind, ev.elite);
+        break;
       case 'wave': e.sfx.wave(); break;
       case 'chamberClear': e.sfx.chamberClear(); break;
       case 'bossPhase':
-        e.sfx.bossPhase();
+        e.sfx.bossPhase(ev.phase, state.run?.bossKind ?? null);
         e.music.setBossPhase(ev.phase);
         break;
       case 'boon': e.sfx.boon(ev.slot === own); break;
       case 'doorChosen': e.sfx.doorChosen(ev.type); break;
+      case 'tutorialStep': e.sfx.tutorialStep(); break;
+      case 'hazardHit':
+        e.sfx.hazard(ev.kind, ev.target.t === 'e' ? 'enemy' : ev.target.id === own ? 'own' : 'ally');
+        break;
     }
   });
 }
@@ -219,9 +294,13 @@ function onLocalAction(action: 'primary' | 'secondary' | 'dash' | 'denied'): voi
 function onRun(previousPhase: string | null): void {
   safe((e) => {
     const run = state.run;
+    if (!run || run.chamber !== lastChamber) {
+      enemies.clear();
+      lastChamber = run?.chamber ?? -1;
+    }
     if (run && (run.phase === 'victory' || run.phase === 'defeat') && previousPhase !== run.phase) playStinger(e, run.phase);
     if (!run || run.phase !== 'combat' || run.chamberKind !== 'boss') e.music.setBossPhase(1);
-    updateMusic(e);
+    updateScene(e);
     // countdown ticks in the last seconds of a draft the player has not answered yet
     if (run && run.phase === 'draft' && state.draft.length > 0) {
       const left = Math.ceil(run.draftTime);
@@ -242,6 +321,29 @@ function interactive(target: EventTarget | null): Element | null {
   return el;
 }
 
+/** Interface sound for a click on `el`: its `data-sfx` value, or the default click. */
+function playUi(e: Engine, el: Element): void {
+  switch (el.getAttribute(CONFIG.SFX_ATTRIBUTE)) {
+    case 'hover': break; // hover-only element
+    case 'confirm': e.sfx.confirm(); break;
+    case 'back': e.sfx.back(); break;
+    case 'error': e.sfx.error(); break;
+    case 'buy': e.sfx.buy(); break;
+    case 'equip': e.sfx.equip(); break;
+    case 'tab': e.sfx.tab(); break;
+    case 'toggle': e.sfx.toggle(); break;
+    default: e.sfx.click(); break;
+  }
+}
+
+/** A bus-driven interface sound; the click that caused it stays silent. */
+function intentSound(fn: (e: Engine) => void): void {
+  safe((e) => {
+    lastIntentSound = e.ctx.currentTime;
+    fn(e);
+  });
+}
+
 export function initAudio(): void {
   try {
     bus.on('ui:gesture', start);
@@ -251,14 +353,15 @@ export function initAudio(): void {
     bus.on('settings:changed', () => safe(applyVolumes));
     document.addEventListener('visibilitychange', onVisibility);
 
-    bus.on('state:screen', () => safe(updateMusic));
+    bus.on('state:screen', () => safe(updateScene));
     bus.on('state:run', ({ previousPhase }) => onRun(previousPhase));
     bus.on('game:event', onGameEvent);
     bus.on('game:localAction', ({ action }) => onLocalAction(action));
 
-    // UI feedback: intents on the bus + generic hover / click on real controls.
-    bus.on('ui:lobby', (p) => { if (p.ready !== undefined) safe((e) => e.sfx.ready(p.ready === true)); });
-    bus.on('ui:pick', () => safe((e) => e.sfx.draftPick()));
+    // UI feedback: intents on the bus + one delegated hover / click listener for every control.
+    // Controls may name their sound with data-sfx="hover|click|confirm|back|error|buy|equip|tab|toggle".
+    bus.on('ui:lobby', (p) => { if (p.ready !== undefined) intentSound((e) => e.sfx.ready(p.ready === true)); });
+    bus.on('ui:pick', () => intentSound((e) => e.sfx.draftPick()));
     bus.on('net:error', () => safe((e) => e.sfx.error()));
     document.addEventListener('pointerover', (ev) => {
       const el = interactive(ev.target);
@@ -266,14 +369,50 @@ export function initAudio(): void {
       lastHover = el;
       if (el) safe((e) => e.sfx.hover());
     });
-    document.addEventListener('click', (ev) => { if (interactive(ev.target)) safe((e) => e.sfx.click()); });
+    document.addEventListener('click', (ev) => {
+      const el = interactive(ev.target);
+      if (el) safe((e) => { if (e.ctx.currentTime - lastIntentSound > CONFIG.CLICK_AFTER_INTENT_S) playUi(e, el); });
+    });
   } catch (err) {
     console.warn('[audio] init failed', err);
   }
 }
 
-/** Dev / test hook: the live engine, or null before the first gesture. */
-export function audioDebug(): { state: string; music: MusicState; tracks: number; time: number } | null {
+export interface AudioDebug {
+  state: string;
+  music: MusicState;
+  tracks: number;
+  time: number;
+  /** Which piece is playing (e.g. "boss:matron"). */
+  piece: string | null;
+  biome: string | null;
+  space: string;
+  samples: BankStats;
+  /** Sample voices sounding now / source nodes started and not yet ended (leak check). */
+  voices: number;
+  liveNodes: number;
+  /** Per-event mix nodes still plugged in (they are unplugged a few seconds after their sound). */
+  mixNodes: number;
+  /** Events that played a designed stack vs. the synthesised fallback so far. */
+  designed: number;
+  fallbacks: number;
+  /** Output peak of the last analyser window, 0..1. */
+  peak: number;
+}
+
+/** Dev / test hook: the live engine's state, or null before the first gesture. */
+export function audioDebug(): AudioDebug | null {
   if (!engine) return null;
-  return { state: engine.ctx.state, music: engine.music.state(), tracks: engine.music.trackCount(), time: engine.ctx.currentTime };
+  const sfx = engine.sfx.stats();
+  return {
+    state: engine.ctx.state, music: engine.music.state(), tracks: engine.music.trackCount(), time: engine.ctx.currentTime,
+    piece: engine.music.key(), biome: engine.ambience.biome(), space: engine.graph.space(), samples: engine.bank.stats(),
+    voices: sfx.voices, liveNodes: engine.graph.live.count, mixNodes: sfx.mixNodes, designed: sfx.designed, fallbacks: sfx.fallbacks,
+    peak: engine.graph.meter(),
+  };
+}
+
+/** Dev workbench only: direct handles to the running engine (null before the first gesture). */
+export function audioInternals(): Engine | null {
+  return engine;
 }
