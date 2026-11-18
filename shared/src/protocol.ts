@@ -31,7 +31,8 @@ export type ClientMsg =
   /** Host only; requires every connected player to be ready. */
   | { t: 'start' }
   /** Draft choice: index into the last `draft` message's options. */
-  | { t: 'pick'; index: number }
+  /** `replace`: in a keystone draft with full slots, the id of the held keystone to give up. */
+  | { t: 'pick'; index: number; replace?: string }
   /** Spend one draft reroll (from the `insight` upgrade): replaces the current draft options. */
   | { t: 'reroll' }
   /** Host only, after victory / defeat: reset the room to the lobby. */
@@ -53,7 +54,15 @@ export type ServerMsg =
   /** Full run state; sent on every structural change and ~4x per second during `draft` and `doors`. */
   | { t: 'run'; state: RunState }
   /** Private: the receiving player's current draft options ([] = nothing to pick) and rerolls left this run. */
-  | { t: 'draft'; options: BoonOffer[]; rerolls: number }
+  | {
+      t: 'draft'; options: BoonOffer[]; rerolls: number;
+      /**
+       * Present in a keystone draft: `options` are keystone ids (level 1). `held` = the hero's keystones; when
+       * `held.length` equals KEYSTONE_TUNING.MAX_HELD a pick must name which one to give up (`pick.replace`).
+       * `skip` = index value that takes the consolation instead (an ordinary rare-or-better draft follows).
+       */
+      keystone?: { held: string[]; skip: number };
+    }
   /** Gameplay events that happened up to `tick`. */
   | { t: 'ev'; tick: number; events: GameEvent[] }
   /** `c` echoes the client's timestamp, `s` is the server time (ms). */
@@ -128,7 +137,11 @@ export function parseClientMsg(raw: unknown): ClientMsg | null {
       return msg;
     }
     case 'start': return { t: 'start' };
-    case 'pick': return isInt(raw.index, 0, 7) ? { t: 'pick', index: raw.index } : null;
+    case 'pick': {
+      if (!isInt(raw.index, 0, 7)) return null;
+      if (raw.replace === undefined) return { t: 'pick', index: raw.index };
+      return typeof raw.replace === 'string' && raw.replace.length <= 32 ? { t: 'pick', index: raw.index, replace: raw.replace } : null;
+    }
     case 'reroll': return { t: 'reroll' };
     case 'toLobby': return { t: 'toLobby' };
     case 'leave': return { t: 'leave' };

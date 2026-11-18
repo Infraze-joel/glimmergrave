@@ -327,6 +327,8 @@ export interface RosterEntry {
   connected: boolean;
   host: boolean;
   boons: BoonStack[];
+  /** Keystones held, in the order taken (data/keystones.ts; at most KEYSTONE_TUNING.MAX_HELD). */
+  keystones: string[];
 }
 
 export const RUN_PHASES = ['lobby', 'combat', 'draft', 'doors', 'victory', 'defeat'] as const;
@@ -439,6 +441,8 @@ export interface BoonOffer {
   id: string;
   /** Level the boon would have after picking (1 = new). */
   level: number;
+  /** Build tags this boon shares with the hero's keystones ([] or absent = none). See data/keystones.ts. */
+  fits?: string[];
 }
 
 export type TargetRef = { t: 'p'; id: number } | { t: 'e'; id: number };
@@ -477,6 +481,15 @@ export type GameEvent =
   | { e: 'chamberClear' }
   | { e: 'bossPhase'; phase: number }
   | { e: 'boon'; slot: number; id: string; level: number }
+  /** A hero took a keystone (`replaced` = the one given up for it, if the slots were full). */
+  | { e: 'keystone'; slot: number; id: string; replaced?: string }
+  /**
+   * A keystone did its thing (for its own effect and sound). `n` is a count where it has one (stacks, bounces,
+   * blades), `x` / `z` where it happens, `r` a radius, `tx` / `tz` a second point (a bounce or arc target).
+   * Sent at most a few times per second per hero and keystone; continuous keystones (orbiting blades, the
+   * familiar, the mage's stream, the walking sanctum) are drawn from RosterEntry.keystones and hero state instead.
+   */
+  | { e: 'keystoneProc'; slot: number; id: string; x: number; z: number; n?: number; r?: number; tx?: number; tz?: number }
   | { e: 'doorChosen'; type: DoorType }
   | { e: 'tutorialStep'; step: string }
   | { e: 'hazardHit'; target: TargetRef; kind: Hazard['kind'] }

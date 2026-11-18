@@ -16,7 +16,8 @@ export interface EventMap {
   'ui:join': { code: string; name: string; cls: ClassId };
   'ui:lobby': { cls?: ClassId; ready?: boolean; oath?: number };
   'ui:start': undefined;
-  'ui:pick': { index: number };
+  /** `replace`: keystone draft with full slots — the held keystone to give up. */
+  'ui:pick': { index: number; replace?: string };
   /** Spend a draft reroll (state.draftRerolls > 0). */
   'ui:reroll': undefined;
   /** Look or permanent upgrades changed (emitted by core/GameState helpers); net/ resends the loadout in a lobby. */
