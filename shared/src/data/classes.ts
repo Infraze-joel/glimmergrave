@@ -131,11 +131,11 @@ export const COMBO_WINDOW = 0.6;
 
 export const CLASSES: Record<ClassId, ClassDef> = {
   knight: {
-    id: 'knight', maxHp: 125, moveSpeed: 5.6, dashCharges: 1,
+    id: 'knight', maxHp: 135, moveSpeed: 5.6, dashCharges: 1,
     primary: [
-      { ...base, id: 'knight_slash1', shape: 'arc', anim: 'primary1', cooldown: 0.36, windup: 0.11, lock: 0.3, damage: 18, range: 2.8, arc: 110 },
-      { ...base, id: 'knight_slash2', shape: 'arc', anim: 'primary2', cooldown: 0.36, windup: 0.11, lock: 0.3, damage: 18, range: 2.8, arc: 110 },
-      { ...base, id: 'knight_slash3', shape: 'arc', anim: 'primary3', cooldown: 0.56, windup: 0.18, lock: 0.44, damage: 31, range: 3.1, arc: 150, knockback: 2 },
+      { ...base, id: 'knight_slash1', shape: 'arc', anim: 'primary1', cooldown: 0.36, windup: 0.11, lock: 0.3, damage: 19, range: 2.8, arc: 110 },
+      { ...base, id: 'knight_slash2', shape: 'arc', anim: 'primary2', cooldown: 0.36, windup: 0.11, lock: 0.3, damage: 19, range: 2.8, arc: 110 },
+      { ...base, id: 'knight_slash3', shape: 'arc', anim: 'primary3', cooldown: 0.56, windup: 0.18, lock: 0.44, damage: 33, range: 3.1, arc: 150, knockback: 2 },
     ],
     secondary: { ...base, id: 'knight_bash', shape: 'lunge', anim: 'secondary', cooldown: 6, windup: 0.08, lock: 0.42, moveMul: 0, damage: 26, range: 4.6, radius: 1.3, stun: 1.2, knockback: 1.5, selfShield: 12 },
     arts: [
