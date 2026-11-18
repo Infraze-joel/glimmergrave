@@ -105,3 +105,42 @@ Simulation and server for update 3 "The Endless Descent". Verified with `tsc -p 
 - Known limits: a maxed hero wins depth 0 at Oath 0 every time (its challenge is depth and Oath); relic shards do
   not drop from elite-flagged rank and file (only champion, herald, final boss); Wither leech emits one `heal`
   event per hit; bots never choose a cursed door and do not pick talents or relics by themselves.
+
+## Backend, update 4
+
+Simulation and server for update 4 "Objectives and the Horde" (spec: `docs/milestones/update-4.md`; measured numbers
+and what could not be verified: `/home/claude/reports/backend-update4.md`). Verified with `tsc -p shared`,
+`tsc -p server`, `eslint shared server`, `vitest run`, both server builds and a bot smoke test against the built
+server in which a party that prefers special objectives plays a whole run.
+
+- New sim files: `sim/objectives.ts` (door rolls, placement of shard / braziers / reliquary, the live
+  `ObjectiveState`, bonus, counters) and `sim/horde.ts` (shaman, aegis, bomber, necromancer, reaver). The chamber
+  flow stays in `sim/director.ts`: `enterChamber(w, index, door, objective)`, `director.obj` (bookkeeping),
+  timed groups for survive / ritual (`sendGroup`), `queueGroup` (wards, siege share), `composeWave(..., standing)`.
+- Objectives: slay and defend use waves; hunt is one wave (marked elites first); survive, ritual and vault have
+  `waveCount 0` (`wave` counts the groups sent). Survive / ritual / vault end by themselves: everything crumbles,
+  `objective done`, and the chamber is cleared `DIRECTOR.CLEAR_DELAY` later. The others emit `done` together with
+  `chamberClear`. The survive bonus is lost the moment a hero is down. `ObjectiveState.timeLeft` also counts the
+  ritual's bonus limit. The vault's reliquary is `ObjectiveState.anchor` with `hp 1`; `progress` is the hold.
+  The training session has `objective: null`.
+- The shard, the braziers and the reliquary are not obstacles (nothing collides with them).
+- Run state: `World.objectiveLive` is true while a special objective is active; `Room` then re-sends `run` every
+  `SERVER.RUN_BROADCAST_TICKS` (about 4 per second), as it already did during draft and doors.
+- Wards: precise rule above `wardedAgainst` in `sim/combat.ts`. A share of every group from chamber 4 on, one random
+  element per enemy, never the whole group, never bosses, champions or summoned minions. No snapshot flag is free:
+  the ward is only in the `spawn` event (like affixes).
+- Events without a world at hand: `interrupt` is sent by the enemy's next step (same tick for hero hits).
+- Sim-only rules added while balancing (all in `sim/tuning.ts`): an enemy can be mended `AI.SHAMAN.MAX_MENDS` (2)
+  times; shamans are capped alive like aegis and necromancers; support kinds take at most 40 % of a wave's budget;
+  survive / ritual groups stop while more than `OBJECTIVE.MAX_ALIVE_BUDGET` wave budgets stand and count every
+  capped kind that is alive; a brazier takes `1 + (party - 1)` times as long in a party; marked hunt elites have
+  `OBJECTIVE.HUNT_HP_MUL` (3) times the health of an elite.
+- Numbers changed in contract data (no shape, id or order changed): costs of shaman 4 -> 3, aegis 5 -> 4,
+  necromancer 5 -> 4; `OBJECTIVE_TUNING` SURVIVE.BUDGET_FRACTION 0.45, DEFEND.HP 520 / ATTACKER_SHARE 0.3 /
+  REPAIR_PER_SECOND 0.02, HUNT.SECONDS 45, RITUAL.BONUS_SECONDS 60 / BUDGET_FRACTION 0.4.
+- Tools: `RunOverrides.objective` pins the first door's objective (`slay` pins every door: a classic run); server
+  option `debugObjective` / env `DEBUG_OBJECTIVE`; bot option `preferObjectives` (`botClient --objectives`);
+  balance soak `npx tsx --tsconfig server/tsconfig.json shared/test/tools/soak4.ts [seeds] [solo|party|max|maxparty] [mixed|prefer|classic]`.
+- Known limits: bots do not repair the shard on purpose and a solo bot saves it in well under half of the
+  chambers; ranged bots cannot shoot past the front line at a shaman; no reconnecting client learns wards or
+  affixes of enemies that are already standing; the shard can be walked through.

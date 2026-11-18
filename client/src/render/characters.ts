@@ -1351,16 +1351,23 @@ export class Enemies {
   }
 
   /**
-   * `spawn` event. A minion that rises next to a necromancer that has just finished a `raise` is linked to it (the
-   * contract carries no explicit link): it wears the necromancer's soul light and a tether until either is gone.
+   * `spawn` event. A minion raised by a necromancer (`raisedBy`, or — without that field — one that rises next to a
+   * necromancer that has just finished a `raise`) is linked to it: it wears the necromancer's soul light and a tether until either is gone.
    */
-  spawned(id: number, kind: EnemyKind, x: number, z: number, ward: ElementId | undefined): boolean {
+  spawned(id: number, kind: EnemyKind, x: number, z: number, ward: ElementId | undefined, raisedBy?: number): boolean {
     if (ward) {
       this.wards.set(id, ward);
       const v = this.byId.get(id);
       if (v) v.ward = ward;
     }
     if (kind !== 'minion') return false;
+    // The server names the necromancer; the timing guess below only covers a server that does not.
+    if (raisedBy !== undefined) {
+      this.masters.set(id, raisedBy);
+      const linked = this.byId.get(id);
+      if (linked) linked.master = raisedBy;
+      return true;
+    }
     for (const r of this.raises) {
       if (r.left <= 0 || r.until < this.time) continue;
       const master = this.byId.get(r.id);

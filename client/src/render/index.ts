@@ -672,7 +672,7 @@ export class WorldView implements FollowSource {
       case 'spawn': {
         const def = enemyDef(ev.kind);
         const big = isBigEnemy(ev.kind);
-        const raised = this.enemies.spawned(ev.id, ev.kind, ev.x, ev.z, ev.ward);
+        const raised = this.enemies.spawned(ev.id, ev.kind, ev.x, ev.z, ev.ward, ev.raisedBy);
         // a raised minion claws its way up in grave violet; the new kinds rise in their own colour
         const hex = big ? BOSS_AURA[ev.kind]?.[0] ?? PALETTE.hostile : ev.elite ? PALETTE.hostile : raised ? PALETTE.grave
           : HORDE_VIS.SPAWN_TINT.has(ev.kind) ? EYE_COLOR[ev.kind] : PALETTE.glimmer;
