@@ -82,8 +82,15 @@ const noStatus = (e: Enemy): boolean => e.status === null;
  */
 export const wardedAgainst = (e: Enemy, el: ElementId): boolean => e.ward === el;
 
+/** Tells the clients that a hero's element did nothing to a warded enemy (rate-limited per enemy). */
+function wardBlocked(w: World, e: Enemy, el: ElementId, by: Hero | null): void {
+  if (!by || e.dead || e.wardCd > 0) return;
+  e.wardCd = SIM.WARDED_EVENT_SECONDS;
+  w.emit({ e: 'warded', id: e.id, el, x: e.x, z: e.z, by: by.slot });
+}
+
 export function setStatus(w: World, e: Enemy, el: ElementId, by: Hero | null, potency: number, jumped = false): void {
-  if (wardedAgainst(e, el)) return;
+  if (wardedAgainst(e, el)) { wardBlocked(w, e, el, by); return; }
   const changed = e.status !== el;
   const lasting = by ? 1 + by.stats.catalyst : 1;
   e.status = el;
@@ -274,7 +281,7 @@ function burst(w: World, x: number, z: number, a: ElementId, b: ElementId, h: He
     const dz = o.z - z;
     if (dx * dx + dz * dz > reach * reach) continue;
     // Warded against either element of this burst: it passes the enemy by.
-    if (o.ward !== null && (o.ward === a || o.ward === b)) { burstHit.push(o); continue; }
+    if (o.ward !== null && (o.ward === a || o.ward === b)) { burstHit.push(o); wardBlocked(w, o, o.ward, h); continue; }
     burstHit.push(o);
     o.resonanceCd = STATUS.RESONANCE.INTERNAL_COOLDOWN;
     if (o.armored) {
@@ -370,7 +377,7 @@ function resonate(w: World, e: Enemy, el: ElementId, h: Hero, potency: number): 
  * enemy burst (or was caught in a burst) within the internal cooldown, in which case the hit changes nothing.
  */
 export function applyElement(w: World, e: Enemy, el: ElementId, h: Hero, potency: number): void {
-  if (wardedAgainst(e, el)) return;
+  if (wardedAgainst(e, el)) { wardBlocked(w, e, el, h); return; }
   if (e.status !== null && e.status !== el) {
     if (e.resonanceCd > SIM.EPS) return;
     resonate(w, e, el, h, potency);

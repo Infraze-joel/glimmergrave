@@ -52,6 +52,8 @@ export const SIM = {
   ECHO_DELAY: 0.1,
   /** Chill, Wither and other cuts never reduce an enemy's speed or damage by more than this. */
   MAX_CUT: 0.9,
+  /** A warded enemy announces a nullified element (`warded` event) at most once per this many seconds. */
+  WARDED_EVENT_SECONDS: 1,
   /** Bosses are held by Shatter for this long (they cannot be stunned). */
   BOSS_STAGGER_SECONDS: 0.35,
 } as const;

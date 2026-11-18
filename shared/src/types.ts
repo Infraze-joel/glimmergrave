@@ -484,6 +484,8 @@ export type GameEvent =
   | { e: 'dome'; id: number; on: boolean; r: number }
   /** A hero's elemental hit did nothing because the enemy is warded against `el` (at most one per enemy per second). */
   | { e: 'warded'; id: number; el: ElementId; x: number; z: number; by: number }
+  /** An enemy's wind-up was broken by a stun or stagger before it landed (its telegraph and channel end now). */
+  | { e: 'interrupt'; id: number }
   /** A shaman healed these enemies. */
   | { e: 'mend'; id: number; targets: number[] }
   /** The party went one depth deeper. */

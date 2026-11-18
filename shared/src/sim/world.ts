@@ -44,7 +44,7 @@ const freshRun = (): RunCore => ({
   phase: 'lobby', oath: 0, chamber: 0, chamberKind: 'combat', entered: 'boon', wave: 0, waveCount: 0, doors: [],
   doorProgress: [], bossId: -1, draftPending: [], draftTime: 0, elapsed: 0, secondWinds: 0,
   // `finalBoss` only means something once a run has started (it is drawn from the run seed).
-  bossKind: null, finalBoss: 'regent', rewards: [], depth: 0, cleared: 0, chambersCleared: 0, objective: null, tutorial: null,
+  bossKind: null, finalBoss: 'regent', rewards: [], depth: 0, cleared: 0, chambersCleared: 0, objective: null, objectivesDone: 0, objectiveBonuses: 0, tutorial: null,
 });
 
 /** Mixed into the run seed for the generator that only rolls relic shards. */

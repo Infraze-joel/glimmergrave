@@ -11,7 +11,7 @@ import { midiToHz } from './engine.ts';
 import { NOTE, rnd, TUNED, type SfxKit } from './sfx-kit.ts';
 
 const LV = {
-  startSurvive: 0.5, startDefend: 0.75, startHunt: 0.6, startRitual: 1, startVault: 0.9,
+  startSurvive: 0.42, startDefend: 0.75, startHunt: 0.6, startRitual: 1, startVault: 0.9,
   site: 0.42, siteAll: 0.5, anchorHit: 0.6, shatter: 0.85, enrage: 0.8, bonusLost: 0.7,
   done: 0.6, doneBonus: 1.1, reliquary: 0.85, timer: 0.8, timerLast: 1,
   /** The three timer voices are built differently; these bring them to the same loudness. */

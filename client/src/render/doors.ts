@@ -25,9 +25,13 @@ const CFG = {
   POST: 0.6,
   APPEAR_TIME: 0.55,
   ICON_Y: 5.0,
-  /** Emblem of the chamber's objective, on a dark plate above the type icon. */
-  EMBLEM_Y: 6.45,
-  EMBLEM_SIZE: 1.2,
+  /**
+   * Emblem of the chamber's objective: on a dark plate in the middle of the portal, where it is on screen from the
+   * far end of the room as well (the arch's keystone and the type icon above it are cut off from there).
+   */
+  EMBLEM_Y: 1.95,
+  EMBLEM_Z: 0.9,
+  EMBLEM_SIZE: 1.45,
   FRAME_TINT: [0.5, 0.52, 0.66],
 } as const;
 
@@ -264,9 +268,11 @@ export class Doors {
         const euv = this.atlas.icons[emblem];
         const es = CFG.EMBLEM_SIZE * ease * (1 + this.pulse[i] * 0.3);
         const ey = CFG.EMBLEM_Y + bob * 0.6;
-        ui.push(SPRITE.GLOW, x, ey, this.wallZ + 0.4, es * 2.4, es * 2.4, oc[0] * 0.5, oc[1] * 0.5, oc[2] * 0.5, 0.35 * ease, 1);
-        ui.push(SPRITE.PIP, x, ey, this.wallZ + 0.4, es * 1.5, es * 1.5, oc[0] * 0.16, oc[1] * 0.16, oc[2] * 0.16, 0.95 * ease);
-        ui.push(SPRITE.ATLAS, x, ey, this.wallZ + 0.4, es, es, oc[0] * 1.25, oc[1] * 1.25, oc[2] * 1.25, ease, 0, 0, 0, 0, 0, euv[0], euv[1], euv[2], euv[3]);
+        const ez = this.wallZ + CFG.EMBLEM_Z;
+        ui.push(SPRITE.GLOW, x, ey, ez, es * 2.3, es * 2.3, oc[0] * 0.5, oc[1] * 0.5, oc[2] * 0.5, 0.3 * ease, 1);
+        ui.push(SPRITE.PIP, x, ey, ez, es * 1.55, es * 1.55, oc[0] * 0.9, oc[1] * 0.9, oc[2] * 0.9, 0.95 * ease);
+        ui.push(SPRITE.PIP, x, ey, ez, es * 1.36, es * 1.36, 0.03, 0.03, 0.05, 0.97 * ease);
+        ui.push(SPRITE.ATLAS, x, ey, ez, es, es, oc[0] * 1.25, oc[1] * 1.25, oc[2] * 1.25, ease, 0, 0, 0, 0, 0, euv[0], euv[1], euv[2], euv[3]);
       }
     }
     while (this.moteAcc >= 1) {

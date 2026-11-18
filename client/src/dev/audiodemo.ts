@@ -121,7 +121,7 @@ function fakeRun(phase: RunPhase, chamberKind: RunState['chamberKind'], boss: Bo
     room: { seed: 1, biome, w: 30, d: 30, obstacles: [], hazards: [], spawns: [] },
     doors: [], doorProgress: [], bossId: chamberKind === 'combat' ? -1 : DEMO.BOSS_ID, draftPending: [], draftTime: 0, elapsed: 0,
     stats: [], secondWinds: 0, bossKind: chamberKind === 'boss' ? boss : chamberKind === 'elite' ? 'champion' : null,
-    finalBoss: boss, rewards: [], depth, cleared, chambersCleared: 0, tutorial: null,
+    finalBoss: boss, rewards: [], depth, cleared, chambersCleared: 0, tutorial: null, objectivesDone: 0, objectiveBonuses: 0,
   };
 }
 
@@ -277,7 +277,19 @@ function hookTickLog(): void {
     tickLog.push({ kind, left, at: t ?? engine.ctx.currentTime, scheduledAt: engine.ctx.currentTime });
     original(kind, left, t);
   };
+  // which update 4 sounds the event mapping in audio/index.ts asks for, with their arguments
+  const sfx = engine.sfx as unknown as Record<string, (...args: unknown[]) => unknown>;
+  for (const name of LOGGED_CALLS) {
+    const fn = sfx[name];
+    sfx[name] = (...args: unknown[]) => {
+      callLog.push(`${name}(${args.map((a) => (typeof a === 'number' ? Math.round(a * 100) / 100 : String(a))).join(',')})`);
+      return fn(...args);
+    };
+  }
 }
+
+const LOGGED_CALLS = ['wardDeflect', 'hit', 'objectiveStart', 'siteLit', 'anchorHit', 'anchorShatter', 'huntEnrage', 'bonusLost', 'objectiveDone', 'dome', 'mendRelease', 'enemyCast', 'kill'] as const;
+const callLog: string[] = [];
 
 const hordeAt = (kind: (typeof HORDE_KINDS)[number]): number => DEMO.HORDE_ID + HORDE_KINDS.indexOf(kind);
 
@@ -418,20 +430,23 @@ const GAME_EVENTS: [string, () => void][] = [
     fire({ e: 'kill', id: hordeAt('necromancer'), kind: 'necromancer', ...at, by: own });
     for (let i = 0; i < 6; i++) fire({ e: 'kill', id: DEMO.HORDE_ID + 30 + i, kind: 'minion', ...at, by: -1 });
   }],
-  ['reaver cast "reaver_leap"', () => {
+  ['reaver cast "reaver_leap" (lands: aoe)', () => {
     fire({ e: 'cast', who: { t: 'e', id: hordeAt('reaver') }, ability: 'reaver_leap', ...at, rot: 0 });
     fire({ e: 'telegraph', shape: 'circle', ...at, rot: 0, r: ENEMY_TUNING.REAVER.LEAP_RADIUS, w: 0, dur: ENEMY_TUNING.REAVER.LEAP_AIR_TIME, src: hordeAt('reaver') });
+    window.setTimeout(() => fire({ e: 'aoe', ...at, r: ENEMY_TUNING.REAVER.LEAP_RADIUS, el: null, hostile: true }), ENEMY_TUNING.REAVER.LEAP_AIR_TIME * 1000);
   }],
   ...ELEMENT_IDS.flatMap((el, i): [string, () => void][] => [
     [`spawn minion warded against ${el}`, () => fire({ e: 'spawn', id: DEMO.WARDED_ID + i, kind: 'minion', ...at, elite: false, ward: el })],
     [`own ${el} hit on that warded minion (deflect)`, () => {
       fire({ e: 'spawn', id: DEMO.WARDED_ID + i, kind: 'minion', ...at, elite: false, ward: el });
       fire({ e: 'hit', target: { t: 'e', id: DEMO.WARDED_ID + i }, ...at, dmg: 22, crit: false, el, by: own });
+      fire({ e: 'warded', id: DEMO.WARDED_ID + i, el, ...at, by: own });
     }],
   ]),
   ['ally ember hit on a minion warded against ember (no deflect, no element)', () => {
     fire({ e: 'spawn', id: DEMO.WARDED_ID, kind: 'minion', ...at, elite: false, ward: 'ember' });
     fire({ e: 'hit', target: { t: 'e', id: DEMO.WARDED_ID }, ...at, dmg: 22, crit: false, el: 'ember', by: ally });
+    fire({ e: 'warded', id: DEMO.WARDED_ID, el: 'ember', ...at, by: ally });
   }],
   ...OBJECTIVE_KINDS.filter((kind) => kind !== 'slay').map((kind): [string, () => void] => [`objective start: ${kind}`, () => fire({ e: 'objective', kind, what: 'start' })]),
   ...[0, 1, 2].map((index): [string, () => void] => [`objective: brazier ${index + 1} lit`, () => fire({ e: 'objective', kind: 'ritual', what: 'site', index })]),
@@ -775,6 +790,7 @@ function boot(): void {
   window.__audiodemo = {
     start: () => { bus.emit('ui:gesture'); scene(sceneName, false); hookTickLog(); },
     tickLog: () => { hookTickLog(); return tickLog.splice(0); },
+    callLog: () => { hookTickLog(); return callLog.splice(0); },
     now: () => audioInternals()?.ctx.currentTime ?? 0,
     debug: audioDebug,
     scene,
@@ -824,6 +840,7 @@ declare global {
     __audiodemo?: {
       start(): void;
       tickLog(): TickLogEntry[];
+      callLog(): string[];
       now(): number;
       debug(): AudioDebug | null;
       scene(name: string, newChamber?: boolean): void;

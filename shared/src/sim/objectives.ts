@@ -227,13 +227,11 @@ export function stepObjective(w: World, obj: ObjectiveRun): void {
   if (obj.kind === 'survive') {
     state.timeLeft = Math.max(0, obj.total - obj.time);
     state.progress = Math.min(1, obj.time / obj.total);
-    if (obj.time >= obj.total - SIM.EPS) {
-      // Bonus: nobody lies on the floor when the bell tolls.
-      let downed = false;
-      for (const h of w.heroes) if (h.connected && h.state !== 'alive') downed = true;
-      if (downed) loseBonus(w, state);
-      obj.complete = true;
+    // Bonus: nobody goes down. It is lost the moment a hero lies on the floor (a solo Second Wind included).
+    if (state.bonus) {
+      for (const h of w.heroes) if (h.connected && h.state !== 'alive') { loseBonus(w, state); break; }
     }
+    if (obj.time >= obj.total - SIM.EPS) obj.complete = true;
   } else if (obj.kind === 'defend') {
     if (obj.hitEventCd > 0) obj.hitEventCd -= dt;
     if (obj.anchorHp <= 0 || !state.anchor) return;
@@ -331,6 +329,10 @@ export function finishObjective(w: World, obj: ObjectiveRun): void {
   state.progress = 1;
   state.targets.length = 0;
   obj.bonusEarned = hasBonus(obj.kind) && state.bonus;
+  if (isSpecial(obj.kind)) {
+    w.run.objectivesDone++;
+    if (obj.bonusEarned) w.run.objectiveBonuses++;
+  }
   if (obj.bonusEarned) earn(w.director.earnings, 'bonus', w.run.depth, w.cursed);
   if (obj.kind === 'vault') {
     earn(w.director.earnings, 'vault', w.run.depth, w.cursed);

@@ -3,7 +3,7 @@ import { randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { NET, TICK_DT } from '../../shared/src/constants.ts';
 import { encodeSnapshot, encodeSnapshotBody, type ClientMsg, type ErrorCode, type ServerMsg } from '../../shared/src/protocol.ts';
 import { World } from '../../shared/src/sim/index.ts';
-import type { ClassId, InputCmd, Loadout, Look, RosterEntry } from '../../shared/src/types.ts';
+import type { ClassId, InputCmd, Loadout, Look, ObjectiveKind, RosterEntry } from '../../shared/src/types.ts';
 import { SERVER } from './config.ts';
 import type { Logger } from './log.ts';
 
@@ -42,6 +42,8 @@ export interface RoomOptions {
   timeScale: number;
   /** QA aid: runs start in this chamber (0 = normal). */
   debugStartChamber: number;
+  /** QA aid: objective pinned to the first door of every choice (undefined = normal). */
+  debugObjective?: ObjectiveKind;
   /** Fixed run seed (tests); random when undefined. */
   seed?: number;
   log: Logger;
@@ -353,7 +355,7 @@ export class Room {
     // Players who are not connected right now do not take part in this run.
     for (const s of this.sessions) if (s && !s.peer) this.remove(s, 'absent_at_start');
     const seed = this.opts.seed ?? randomInt(1, 0x7fffffff);
-    if (!this.world.start(this.oath, seed, this.opts.debugStartChamber)) return 'not_ready';
+    if (!this.world.start(this.oath, seed, this.opts.debugStartChamber, { objective: this.opts.debugObjective })) return 'not_ready';
     this.endedAt = 0;
     this.opts.log('info', 'run_start', { room: this.code, players: this.playerCount, oath: this.world.run.oath });
     this.broadcastRoster();

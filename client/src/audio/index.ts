@@ -393,9 +393,8 @@ function onHit(e: Engine, ev: Extract<GameEvent, { e: 'hit' }>): void {
   const now = e.ctx.currentTime;
   const splash = ev.el !== null && ev.el === lastResonance.el && now - lastResonance.at < CONFIG.SPLASH_WINDOW_S;
   const burn = ev.el === 'ember' && !ev.crit && ev.dmg <= STATUS.BURN.DPS * CONFIG.TICK_DAMAGE_FACTOR;
-  // a warded enemy shrugs the element off: no element colour on the hit, and the own hero hears that it did nothing
+  // a warded enemy shrugs the element off: the blow sounds, the element's colour does not (`warded` adds the deflect)
   const warded = ev.el !== null && wards.get(ev.target.id) === ev.el;
-  if (warded && ev.el !== null && ev.by === own && !splash) e.sfx.wardDeflect(ev.el);
   e.sfx.hit({
     dmg: ev.dmg, crit: ev.crit, el: warded ? null : ev.el, own: ev.by === own,
     shielded: ev.dmg <= 0,
@@ -457,6 +456,8 @@ function onGameEvent(ev: GameEvent): void {
         break;
       case 'objective': onObjective(e, ev); break;
       case 'dome': e.sfx.dome(ev.on); break;
+      // the own hero's element did nothing to a warded enemy (the server sends at most one per enemy and second)
+      case 'warded': if (ev.by === own) e.sfx.wardDeflect(ev.el); break;
       case 'mend': e.sfx.mendRelease(ev.id, ev.targets.length); break;
       case 'set':
         e.sfx.setBonus(ev.tier, ELEMENT_IDS.find((el) => ev.id === `${CONFIG.SET_ID_PREFIX}${el}`) ?? null, ev.slot === own);

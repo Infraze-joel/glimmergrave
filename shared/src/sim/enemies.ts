@@ -99,7 +99,7 @@ export function spawnEnemy(w: World, kind: EnemyKind, x: number, z: number, opts
     affix, armored: affix === 'armored', markTime: 0, markBy: -1, sunder: 0, sunderTime: 0, rootTime: 0, slow: 0, slowTime: 0,
     smokeTime: 0, statusPower: 1, statusWeaken: 0, struckBy: 0,
     ward, siege: opts.siege === true && !boss, marked: opts.marked === true, enraged: false, domeOn: false, domeCd: 0, domed: false,
-    specialCd: firstSpecial(kind), master: opts.master ?? -1, leapFromX: x, leapFromZ: z, leapTime: 0, mends: 0,
+    specialCd: firstSpecial(kind), master: opts.master ?? -1, leapFromX: x, leapFromZ: z, leapTime: 0, mends: 0, wardCd: 0,
   };
   if (w.nextEnemyId > 0xffff) w.nextEnemyId = 1;
   resolveCollisions(e, e.radius, w.room);
@@ -504,6 +504,7 @@ export function stepEnemy(w: World, e: Enemy): void {
     if (e.statusTime <= SIM.EPS) clearStatus(e);
   }
   if (e.resonanceCd > 0) e.resonanceCd -= dt;
+  if (e.wardCd > 0) e.wardCd -= dt;
   if (e.markTime > 0) e.markTime -= dt;
   if (e.sunderTime > 0) e.sunderTime -= dt;
   if (e.rootTime > 0) e.rootTime -= dt;

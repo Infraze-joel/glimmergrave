@@ -453,6 +453,8 @@ export interface Enemy {
   leapTime: number;
   /** Times a shaman has mended this enemy (at most AI.SHAMAN.MAX_MENDS, so no fight can be healed into a stalemate). */
   mends: number;
+  /** Seconds until the next `warded` event may be sent for this enemy. */
+  wardCd: number;
 }
 
 /** A lasting ground effect of a hero ability (zone / trap shapes). */

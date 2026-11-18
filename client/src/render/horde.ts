@@ -73,7 +73,7 @@ void main() {
   // a slow pulse climbing the shell, and a bright foot where it meets the floor
   float sweep = pow( 0.5 + 0.5 * sin( h * 7.0 - uTime * 1.7 + vDome.y * 20.0 ), 6.0 );
   float foot = 1.0 - smoothstep( 0.0, 0.09, h );
-  float a = ( 0.035 + fres * 0.34 + lattice * 0.17 + sweep * 0.06 + foot * 0.4 ) * k;
+  float a = ( 0.022 + fres * 0.3 + lattice * 0.15 + sweep * 0.05 + foot * 0.36 ) * k;
   // it rises from the floor when raised and sinks back when it drops
   a *= 1.0 - smoothstep( k * 1.15 - 0.15, k * 1.15, h );
   if ( a < 0.004 ) discard;
@@ -180,7 +180,7 @@ export class HordeFx {
     vfx.shards(x, y, z, hex, 5, 6, 0.32, 0.5);
     vfx.sparks(x, y, z, PALETTE.white, 6, 8);
     vfx.ring(x, z, radius * 2, radius * 5.5, 0.28, hex, 0.22, 1.8);
-    vfx.iconPop(x, y + 1.2, z, this.atlas.icons.ward, hex, 0.9);
+    vfx.iconPop(x, y + 2.1, z, this.atlas.icons.ward, hex, 1.05);
   }
 
   /** A bomber was slain before its fuse ran out: the keg lies there for `delay` seconds, then bursts. */

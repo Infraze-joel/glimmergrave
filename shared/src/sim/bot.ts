@@ -35,7 +35,10 @@ export interface BotOptions {
   missChance?: number;
   /** After a final boss: take the `descend` door while the depth is below this (default 0 = always ascend). */
   descendTo?: number;
-  /** Door choice: prefer a door with a special objective over the usual boon / blessing preference (tests, soaks). */
+  /**
+   * Door choice: prefer a door with a special objective over the usual boon / blessing preference, even behind a
+   * cursed door if that is the only one (tests, soaks).
+   */
   preferObjectives?: boolean;
 }
 
@@ -237,9 +240,11 @@ export class BotBrain {
     }
     const want = n > 0 && hp / n < BOT.LOW_PARTY_HP ? 'blessing' : 'boon';
     if (this.preferObjectives) {
-      // A special objective first (of the wanted door type if both doors have one), never behind a cursed door.
+      // A special objective first: of the wanted door type if both doors have one, behind a cursed door only if
+      // there is no other.
       let special = doors.findIndex((d) => d.objective !== 'slay' && d.type === want);
       if (special < 0) special = doors.findIndex((d) => d.objective !== 'slay' && d.type !== 'cursed');
+      if (special < 0) special = doors.findIndex((d) => d.objective !== 'slay');
       if (special >= 0) return special;
     }
     let index = doors.findIndex((d) => d.type === want);

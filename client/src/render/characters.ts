@@ -224,7 +224,7 @@ const HORDE = {
   WARD_SHARDS: 3,
   NECRO_HOVER: 0.07,
   TETHER_WIDTH: 0.2,
-  HUNT_Y: 1.55, HUNT_SIZE: 0.95,
+  HUNT_Y: 1.2, HUNT_SIZE: 1.05,
 } as const;
 
 const ACTION_ANIMS: ReadonlySet<EnemyAnim> = new Set<EnemyAnim>(['windup', 'cast', 'summon', 'beam', 'volley', 'charge', 'slam', 'sweep', 'leap']);
@@ -287,6 +287,7 @@ const FUSE_RGB = rgb(PALETTE.fuse);
 const REAVER_RGB = rgb(PALETTE.reaver);
 const HUNT_RGB = rgb(OBJECTIVE_COLOR.hunt);
 const HOSTILE_RGB = rgb(PALETTE.hostile);
+const HOT_RGB = rgb(PALETTE.hostileHot);
 const UMBRA_CORE = rgb(PALETTE.umbraCore);
 const OVERLOAD_ORDER: readonly ElementId[] = ['ember', 'rime', 'storm', 'umbra'];
 const WARD_ICON: Record<ElementId, IconName> = { ember: 'burn', rime: 'chill', storm: 'shock', umbra: 'wither' };
@@ -1476,6 +1477,7 @@ export class Enemies {
         const total = this.windupOf(view, anim, 0.95);
         view.play('Jump_Start', false, 0.05, 2.4, 0.2);
         view.queue({ clip: 'Jump_Idle', loop: true, fade: 0.1 }, 0.16);
+        view.leaping = true;
         mark(total);
         return true;
       }
@@ -1889,7 +1891,7 @@ export class Enemies {
       let ox = -(n - 1) * size * 0.5;
       if (ward) {
         // the element inside a shield: this enemy shrugs that element off
-        const wide = size * 1.25;
+        const wide = size * 1.5;
         this.icon(ui, v, top, 'ward', ELEMENT_COLOR[ward], wide, ox);
         const uv = this.atlas.icons[WARD_ICON[ward]];
         _color.setHex(ELEMENT_COLOR[ward]);
@@ -1925,14 +1927,16 @@ export class Enemies {
     if (v.hunted) {
       // the quarry: a pin bobbing high over the head and two brackets closing around its feet; red once it enrages
       const c = this.huntEnraged ? HOSTILE_RGB : HUNT_RGB;
+      // the brackets on the floor stay out of the telegraph red even then
+      const g = this.huntEnraged ? HOT_RGB : HUNT_RGB;
       const rate = this.huntEnraged ? 3.4 : 1.2;
       const beat = this.huntEnraged ? 0.75 + 0.25 * Math.sin(time * 11 + v.seed * 5) : 1;
       const d = v.radius * 5.4;
       for (let k = 0; k < 2; k++) {
-        decals.push(DECAL.PROGRESS, v.x, 0.049, v.z, time * rate + k * Math.PI, d, d, c[0] * 1.6, c[1] * 1.6, c[2] * 1.6, 0.95 * beat, 0.45, 0.2);
-        decals.push(DECAL.PROGRESS, v.x, 0.049, v.z, -time * rate * 0.7 + k * Math.PI, d * 1.28, d * 1.28, c[0] * 1.3, c[1] * 1.3, c[2] * 1.3, 0.7 * beat, 0.4, 0.1);
+        decals.push(DECAL.PROGRESS, v.x, 0.049, v.z, time * rate + k * Math.PI, d, d, g[0] * 1.6, g[1] * 1.6, g[2] * 1.6, 0.95 * beat, 0.45, 0.2);
+        decals.push(DECAL.PROGRESS, v.x, 0.049, v.z, -time * rate * 0.7 + k * Math.PI, d * 1.28, d * 1.28, g[0] * 1.3, g[1] * 1.3, g[2] * 1.3, 0.7 * beat, 0.4, 0.1);
       }
-      decals.push(DECAL.DISC, v.x, 0.031, v.z, 0, d * 1.2, d * 1.2, c[0], c[1], c[2], 0.16 * beat, 1, 0.2);
+      decals.push(DECAL.DISC, v.x, 0.031, v.z, 0, d * 1.2, d * 1.2, g[0], g[1], g[2], 0.16 * beat, 1, 0.2);
       const uv = this.atlas.icons.hunt;
       const bob = Math.abs(Math.sin(time * 2.6 + v.seed * 6)) * 0.22;
       const y = v.lift + v.height + HORDE.HUNT_Y + bob;
@@ -1986,7 +1990,7 @@ export class Enemies {
         const c = MEND_RGB;
         if (!v.anchor('totem', _anchor)) _anchor.set(v.x, v.lift + v.height, v.z);
         const breathe = 0.7 + 0.3 * Math.sin(time * 3.3 + v.seed * 6);
-        fx.push(SPRITE.GLOW, _anchor.x, _anchor.y, _anchor.z, 0.9 + 1.7 * k, 0.9 + 1.7 * k, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, 0.4 * breathe + 0.5 * k, 1, 0.8 + k);
+        fx.push(SPRITE.GLOW, _anchor.x, _anchor.y, _anchor.z, 0.8 + 1.3 * k, 0.8 + 1.3 * k, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, 0.4 * breathe + 0.35 * k, 1, 0.6 + 0.4 * k);
         decals.push(DECAL.DISC, v.x, 0.03, v.z, 0, v.radius * 5, v.radius * 5, c[0], c[1], c[2], 0.16 + 0.2 * k, 1, 0);
         if (v.channel !== HORDE.MEND) break;
         // the channel: a ring at the reach of the heal that fills as it completes, and motes drawn in to the totem

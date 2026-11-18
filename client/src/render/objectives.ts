@@ -35,8 +35,11 @@ const CFG = {
   SIDE_SHARDS: 4,
   /** Health below which the n-th side shard has broken off. */
   SHARD_AT: [0.8, 0.6, 0.4, 0.2],
-  MAIN_H: 2.5,
-  BELL_ARC: 2.7,
+  MAIN_H: 3.0,
+  BELL_ARC: 2.6,
+  BELL_TURN: 0.55,
+  /** The plinth's atlas texel is a dim grey stone: procedural colours are multiplied up to come out as bronze. */
+  BRONZE_GAIN: 4.2,
   CRYSTAL_GLOW: 1.5,
   FLASH_TIME: 0.35,
   SHATTER_TIME: 0.5,
@@ -47,8 +50,9 @@ const CFG = {
   /** Survive: seconds between tolls at the start and at the end of the timer. */
   TOLL_SLOW: 4.2,
   TOLL_FAST: 0.85,
-  BELL_Y: 8.2,
-  BELL_SIZE: 6.5,
+  /** The bell is a figure of light on the north wall: the game camera never sees anything above the walls. */
+  BELL_Y: 2.0,
+  BELL_SIZE: 3.8,
   /** Vault. */
   LID_HINGE_Y: 0.82,
   LID_HINGE_Z: -0.56,
@@ -68,6 +72,11 @@ const HOARD: readonly (readonly [string, number, number, number, number])[] = [
   ['coin_stack_medium', 1.3, 0.9, 4.0, 1.1], ['coin_stack_medium', 0.2, -1.5, 2.9, 1], ['coin_stack_small', -0.55, 1.5, 0.3, 1.2],
   ['coin_stack_small', 0.7, 1.55, 5.1, 1.2], ['coin_stack_small', -2.3, 0.75, 3.3, 1.1], ['coin_stack_small', 2.35, 0.45, 1.9, 1.1],
   ['candle_triple', -2.45, -1.3, 0.6, 1.25], ['candle_triple', 2.4, -1.45, 3.6, 1.25], ['candle_lit', -2.75, 1.75, 0, 1.1], ['candle_lit', 2.8, 1.6, 0, 1.1],
+  // the wider room: lesser chests, trunks and spilled piles around the dais
+  ['chest', -5.6, -1.2, 0.5, 1], ['chest', 5.9, -0.6, -0.6, 1], ['trunk_large_A', -4.6, -3.1, 0.3, 1], ['trunk_large_A', 4.4, -3.3, -0.2, 1],
+  ['coin_stack_large', -4.5, 0.6, 1.3, 0.9], ['coin_stack_large', 4.7, 1.2, 3.9, 0.9], ['coin_stack_medium', -6.4, 0.5, 0.2, 1.1], ['coin_stack_medium', 6.6, 1.1, 2.4, 1.1],
+  ['coin_stack_small', -3.9, 2.4, 2, 1.2], ['coin_stack_small', 3.8, 2.7, 4.4, 1.2], ['coin_stack_medium', 0.4, -4.4, 1.7, 1.2], ['coin_stack_small', -1.6, -4, 0.9, 1.2],
+  ['candle_triple', -6.2, -2.6, 1.2, 1.25], ['candle_triple', 6.3, -2.4, 4.1, 1.25], ['keg_decorated', 0, -6.2, 0, 0.8],
 ];
 const CANDLE_FLAME_Y: Record<string, number> = { candle_triple: 0.95, candle_lit: 1.12 };
 
@@ -191,11 +200,15 @@ export class Objectives {
     // a curved piece of the great bell standing behind the crystal, hollow side to the camera, with a thick lip.
     // The arc is centred on +x so that mirroring z gives the same arc with its faces turned inwards (the inner wall).
     const from = Math.PI / 2 - CFG.BELL_ARC / 2;
-    add(new CylinderGeometry(0.5, 0.76, 1.15, 9, 1, true, from, CFG.BELL_ARC), 1.17, bronze[0] * 1.5, bronze[1] * 1.5, bronze[2] * 1.5, Math.PI / 2);
-    const inner = new CylinderGeometry(0.45, 0.71, 1.15, 9, 1, true, from, CFG.BELL_ARC);
+    const k = CFG.BRONZE_GAIN;
+    const turn = Math.PI / 2 + CFG.BELL_TURN;
+    add(new CylinderGeometry(0.6, 0.95, 1.3, 9, 1, true, from, CFG.BELL_ARC), 1.25, bronze[0] * k, bronze[1] * k, bronze[2] * k, turn);
+    const inner = new CylinderGeometry(0.54, 0.89, 1.3, 9, 1, true, from, CFG.BELL_ARC);
     inner.scale(1, 1, -1);
-    add(inner, 1.17, bronze[0] * 0.75, bronze[1] * 0.75, bronze[2] * 0.75, Math.PI / 2);
-    add(new CylinderGeometry(0.8, 0.82, 0.13, 9, 1, true, from, CFG.BELL_ARC), 0.66, bronze[0] * 2, bronze[1] * 2, bronze[2] * 2, Math.PI / 2);
+    add(inner, 1.25, bronze[0] * k * 0.7, bronze[1] * k * 0.7, bronze[2] * k * 0.7, turn);
+    const lip = new CylinderGeometry(0.93, 0.95, 0.16, 9, 1, true, from, CFG.BELL_ARC);
+    lip.scale(1, 1, -1);
+    add(lip, 0.68, bronze[0] * k * 1.3, bronze[1] * k * 1.3, bronze[2] * k * 1.3, turn);
     const plinthGeo = this.merge(parts);
     this.plinth = new Mesh(plinthGeo, this.stone);
     this.plinth.castShadow = true;
@@ -418,7 +431,7 @@ export class Objectives {
         site.flare = 1;
         const y = CFG.BRAZIER_H + 0.3;
         vfx.flames(site.x, y, site.z, OBJECTIVE_COLOR.ritual, 8, 0.5, 1.6);
-        vfx.flash(site.x, y + 0.4, site.z, OBJECTIVE_COLOR.ritual, 5.5, 0.4, 1.8);
+        vfx.flash(site.x, y + 0.4, site.z, OBJECTIVE_COLOR.ritual, 4, 0.3, 1.2);
         vfx.sparks(site.x, y, site.z, PALETTE.objective, 16, 8);
         vfx.ring(site.x, site.z, 0.8, site.r * 3.2, 0.6, OBJECTIVE_COLOR.ritual, 0.3, 1.7);
         vfx.groundFlash(site.x, site.z, site.r * 2.6, 0.6, OBJECTIVE_COLOR.ritual, 0.6);
@@ -430,7 +443,7 @@ export class Objectives {
         this.flash = 1;
         const y = 1.3 * (this.ar / CFG.BASE_R);
         vfx.shards(this.ax, y, this.az, PALETTE.glimmer, 4, 5, 0.3, 0.6);
-        vfx.sparks(this.ax, y, this.az, PALETTE.white, 8, 7);
+        vfx.sparks(this.ax, y, this.az, PALETTE.white, 6, 7);
         vfx.ring(this.ax, this.az, this.ar * 2, this.ar * 4.6, 0.3, PALETTE.white, 0.2, 1.4);
         this.shake += 0.08;
         break;
@@ -541,15 +554,15 @@ export class Objectives {
 
     const low = hp < CFG.LOW_HP && !broken;
     const flicker = low ? 0.55 + 0.45 * hash1(Math.floor(time * 13)) : 1;
-    const glow = broken ? 0.12 : (0.55 + 0.6 * hp) * flicker + this.flash * 1.2 + this.mending * 0.25 * (0.6 + 0.4 * Math.sin(time * 5));
-    const white = this.flash * 0.8;
+    const glow = broken ? 0.12 : (0.55 + 0.6 * hp) * flicker + this.flash * 0.4 + this.mending * 0.25 * (0.6 + 0.4 * Math.sin(time * 5));
+    const white = this.flash * 0.7;
     const cr = GLIMMER[0] + (1 - GLIMMER[0]) * white;
     const cg = GLIMMER[1] + (1 - GLIMMER[1]) * white;
     const cb = GLIMMER[2] + (1 - GLIMMER[2]) * white;
     // main crystal: whole while the shard stands, a dark stump once it is shattered
     const top = 0.62 * scale;
     const mainH = (broken ? 0.55 : CFG.MAIN_H) * scale;
-    _m.compose(_p.set(x, top, z), _q.setFromAxisAngle(Z_AXIS, broken ? 0.3 : 0.06), _s.set(scale * (broken ? 1.5 : 1.7), mainH, scale * (broken ? 1.5 : 1.7)));
+    _m.compose(_p.set(x, top, z), _q.setFromAxisAngle(Z_AXIS, broken ? 0.3 : 0.06), _s.set(scale * 1.45, mainH, scale * 1.45));
     this.crystals.setMatrixAt(0, _m);
     this.crystals.setColorAt(0, _c.setRGB(cr * glow * CFG.CRYSTAL_GLOW, cg * glow * CFG.CRYSTAL_GLOW, cb * glow * CFG.CRYSTAL_GLOW));
     for (let i = 0; i < CFG.SIDE_SHARDS; i++) {
@@ -557,7 +570,7 @@ export class Objectives {
       const there = hp > CFG.SHARD_AT[i];
       if (there) {
         // leaning out of the bell fragment around the main crystal
-        const h = (1.15 + 0.3 * ((i * 7) % 3) * 0.5) * scale;
+        const h = (1.4 + 0.3 * ((i * 7) % 3) * 0.5) * scale;
         _q.setFromAxisAngle(_p.set(Math.cos(a), 0, -Math.sin(a)), 0.5);
         _m.compose(_p.set(x + Math.sin(a) * 0.36 * scale, top, z + Math.cos(a) * 0.36 * scale), _q, _s.set(scale * 1.1, h, scale * 1.1));
         this.crystals.setColorAt(i + 1, _c.setRGB(cr * glow * 1.25, cg * glow * 1.25, cb * glow * 1.25));
@@ -577,8 +590,8 @@ export class Objectives {
     const g = GLIMMER;
     if (!broken) {
       const pulse = 0.8 + 0.2 * Math.sin(time * 1.9);
-      fx.push(SPRITE.GLOW, x, top + mainH * 0.55, z, 3.4 * scale, 4.4 * scale, cr, cg, cb, (0.16 + 0.2 * hp) * pulse * flicker + this.flash * 0.5, 1, 0.3);
-      decals.push(DECAL.DISC, x, 0.03, z, 0, 7.5 * scale, 7.5 * scale, g[0], g[1], g[2], (0.1 + 0.14 * hp) * pulse * flicker, 1, 0);
+      fx.push(SPRITE.GLOW, x, top + mainH * 0.55, z, 3.4 * scale, 4.4 * scale, cr, cg, cb, (0.16 + 0.2 * hp) * pulse * flicker + this.flash * 0.2, 1, 0.3);
+      decals.push(DECAL.DISC, x, 0.03, z, 0, 7.5 * scale, 7.5 * scale, g[0], g[1], g[2], (0.06 + 0.1 * hp) * pulse * flicker, 1, 0);
       const d = this.ar * 2 + 1.5;
       // the ring turns from Glimmer to pale amber as the shard weakens (never red: that colour belongs to the enemy)
       const wr = low ? GOLD[0] : g[0];
@@ -586,7 +599,7 @@ export class Objectives {
       const wb = low ? GOLD[2] : g[2];
       decals.push(DECAL.PROGRESS, x, 0.05, z, 0, d, d, wr * 1.6, wg * 1.6, wb * 1.6, low ? 0.7 + 0.3 * Math.sin(time * 9) : 0.95, 0.4, hp);
       const reach = (this.ar + OBJECTIVE_TUNING.DEFEND.REPAIR_RADIUS) * 2;
-      decals.push(DECAL.ZONE, x, 0.042, z, 0, reach, reach, g[0] * 1.2, g[1] * 1.2, g[2] * 1.2, 0.22 + 0.5 * this.mending, 0.4, 0);
+      decals.push(DECAL.ZONE, x, 0.042, z, 0, reach, reach, g[0] * 1.2, g[1] * 1.2, g[2] * 1.2, 0.2 + 0.2 * this.mending, 0.4, 0);
       if (this.mending > 0.05) {
         for (let i = 0; i < 4; i++) {
           const ph = (time * 0.7 + i * 0.25) % 1;
@@ -632,9 +645,8 @@ export class Objectives {
       } else {
         // unlit: the circle to stand in. It fills from the centre and its rim closes as the brazier catches
         const pulse = 0.75 + 0.25 * Math.sin(time * 2.4 + seed);
-        decals.push(DECAL.ZONE, site.x, 0.045, site.z, 0, d, d, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, 0.9, 0.3, k);
+        decals.push(DECAL.ZONE, site.x, 0.045, site.z, 0, d, d, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, 0.7, 0.3, k);
         decals.push(DECAL.PROGRESS, site.x, 0.05, site.z, 0, d + 0.45, d + 0.45, c[0] * 1.9, c[1] * 1.9, c[2] * 1.9, k > 0.001 ? 1 : 0.5 * pulse, 0.5, k);
-        decals.push(DECAL.DISC, site.x, 0.03, site.z, 0, d * 1.3, d * 1.3, c[0], c[1], c[2], 0.07 + 0.1 * k, 1, 0);
         // embers in the bowl that grow into a small flame
         fx.push(SPRITE.GLOW, site.x, CFG.BRAZIER_H + 0.15, site.z, 0.9 + 1.6 * k, 0.9 + 1.6 * k, RITUAL[0] * 1.4, RITUAL[1] * 1.2, RITUAL[2], 0.25 * pulse + 0.5 * k, 1, 0.8);
         if (k > 0.05) {
@@ -669,12 +681,12 @@ export class Objectives {
     const p = this.tollPulse;
     const c = BELL;
     const y = CFG.BELL_Y;
-    const z = -this.level.depth / 2 - 1.5;
-    const swing = Math.sin(time * (Math.PI / interval)) * (0.1 + 0.12 * k);
+    const z = -this.level.depth / 2 + 0.25;
+    const swing = Math.sin(time * (Math.PI / interval)) * (0.08 + 0.1 * k);
     const uv = this.atlas.icons.bell;
     const size = CFG.BELL_SIZE * (1 + 0.05 * p);
-    fx.push(SPRITE.GLOW, 0, y, z, size * 2.2, size * 2.2, c[0], c[1], c[2], 0.05 + 0.16 * p, 1, 0);
-    fx.push(SPRITE.ATLAS, 0, y, z, size, size, c[0] * 1.2, c[1] * 1.2, c[2] * 1.2, 0.2 + 0.1 * k + 0.45 * p, 0.5, 0, swing, 0, 0, uv[0], uv[1], uv[2], uv[3]);
+    fx.push(SPRITE.GLOW, 0, y, z, size * 2, size * 1.6, c[0], c[1], c[2], 0.06 + 0.2 * p, 1, 0);
+    fx.push(SPRITE.ATLAS, 0, y, z, size, size, c[0] * 1.2, c[1] * 1.2, c[2] * 1.2, 0.3 + 0.12 * k + 0.5 * p, 0.6, 0, swing, 0, 0, uv[0], uv[1], uv[2], uv[3]);
     // a shaft of bell light down the middle of the room and a pool where it lands
     fx.push(SPRITE.GLOW, 0, 4, -this.level.depth * 0.15, 5 + 2 * p, 13, c[0], c[1], c[2], 0.025 + 0.05 * p + 0.02 * k, 1, 0);
     decals.push(DECAL.DISC, 0, 0.028, -this.level.depth * 0.1, 0, span * 0.8, span * 0.6, c[0], c[1], c[2], 0.03 + 0.07 * p + 0.03 * k, 1, 0);
@@ -692,7 +704,7 @@ export class Objectives {
     const c = VAULT;
     const breathe = 0.8 + 0.2 * Math.sin(time * 1.6);
     // warm light: the hoard glows on its own, far more once the reliquary is open
-    decals.push(DECAL.DISC, x, 0.03, z, 0, 15, 15, c[0], c[1] * 0.9, c[2] * 0.7, (0.2 + 0.16 * e) * breathe, 1, 0);
+    decals.push(DECAL.DISC, x, 0.03, z, 0, 22, 17, c[0], c[1] * 0.85, c[2] * 0.6, (0.3 + 0.16 * e) * breathe, 1, 0);
     decals.push(DECAL.HALLOW, x, 0.045, z, time * 0.1, CFG.DAIS_R * 2 + 1.6, CFG.DAIS_R * 2 + 1.6, c[0] * 1.3, c[1] * 1.3, c[2] * 1.3, 0.5, 1, 0.05, (time * 0.3) % 1, 0.6);
     fx.push(SPRITE.GLOW, x, 1.3, z, 7 + 3 * e, 6 + 3 * e, c[0], c[1] * 0.9, c[2] * 0.7, (0.2 + 0.25 * e) * breathe, 1, 0.1);
     for (let i = 0; i + 2 < v.flames.length; i += 3) {

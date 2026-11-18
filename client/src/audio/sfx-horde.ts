@@ -26,8 +26,8 @@ const LV = {
   spawnShaman: 0.8, spawnAegis: 0.5, spawnBomber: 1.5, spawnNecromancer: 0.5, spawnReaver: 1.3,
   mend: 0.42, mendCut: 0.6, mendRelease: 1,
   domeUp: 0.8, domeDown: 0.85,
-  fuse: 1.25, burst: 1, deathFuse: 0.9,
-  raise: 0.4, leap: 0.66,
+  fuse: 1.25, burst: 0.92, deathFuse: 0.9,
+  raise: 0.36, leap: 0.52,
   deathShaman: 0.7, deathAegis: 0.5, deathNecromancer: 0.6, deathReaver: 1.1,
   ward: 0.9,
 } as const;
@@ -73,8 +73,11 @@ export function hordeCast(ability: string): ChannelKind | null {
 
 export function createHordeSfx(k: SfxKit) {
   const channels = new Map<number, Channel>();
-  /** Times at which a bomber's burst was sounded or is scheduled (the sim's `aoe` for it then stays silent). */
-  const bursts: number[] = [];
+  /**
+   * Times at which a blast was sounded or is scheduled here (a bomber's burst, a reaver's landing): the sim's
+   * hostile `aoe` for it then stays silent. `id` >= 0: taken back if that enemy is cut before it happens.
+   */
+  const bursts: { at: number; id: number }[] = [];
   /** Bombers whose fuse already ended in a burst here: their `kill` is not a second death. */
   const burst = new Map<number, number>();
 
@@ -89,6 +92,8 @@ export function createHordeSfx(k: SfxKit) {
     channels.delete(id);
     if (channel.end <= t) return null;
     channel.mix.fade(t, HORDE.CUT_TC);
+    // what it was about to do will not happen
+    for (let i = bursts.length - 1; i >= 0; i--) if (bursts[i].id === id && bursts[i].at > t) bursts.splice(i, 1);
     return channel;
   };
 
@@ -102,13 +107,13 @@ export function createHordeSfx(k: SfxKit) {
 
   // ---------------------------------------------------------------- bomber
   const burstAt = (t: number, stack: number, expectAoe: boolean): void => {
-    if (expectAoe) bursts.push(t);
+    if (expectAoe) bursts.push({ at: t, id: -1 });
     const { V, out } = k.bigMix(LV.burst * k.duck(stack));
     // a small, dry, cracking blast: bright on top so it is not mistaken for a boss slam
     V('boom', t, 0.85, { variant: 1, rate: 1.25, send: 0.3 });
     V('boom.sub', t, 0.45, { rate: 1.1 });
     V('hit.thud', t, 0.4, { rate: 0.9 });
-    k.noise(out, t, { dur: 0.016, gain: 0.8, filter: 'highpass', freq: 5200 });
+    k.noise(out, t, { dur: 0.016, gain: 0.45, filter: 'highpass', freq: 5200 });
     k.noise(out, t, { dur: 0.32, gain: 0.5, filter: 'bandpass', freq: 3200, freqEnd: 500, q: 0.9, send: 0.3 });
     k.tone(out, t, { freq: 150, freqEnd: 38, dur: 0.42, gain: 0.42 });
     k.tone(out, t, { type: 'square', freq: 1900, freqEnd: 240, dur: 0.07, gain: 0.1, lpf: 5000 });
@@ -305,14 +310,14 @@ export function createHordeSfx(k: SfxKit) {
       if (stack >= 0) burstAt(t, stack, true);
     },
     /**
-     * A hostile `aoe` arrived. True when it is the blast of a bomber whose burst is expected about now: the caller
-     * then skips the common hostile blast, the bomber's own burst plays instead (once).
+     * A hostile `aoe` arrived. True when it is the blast of a bomber whose burst is expected about now or the
+     * landing of a reaver: the caller then skips the common hostile blast, the kind's own sound plays instead (once).
      */
     claimBurst(): boolean {
       const t = k.now();
-      for (let i = bursts.length - 1; i >= 0; i--) if (t - bursts[i] > HORDE.BURST_WINDOW) bursts.splice(i, 1);
+      for (let i = bursts.length - 1; i >= 0; i--) if (t - bursts[i].at > HORDE.BURST_WINDOW) bursts.splice(i, 1);
       for (let i = 0; i < bursts.length; i++) {
-        if (Math.abs(bursts[i] - t) <= HORDE.BURST_WINDOW) { bursts.splice(i, 1); return true; }
+        if (Math.abs(bursts[i].at - t) <= HORDE.BURST_WINDOW) { bursts.splice(i, 1); return true; }
       }
       for (const [id, channel] of channels) {
         if (channel.kind !== 'fuse' || t < channel.end - HORDE.FUSE_END_SLACK || t > channel.end + HORDE.BURST_WINDOW) continue;
@@ -387,6 +392,8 @@ export function createHordeSfx(k: SfxKit) {
       k.tone(out, land, { freq: 170, freqEnd: 46, dur: 0.3, gain: 0.6 });
       k.noise(out, land, { dur: 0.2, gain: 0.3, filter: 'lowpass', freq: 1800, freqEnd: 200, send: 0.3 });
       track(id, { kind: 'leap', mix: m, start: t, end: land });
+      // the sim reports the landing as a hostile `aoe`: it is already in this stack
+      bursts.push({ at: land, id });
     },
     /**
      * The wind-up of enemy `id` was broken (stun, stagger): whatever it was channelling stops dead. A cut mend gets
@@ -484,6 +491,7 @@ export function createHordeSfx(k: SfxKit) {
           V('hit.ring', t, 0.4, { at: 0.09, rate: 1.1, send: 0.5 });
           V('swing.blade', t, 0.4, { rate: 0.8, lpf: 5000 });
           k.whoosh(out, t, 1800, 900, 300, 0.2, 0.1);
+          for (const f of [2093, 3136]) k.tone(out, t + 0.09, { freq: f, dur: 0.22, gain: 0.03, send: 0.4 });
           return false;
         }
       }

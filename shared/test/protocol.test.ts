@@ -6,9 +6,14 @@ import { DEFAULT_LOOK, LOOK, META_INDEX, META_UPGRADES, PARAGON, PARAGON_TUNING,
 import { RELIC_TUNING } from '@shared/data/relics.ts';
 import {
   BIN, INPUT_BYTES, decodeInput, decodeSnapshot, encodeInput, encodeSnapshot, encodeSnapshotBody, normalizeRoomCode,
-  parseClientMsg, sanitizeLoadout, sanitizeName, type SnapshotBody,
+  parseClientMsg, sanitizeLoadout, sanitizeName, type ServerMsg, type SnapshotBody,
 } from '@shared/protocol.ts';
-import { BTN, EF, ELEMENT_IDS, ENEMY_ANIMS, ENEMY_KINDS, PF, PLAYER_ANIMS, PROJECTILE_KINDS, type InputCmd, type Loadout, type SelfState } from '@shared/types.ts';
+import { World } from '@shared/sim/index.ts';
+import {
+  BTN, EF, ELEMENT_IDS, ENEMY_ANIMS, ENEMY_KINDS, OBJECTIVE_KINDS, PF, PLAYER_ANIMS, PROJECTILE_KINDS,
+  type ClassId, type GameEvent, type InputCmd, type Loadout, type ObjectiveKind, type RunState, type SelfState,
+} from '@shared/types.ts';
+import { finishChamber } from './u4kit.ts';
 
 const TAU = Math.PI * 2;
 const angleErr = (a: number, b: number): number => Math.abs(((a - b + Math.PI * 3) % TAU) - Math.PI);
@@ -363,5 +368,61 @@ describe('sanitizeName / normalizeRoomCode', () => {
     expect(normalizeRoomCode('AB DE')).toBeNull();
     expect(normalizeRoomCode(null)).toBeNull();
     expect(normalizeRoomCode(12345)).toBeNull();
+  });
+});
+
+describe('update 4 on the wire', () => {
+  const live = (kind: ObjectiveKind, classes: ClassId[] = ['knight', 'mage']): World => {
+    const w = new World();
+    classes.forEach((cls, slot) => w.addPlayer(slot, cls, `P${slot}`));
+    w.start(0, 5, 2, { objective: kind });
+    for (let i = 0; i < 240; i++) { for (const h of w.heroes) h.invuln = 1; w.step(); }
+    return w;
+  };
+
+  it('RunState.objective survives the JSON round trip of a `run` message for every objective kind', () => {
+    for (const kind of OBJECTIVE_KINDS) {
+      const w = live(kind);
+      const state = w.getRunState();
+      expect(state.objective!.kind).toBe(kind);
+      const msg: ServerMsg = { t: 'run', state };
+      const back = JSON.parse(JSON.stringify(msg)) as Extract<ServerMsg, { t: 'run' }>;
+      expect(back.state.objective).toEqual(state.objective);
+      expect(back.state.doors).toEqual(state.doors);
+      expect(back.state).toMatchObject({ objectivesDone: 0, objectiveBonuses: 0 });
+      // Plain data only: numbers are finite, nothing is undefined (JSON would drop or null it).
+      const o = state.objective!;
+      for (const v of [o.progress, o.timeLeft, ...(o.anchor ? [o.anchor.x, o.anchor.z, o.anchor.r, o.anchor.hp] : []), ...o.sites.flatMap((s) => [s.x, s.z, s.r, s.progress]), ...o.targets]) {
+        expect(Number.isFinite(v), kind).toBe(true);
+      }
+      if (kind === 'hunt') expect(o.targets.length).toBeGreaterThan(0);
+      if (kind === 'ritual') expect(o.sites).toHaveLength(3);
+      if (kind === 'defend' || kind === 'vault') expect(o.anchor).not.toBeNull();
+    }
+  });
+
+  it('doors carry their objective; the new events and the five enemy kinds round-trip', () => {
+    const w = live('slay', ['knight']);
+    finishChamber(w);
+    for (const slot of w.getRunState().draftPending) w.pickBoon(slot, 0);
+    for (let i = 0; i < 5; i++) w.step();
+    const doors = (JSON.parse(JSON.stringify(w.getRunState())) as RunState).doors;
+    expect(doors.length).toBeGreaterThan(0);
+    for (const d of doors) expect(OBJECTIVE_KINDS).toContain(d.objective);
+    const events: GameEvent[] = [
+      { e: 'objective', kind: 'ritual', what: 'site', index: 2 }, { e: 'objective', kind: 'hunt', what: 'done', bonus: true },
+      { e: 'objective', kind: 'defend', what: 'anchorHit' }, { e: 'dome', id: 7, on: true, r: 4.5 }, { e: 'mend', id: 3, targets: [1, 2] },
+      { e: 'warded', id: 9, el: 'umbra', x: 1.5, z: -2, by: 0 }, { e: 'spawn', id: 4, kind: 'reaver', x: 0, z: 0, elite: false, ward: 'storm' },
+    ];
+    const msg: ServerMsg = { t: 'ev', tick: 12, events };
+    expect(JSON.parse(JSON.stringify(msg))).toEqual(msg);
+    const kinds = ENEMY_KINDS.slice(8);
+    const self: SelfState = { ackSeq: 0, x: 0, z: 0, dashTime: 0, dashDirX: 0, dashDirZ: 0, rootTime: 0, moveSpeed: 5 };
+    const snap = decodeSnapshot(encodeSnapshot(1, self, encodeSnapshotBody({
+      tick: 1, players: [], projectiles: [],
+      enemies: kinds.map((kind, i) => ({ id: i + 1, kind, x: i, z: 0, rot: 0, hp: 1, anim: 'leap' as const, animSeq: 0, flags: EF.ENRAGED })),
+    })))!;
+    expect(snap.enemies.map((e) => e.kind)).toEqual(['shaman', 'aegis', 'bomber', 'necromancer', 'reaver']);
+    expect(snap.enemies.every((e) => e.flags === EF.ENRAGED && e.anim === 'leap')).toBe(true);
   });
 });

@@ -370,13 +370,13 @@ export function waveBudget(chamber: number, partySize: number): number {
   return (DIRECTOR.BUDGET_BASE + DIRECTOR.BUDGET_PER_CHAMBER * chamber) * (1 + RUN.COUNT_PER_EXTRA_PLAYER * (partySize - 1));
 }
 
-/** Aegis, necromancers and shamans that already stand (or wait in the spawn queue) when a wave is composed. */
-export interface StandingSupport {
-  aegis: number;
-  necromancer: number;
-  shaman: number;
-}
-const NO_SUPPORT: StandingSupport = { aegis: 0, necromancer: 0, shaman: 0 };
+/**
+ * Enemies per kind that already stand (or wait in the spawn queue) when a group is composed. Aegis, necromancers
+ * and shamans are always counted; the timed groups of survive / ritual chambers count every capped kind, so the
+ * ranged enemies of many small groups cannot pile up.
+ */
+export type Standing = Partial<Record<EnemyKind, number>>;
+const NO_SUPPORT: Standing = {};
 
 /**
  * Picks enemy kinds until the budget is spent, honouring minChamber and the caps: ranged kinds, bombers and
@@ -384,12 +384,13 @@ const NO_SUPPORT: StandingSupport = { aegis: 0, necromancer: 0, shaman: 0 };
  * those already in the room). Support kinds (shaman, aegis, necromancer) take at most SUPPORT_BUDGET_SHARE of the
  * budget and a wave never consists of them alone.
  */
-export function composeWave(rng: Rng, chamber: number, budget: number, partySize: number, room: number, biome: BiomeId = 'crypt', standing: StandingSupport = NO_SUPPORT): EnemyKind[] {
+export function composeWave(rng: Rng, chamber: number, budget: number, partySize: number, room: number, biome: BiomeId = 'crypt', standing: Standing = NO_SUPPORT): EnemyKind[] {
   const bias: Partial<Record<EnemyKind, number>> = BIOME.KIND_BIAS[biome];
   const weight: Partial<Record<EnemyKind, number>> = DIRECTOR.KIND_WEIGHT;
   const kinds: EnemyKind[] = [];
   const counts: Partial<Record<EnemyKind, number>> = {
-    archer: 0, mage: 0, bomber: 0, reaver: 0, aegis: standing.aegis, necromancer: standing.necromancer, shaman: standing.shaman,
+    archer: standing.archer ?? 0, mage: standing.mage ?? 0, bomber: standing.bomber ?? 0, reaver: standing.reaver ?? 0,
+    aegis: standing.aegis ?? 0, necromancer: standing.necromancer ?? 0, shaman: standing.shaman ?? 0,
   };
   const caps: Partial<Record<EnemyKind, number>> = {
     archer: Math.floor(DIRECTOR.ARCHER_CAP_BASE + DIRECTOR.ARCHER_CAP_PER_HERO * partySize),
@@ -523,20 +524,15 @@ export function enterChamber(w: World, index: number, entered: DoorType, objecti
   w.runVersion++;
 }
 
-/** Aegis, necromancers and shamans alive or about to rise. */
-function standingSupport(w: World): StandingSupport {
-  const standing: StandingSupport = { aegis: 0, necromancer: 0, shaman: 0 };
+const ALWAYS_COUNTED: ReadonlySet<EnemyKind> = new Set<EnemyKind>(['aegis', 'necromancer', 'shaman']);
+
+/** Capped kinds alive or about to rise: the three support kinds, or every kind when `all` (timed groups). */
+function standingKinds(w: World, all: boolean): Standing {
+  const standing: Standing = {};
   for (const e of w.enemies) {
-    if (e.dead) continue;
-    if (e.kind === 'aegis') standing.aegis++;
-    else if (e.kind === 'necromancer') standing.necromancer++;
-    else if (e.kind === 'shaman') standing.shaman++;
+    if (!e.dead && !e.summoned && (all || ALWAYS_COUNTED.has(e.kind))) standing[e.kind] = (standing[e.kind] ?? 0) + 1;
   }
-  for (const q of w.director.queue) {
-    if (q.kind === 'aegis') standing.aegis++;
-    else if (q.kind === 'necromancer') standing.necromancer++;
-    else if (q.kind === 'shaman') standing.shaman++;
-  }
+  for (const q of w.director.queue) if (all || ALWAYS_COUNTED.has(q.kind)) standing[q.kind] = (standing[q.kind] ?? 0) + 1;
   return standing;
 }
 
@@ -589,7 +585,7 @@ function startWave(w: World): void {
   const room = Math.max(0, WORLD.MAX_ENEMIES - livingEnemies(w));
   const budget = waveBudget(run.chamber, w.partySize) * depthScale(run.depth).count;
   const biome = w.room.biome;
-  const standing = standingSupport(w);
+  const standing = standingKinds(w, false);
   if (run.chamberKind === 'boss') {
     dir.queue.push({ kind: run.finalBoss, elite: false });
   } else if (run.chamberKind === 'elite') {
@@ -622,7 +618,7 @@ function sendGroup(w: World, fraction: number): void {
   for (const e of w.enemies) if (!e.dead) standingCost += Math.max(1, e.def.cost);
   if (standingCost >= budget * OBJECTIVE.MAX_ALIVE_BUDGET) return;
   const room = Math.max(0, WORLD.MAX_ENEMIES - livingEnemies(w));
-  const kinds = composeWave(w.rng, run.chamber, budget * fraction, w.partySize, room, w.room.biome, standingSupport(w));
+  const kinds = composeWave(w.rng, run.chamber, budget * fraction, w.partySize, room, w.room.biome, standingKinds(w, true));
   if (kinds.length === 0) return;
   queueGroup(w, kinds, w.cursed);
   run.wave++;

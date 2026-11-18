@@ -25,7 +25,7 @@
  *                       inside, a bomber's fuse and a slain bomber's delayed burst, a raise with tethered minions, a leap
  *       demo=wards      four warded enemies (ember, rime, storm, umbra); at `at` each is hit with its own element
  *       demo=dome       an aegis with its dome up, enemies inside, hostile telegraphs across it; &drop=1 drops it at `at`
- *       demo=mend       a shaman mends four wounded enemies at `at`
+ *       demo=mend       a shaman mends four wounded enemies at `at`; &interrupt=1 staggers it (and a mage) mid-windup instead
  *       demo=objective&obj=defend|ritual|hunt|survive|vault&prog=0..1 [&objdone=1] [&bonus=0]
  *                       the objective in that state; defend: prog = shard health, heroes stand next to it;
  *                       ritual: prog 0.5 = one lit, one half filled, one untouched; hunt: bonus=0 = enraged
@@ -221,6 +221,7 @@ class Showcase {
   private objective: ObjectiveState | null = null;
   private doorSet = 0;
   private drop = false;
+  private interrupt = false;
   /** Minions raised by the scripted necromancers: [necromancer actor, minion actor]. */
   private raised: [EnemyActor, EnemyActor][] = [];
   private demoAt = 1;
@@ -302,6 +303,7 @@ class Showcase {
     this.objBonus = params.get('bonus') !== '0';
     this.doorSet = Number(params.get('set') ?? 0);
     this.drop = params.get('drop') === '1';
+    this.interrupt = params.get('interrupt') === '1';
     if (params.has('at')) this.demoAt = Number(params.get('at'));
     if (params.has('depth')) this.depth = Number(params.get('depth'));
     const free = (params.get('focus') ?? '').split(',').map(Number);
@@ -573,7 +575,8 @@ class Showcase {
     if (kind === 'slay') return null;
     const state: ObjectiveState = { kind, progress: prog, timeLeft: 0, bonus: this.objBonus, status: this.objDone ? 'done' : 'active', anchor: null, sites: [], targets: [] };
     const T = OBJECTIVE_TUNING;
-    if (kind === 'defend') state.anchor = { x: 0, z: -1, r: T.DEFEND.RADIUS, hp: this.objBonus ? prog : 0 };
+    // bonus=0: the shard still stands (barely) until `at`, so the shatter itself can be captured
+    if (kind === 'defend') state.anchor = { x: 0, z: -1, r: T.DEFEND.RADIUS, hp: this.objBonus ? prog : Math.max(0.12, prog) };
     else if (kind === 'vault') state.anchor = { x: 0, z: -2, r: 1.2, hp: 1 };
     else if (kind === 'survive') state.timeLeft = T.SURVIVE.SECONDS * (1 - prog);
     else if (kind === 'ritual') {
@@ -906,9 +909,12 @@ class Showcase {
       this.dummy('mage', -2.8, -3);
       this.dummy('minion', 7.5, -1);
     } else if (demo === 'mend') {
-      this.scripted('shaman', 0, -4.5, [{ anim: 'cast', dur: HT.SHAMAN.MEND_WINDUP }, { anim: 'attack', dur: 0.8 }]);
-      ([['warrior', -3.2, -1.2], ['minion', 3, -1], ['archer', -4.4, -5.5], ['mage', 4.2, -5.8]] as [EnemyKind, number, number][])
+      // &interrupt=1: the shaman is staggered half way through the channel, and a mage next to it in the middle of its windup
+      this.scripted('shaman', 0, -4.5, this.interrupt ? [{ anim: 'cast', dur: 0.7 }, { anim: 'stun', dur: 1.4 }] : [{ anim: 'cast', dur: HT.SHAMAN.MEND_WINDUP }, { anim: 'attack', dur: 0.8 }]);
+      ([['warrior', -3.2, -1.2], ['minion', 3, -1], ['archer', -4.4, -5.5]] as [EnemyKind, number, number][])
         .forEach(([kind, x, z]) => { this.dummy(kind, x, z).snap.hp = 0.35; });
+      const mage = this.interrupt ? this.scripted('mage', 4.2, -5.8, [{ anim: 'windup', dur: 0.7 }, { anim: 'stun', dur: 1.4 }]) : this.dummy('mage', 4.2, -5.8);
+      mage.snap.hp = 0.35;
     } else if (demo === 'objective') {
       const obj = this.obj;
       if (obj === 'defend') {
@@ -1022,7 +1028,7 @@ class Showcase {
       const obj = this.obj;
       const state = this.objective;
       if (obj === 'defend') this.emit({ e: 'objective', kind: obj, what: 'anchorHit' });
-      if (obj === 'defend' && !this.objBonus) this.emit({ e: 'objective', kind: obj, what: 'bonusLost' });
+      if (obj === 'defend' && !this.objBonus && state && state.anchor) { state.anchor.hp = 0; state.bonus = false; this.emit({ e: 'objective', kind: obj, what: 'bonusLost' }); }
       if (obj === 'ritual' && state && state.sites[0].lit) this.emit({ e: 'objective', kind: obj, what: 'site', index: 0 });
       if (obj === 'hunt' && !this.objBonus) this.emit({ e: 'objective', kind: obj, what: 'bonusLost' });
       if (this.objDone && state) {
@@ -1083,11 +1089,13 @@ class Showcase {
     const T = ENEMY_TUNING;
     const big = s.kind === 'regent' ? T.REGENT : T.CHAMPION;
     if (anim === 'windup') {
-      if (s.kind === 'minion') this.emit({ e: 'telegraph', shape: 'arc', x: s.x, z: s.z, rot: s.rot, r: def.attackRange + 0.6, w: T.MINION_ARC_DEG * DEG, dur: def.windup });
-      else if (s.kind === 'warrior') this.emit({ e: 'telegraph', shape: 'arc', x: s.x, z: s.z, rot: s.rot, r: def.attackRange + 0.6, w: T.WARRIOR_ARC_DEG * DEG, dur: def.windup });
-      else if (s.kind === 'archer') this.emit({ e: 'telegraph', shape: 'line', x: fx, z: fz, rot: s.rot, r: 9, w: 0.6, dur: def.windup });
-      else if (s.kind === 'mage') this.emit({ e: 'telegraph', shape: 'circle', x: s.x + Math.sin(s.rot) * 5, z: s.z + Math.cos(s.rot) * 5, rot: 0, r: T.MAGE_BLAST_RADIUS, w: 0, dur: def.windup });
-      else this.emit({ e: 'telegraph', shape: 'arc', x: s.x, z: s.z, rot: s.rot, r: def.attackRange, w: 120 * DEG, dur: def.windup });
+      // like the simulation, every basic attack names its source, so a stun or a kill can take the warning away
+      const src = s.id;
+      if (s.kind === 'minion') this.emit({ e: 'telegraph', shape: 'arc', x: s.x, z: s.z, rot: s.rot, r: def.attackRange + 0.6, w: T.MINION_ARC_DEG * DEG, dur: def.windup, src });
+      else if (s.kind === 'warrior') this.emit({ e: 'telegraph', shape: 'arc', x: s.x, z: s.z, rot: s.rot, r: def.attackRange + 0.6, w: T.WARRIOR_ARC_DEG * DEG, dur: def.windup, src });
+      else if (s.kind === 'archer') this.emit({ e: 'telegraph', shape: 'line', x: fx, z: fz, rot: s.rot, r: 9, w: 0.6, dur: def.windup, src });
+      else if (s.kind === 'mage') this.emit({ e: 'telegraph', shape: 'circle', x: s.x + Math.sin(s.rot) * 5, z: s.z + Math.cos(s.rot) * 5, rot: 0, r: T.MAGE_BLAST_RADIUS, w: 0, dur: def.windup, src });
+      else this.emit({ e: 'telegraph', shape: 'arc', x: s.x, z: s.z, rot: s.rot, r: def.attackRange, w: 120 * DEG, dur: def.windup, src });
     } else if (anim === 'sweep') {
       this.emit({ e: 'telegraph', shape: 'arc', x: s.x, z: s.z, rot: s.rot, r: big.SWEEP_REACH, w: big.SWEEP_ARC_DEG * DEG, dur: def.windup });
     } else if (anim === 'charge') {
