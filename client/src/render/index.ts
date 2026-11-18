@@ -519,8 +519,6 @@ export class WorldView implements FollowSource {
             }
           }
           vfx.number(ev.x, (v ? v.height : 2) + 0.5, ev.z, ev.dmg, ev.crit ? PALETTE.crit : ev.el ? hex : PALETTE.white, ev.crit ? 1.5 : 1, ev.crit ? 2 : 0);
-          // warded against exactly this element: the hit lands, the element is turned aside
-          if (v && ev.el && v.ward === ev.el) this.horde.deflect(ev.x, y, ev.z, ev.el, v.radius);
           if (ev.by === this.localSlot) this.shake(ev.crit ? 0.14 : 0.04);
         } else {
           this.heroes.hit(ev.target.id);
@@ -804,6 +802,20 @@ export class WorldView implements FollowSource {
       case 'mend':
         this.horde.mend(ev.id, ev.targets);
         break;
+      case 'warded': {
+        // the element of that hit did nothing: a spark of it glances off the ward shell
+        const v = this.enemies.get(ev.id);
+        this.horde.deflect(ev.x, v ? v.lift + v.height * 0.55 : 1.1, ev.z, ev.el, v ? v.radius : 0.45);
+        break;
+      }
+      case 'interrupt': {
+        // a wind-up broken by a stun or stagger: its warning on the floor and its channel end right now
+        vfx.cancelTelegraphs(ev.id);
+        const v = this.enemies.get(ev.id);
+        this.enemies.interrupt(ev.id);
+        if (v) vfx.puff(v.x, v.lift + v.height * 0.8, v.z, VIEW.DUST, 3, v.radius, 0.3);
+        break;
+      }
       case 'descend': {
         // the floor gives way to the dark below: violet rushes in from the edges while the light is pulled down
         this.setDepth(ev.depth);

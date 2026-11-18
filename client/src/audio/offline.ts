@@ -456,6 +456,9 @@ export const HORDE_SEQUENCES: [string, TimedEvent[], number][] = [
   ['horde.seq.fuse.burst(early aoe,kill)', [[0, (s) => s.enemyCast('fuse', 'bomber', 11)], [ENEMIES.bomber.windup - 0.1, (s) => { s.aoe(null, true); s.kill('bomber', false, 11); }]], 3],
   ['horde.seq.fuse.stunned', [[0, (s) => s.enemyCast('fuse', 'bomber', 7)], [ENEMIES.bomber.windup / 2, (s) => s.interrupt(7)]], 3],
   ['horde.seq.leap.lands(aoe)', [[0, (s) => s.enemyCast('reaver_leap', 'reaver', 12)], [ENEMY_TUNING.REAVER.LEAP_AIR_TIME + 0.03, (s) => s.aoe(null, true)]], 3],
+  ['horde.seq.raise.interrupted', [[0, (s) => s.enemyCast('raise', 'necromancer', 13)], [ENEMIES.necromancer.windup / 2, (s) => s.interrupt(13)]], 3],
+  ['horde.seq.leap.interrupted', [[0, (s) => s.enemyCast('reaver_leap', 'reaver', 14)], [ENEMY_TUNING.REAVER.LEAP_AIR_TIME / 2, (s) => s.interrupt(14)],
+    [ENEMY_TUNING.REAVER.LEAP_AIR_TIME, (s) => s.aoe(null, true)]], 3],
   ['horde.seq.leap.killed', [[0, (s) => s.enemyCast('reaver_leap', 'reaver', 8)], [ENEMY_TUNING.REAVER.LEAP_AIR_TIME / 2, (s) => s.kill('reaver', true, 8)]], 3],
   ['horde.seq.necromancer.dies', [[0, (s) => s.kill('necromancer', true, 9)], [0.02, (s) => { for (let i = 0; i < 6; i++) s.kill('minion', false, 20 + i); }]], 3],
 ];

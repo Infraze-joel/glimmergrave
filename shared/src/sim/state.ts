@@ -455,6 +455,8 @@ export interface Enemy {
   mends: number;
   /** Seconds until the next `warded` event may be sent for this enemy. */
   wardCd: number;
+  /** A wind-up was just broken by a stun or stagger; announced (`interrupt` event) by the enemy's next step. */
+  interrupted: boolean;
 }
 
 /** A lasting ground effect of a hero ability (zone / trap shapes). */

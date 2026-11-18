@@ -1374,6 +1374,17 @@ export class Enemies {
     return false;
   }
 
+  /** `interrupt` event: the wind-up of this enemy was broken; whatever it was channelling stops at once. */
+  interrupt(id: number): void {
+    const v = this.byId.get(id);
+    if (!v) return;
+    v.channel = '';
+    v.fuseEnd = -10;
+    v.teleDur = 0;
+    v.interrupted = false;
+    if (v.leaping) { v.leaping = false; if (v.airborne) this.land(v, false); }
+  }
+
   /** `dome` event: an aegis raised or lost its ward dome. */
   dome(id: number, on: boolean, r: number): void {
     const v = this.byId.get(id);

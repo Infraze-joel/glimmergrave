@@ -1016,6 +1016,7 @@ class Showcase {
       this.enemies.forEach((e, i) => {
         const el: ElementId = i < ELEMENT_IDS.length ? ELEMENT_IDS[i] : 'ember';
         this.emit({ e: 'hit', target: { t: 'e', id: e.snap.id }, x: e.snap.x, z: e.snap.z, dmg: 24, crit: false, el, by: 0 });
+        this.emit({ e: 'warded', id: e.snap.id, el, x: e.snap.x, z: e.snap.z, by: 0 });
       });
     } else if (demo === 'dome') {
       this.emit({ e: 'telegraph', shape: 'circle', x: 1.4, z: 1.6, rot: 0, r: 2.2, w: 0, dur: 3 });
@@ -1148,6 +1149,8 @@ class Showcase {
       s.rot = 0;
       s.flags &= ~EF.STUNNED;
       if (step.anim === 'stun') s.flags |= EF.STUNNED;
+      // a stun in the middle of a wind-up is announced, as the simulation does
+      if (step.anim === 'stun' && (prevAnim === 'windup' || prevAnim === 'cast' || prevAnim === 'summon')) this.emit({ e: 'interrupt', id: s.id });
       const boss2 = s.kind === 'matron' || s.kind === 'stalker';
       if (HORDE_KINDS.includes(s.kind)) {
         this.hordeStep(e, step.anim, prevAnim);

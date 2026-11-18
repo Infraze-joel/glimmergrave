@@ -386,7 +386,9 @@ export function applyElement(w: World, e: Enemy, el: ElementId, h: Hero, potency
   if (!e.dead && e.hp > 0) setStatus(w, e, el, h, potency);
 }
 
+/** Breaks whatever the enemy is winding up. A broken wind-up is announced once (`interrupt` event, see stepEnemy). */
 function interrupt(e: Enemy): void {
+  if (e.attack && !e.dead) e.interrupted = true;
   e.attack = null;
   e.poiseDamage = 0;
   if (e.boss) {

@@ -456,6 +456,8 @@ function onGameEvent(ev: GameEvent): void {
         break;
       case 'objective': onObjective(e, ev); break;
       case 'dome': e.sfx.dome(ev.on); break;
+      // a stun or stagger broke the wind-up: whatever that enemy was channelling (mend, raise, fuse, leap) stops dead
+      case 'interrupt': e.sfx.interrupt(ev.id); break;
       // the own hero's element did nothing to a warded enemy (the server sends at most one per enemy and second)
       case 'warded': if (ev.by === own) e.sfx.wardDeflect(ev.el); break;
       case 'mend': e.sfx.mendRelease(ev.id, ev.targets.length); break;

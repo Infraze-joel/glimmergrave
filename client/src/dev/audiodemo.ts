@@ -288,7 +288,7 @@ function hookTickLog(): void {
   }
 }
 
-const LOGGED_CALLS = ['wardDeflect', 'hit', 'objectiveStart', 'siteLit', 'anchorHit', 'anchorShatter', 'huntEnrage', 'bonusLost', 'objectiveDone', 'dome', 'mendRelease', 'enemyCast', 'kill'] as const;
+const LOGGED_CALLS = ['interrupt', 'wardDeflect', 'hit', 'objectiveStart', 'siteLit', 'anchorHit', 'anchorShatter', 'huntEnrage', 'bonusLost', 'objectiveDone', 'dome', 'mendRelease', 'enemyCast', 'kill'] as const;
 const callLog: string[] = [];
 
 const hordeAt = (kind: (typeof HORDE_KINDS)[number]): number => DEMO.HORDE_ID + HORDE_KINDS.indexOf(kind);
@@ -389,10 +389,17 @@ const GAME_EVENTS: [string, () => void][] = [
     fire({ e: 'cast', who: { t: 'e', id: hordeAt('shaman') }, ability: 'mend', ...at, rot: 0 });
     window.setTimeout(() => fire({ e: 'mend', id: hordeAt('shaman'), targets: [DEMO.ENEMY_ID] }), ENEMY_TUNING.SHAMAN.MEND_WINDUP * 1000);
   }],
-  ['shaman mend: cast, interrupted half way (sfx.interrupt)', () => {
+  ['shaman mend: cast, interrupted half way (interrupt event)', () => {
     fire({ e: 'cast', who: { t: 'e', id: hordeAt('shaman') }, ability: 'mend', ...at, rot: 0 });
-    window.setTimeout(() => audioInternals()?.sfx.interrupt(hordeAt('shaman')), ENEMY_TUNING.SHAMAN.MEND_WINDUP * 500);
+    window.setTimeout(() => fire({ e: 'interrupt', id: hordeAt('shaman') }), ENEMY_TUNING.SHAMAN.MEND_WINDUP * 500);
   }],
+  ...(['raise', 'fuse', 'reaver_leap'] as const).map((ability, i): [string, () => void] => [`${ability}: cast, interrupted half way (interrupt event)`, () => {
+    const id = hordeAt((['necromancer', 'bomber', 'reaver'] as const)[i]);
+    const dur = [ENEMIES.necromancer.windup, ENEMIES.bomber.windup, ENEMY_TUNING.REAVER.LEAP_AIR_TIME][i];
+    fire({ e: 'cast', who: { t: 'e', id }, ability, ...at, rot: 0 });
+    window.setTimeout(() => fire({ e: 'interrupt', id }), dur * 500);
+  }]),
+  ['interrupt of an enemy that channels nothing (silent)', () => fire({ e: 'interrupt', id: DEMO.ENEMY_ID })],
   ['shaman mend: cast, killed half way', () => {
     fire({ e: 'cast', who: { t: 'e', id: hordeAt('shaman') }, ability: 'mend', ...at, rot: 0 });
     window.setTimeout(() => fire({ e: 'kill', id: hordeAt('shaman'), kind: 'shaman', ...at, by: own }), ENEMY_TUNING.SHAMAN.MEND_WINDUP * 500);

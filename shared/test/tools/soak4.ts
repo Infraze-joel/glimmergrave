@@ -1,5 +1,5 @@
 /**
- * Update 4 balance soak: `npx tsx --tsconfig server/tsconfig.json shared/test/tools/soak4.ts [seeds] [mode] [doors] [classes]`.
+ * Update 4 balance soak: `npx tsx --tsconfig server/tsconfig.json shared/test/tools/soak4.ts [seeds] [mode] [doors] [classes] [--per-class]`.
  * mode: solo (default) | party | max | maxparty        doors: mixed (default; the usual bot door choice) | prefer
  * (special objectives preferred) | classic (slay only)  classes: comma separated filter for solo modes.
  * Prints win rates per party and, per objective, how often it was played, its bonus rate, the time it took and
@@ -12,10 +12,12 @@ import { runBots, type RunResult } from '../harness.ts';
 
 // Experiments: OFF=shaman,bomber removes kinds from the waves.
 for (const k of (process.env.OFF ?? '').split(',').filter(Boolean)) (ENEMIES as Record<string, { cost: number }>)[k]!.cost = 0;
-const seeds = Number(process.argv[2] ?? 6);
-const mode = process.argv[3] ?? 'solo';
-const doors = process.argv[4] ?? 'mixed';
-const only = process.argv[5] ? process.argv[5].split(',') : null;
+const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+const perClass = process.argv.includes('--per-class');
+const seeds = Number(args[0] ?? 6);
+const mode = args[1] ?? 'solo';
+const doors = args[2] ?? 'mixed';
+const only = args[3] ? args[3].split(',') : null;
 const t0 = Date.now();
 const pct = (n: number, d: number): string => `${Math.round((100 * n) / Math.max(1, d))}%`.padStart(4);
 const mean = (xs: number[]): string => (xs.length ? (xs.reduce((a, b) => a + b, 0) / xs.length).toFixed(1) : '-').padStart(6);
@@ -91,7 +93,7 @@ function sweep(label: string, parties: ClassId[][], max: boolean): void {
       for (let i = 0; i < seeds; i++) own.push(play(classes, (i + 1) * 7919 + BOSS_KINDS.indexOf(boss) * 104729 + classes.length, boss, max, [mine, total]));
     }
     row(`${label} ${classes.join('+')}`, own);
-    if (parties.length > 1 && process.argv.includes('--per-class')) table(classes.join('+'), mine);
+    if (parties.length > 1 && perClass) table(classes.join('+'), mine);
     all.push(...own);
   }
   row(`${label} ALL`, all);

@@ -143,6 +143,7 @@ async function boot(): Promise<void> {
       bus.emit('state:hud');
     }
     view.setDepth(run.depth);
+    view.setObjective(run.objective);
     syncRoom();
     view.setMarker(run.tutorial?.marker ?? null);
     const over = run.phase === 'victory' || run.phase === 'defeat';

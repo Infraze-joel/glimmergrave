@@ -718,3 +718,50 @@ describe('wave composition with the new kinds', () => {
     }
   }, 120000);
 });
+
+describe('interrupt event', () => {
+  it('is sent once when a stun or stagger breaks a wind-up (fuse, mend, raise, a melee swing), not for idle enemies and not for kills', () => {
+    const interrupts = (ev: GameEvent[]): number[] => of(ev, 'interrupt').map((x) => x.id);
+    // Bomber fuse, stunned.
+    const a = arena();
+    const bomber = live(a.w, 'bomber', 0, 1.5);
+    until(a.w, (x) => x.e === 'telegraph');
+    stunEnemy(bomber, 1);
+    stunEnemy(bomber, 1.5);
+    expect(interrupts(stepN(a.w, 1))).toEqual([bomber.id]);
+    expect(interrupts(stepN(a.w, seconds(1)))).toEqual([]);
+    // Stunning an enemy that winds nothing up says nothing.
+    const idle = live(a.w, 'warrior', 10, 10);
+    idle.attackCd = 99;
+    stunEnemy(idle, 1);
+    expect(interrupts(stepN(a.w, 3))).toEqual([]);
+
+    // Shaman mend, staggered by damage; necromancer raise, stunned; warrior swing, staggered.
+    const b = arena();
+    place(b.w, 0, 0, 12);
+    const hurt = dummy(b.w, 0, -6, 'warrior', 1000);
+    wound(hurt, 0.4);
+    const shaman = live(b.w, 'shaman', 0, -10);
+    shaman.specialCd = 0;
+    until(b.w, isCast('mend'));
+    strikeEnemy(b.w, b.h, shaman, ENEMIES.shaman.poise + 5, 'secondary', hitOpts(b.h));
+    expect(interrupts(stepN(b.w, 2))).toEqual([shaman.id]);
+    const necro = live(b.w, 'necromancer', 8, 4);
+    necro.specialCd = 0;
+    until(b.w, isCast('raise'));
+    stunEnemy(necro, 1);
+    expect(interrupts(stepN(b.w, 2))).toEqual([necro.id]);
+
+    // A wind-up that ends because the enemy dies is a kill, not an interrupt.
+    const c = arena();
+    const doomed = live(c.w, 'bomber', 0, 1.5);
+    until(c.w, (x) => x.e === 'telegraph');
+    killEnemy(c.w, doomed, 0);
+    expect(interrupts(stepN(c.w, 3))).toEqual([]);
+    const struck = live(c.w, 'minion', 0, -1.2);
+    until(c.w, (x) => x.e === 'telegraph' && x.src === struck.id);
+    strikeEnemy(c.w, c.h, struck, 100000, 'primary', hitOpts(c.h));
+    expect(struck.dead).toBe(true);
+    expect(interrupts(stepN(c.w, 3))).toEqual([]);
+  });
+});

@@ -453,8 +453,11 @@ export type GameEvent =
   | { e: 'down'; slot: number }
   | { e: 'revived'; slot: number; by: number }
   | { e: 'shieldBreak'; id: number }
-  /** `ward`: the enemy is warded against that element — its status and Resonance bursts of it do nothing to it. */
-  | { e: 'spawn'; id: number; kind: EnemyKind; x: number; z: number; elite: boolean; affix?: AffixId; ward?: ElementId }
+  /**
+   * `ward`: the enemy is warded against that element — its status and Resonance bursts of it do nothing to it.
+   * `raisedBy`: enemy id of the necromancer that raised this minion (it crumbles when that necromancer dies).
+   */
+  | { e: 'spawn'; id: number; kind: EnemyKind; x: number; z: number; elite: boolean; affix?: AffixId; ward?: ElementId; raisedBy?: number }
   | { e: 'wave'; wave: number; waveCount: number }
   | { e: 'chamberClear' }
   | { e: 'bossPhase'; phase: number }
