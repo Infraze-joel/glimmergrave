@@ -12,6 +12,10 @@
   history (`Contract for update 3`). Client core: `Settings.cursor`, `game:progress`, `game:localAction.slot`.
 - QA aids: server env `DEBUG_START_CHAMBER`, `DEBUG_OBJECTIVE`; `botClient --objectives --descend --meta max`;
   dev client `?autopilot&descend=N`; `tests/e2e/tools/deep-run.mjs`.
+- Polish 1 (branch `polish-1`, spec `docs/milestones/polish-1.md`) is integrated on top of update 4: clarity
+  levels (`Settings.effects`, `allyNumbers`, `WorldView.setClarity/setLabels/setAim/setTraits`), contract
+  additions `Obstacle.kind` shard/ritualBowl/reliquary, `RunState.traits`, `RosterEntry.relics/talents`,
+  `ui:labels`. Gate: 529 unit/integration tests, 20 browser tests, one live bot session.
 - Not done: human playtest of updates 3 and 4, listening pass, real GPUs, Firefox/Edge, deployment of both.
 - Next concrete step: owner deploys `update-3` or `update-4` to a Netlify preview and plays.
 - Deferred ideas live in `docs/backlog.md`.

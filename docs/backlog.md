@@ -43,3 +43,8 @@ Deferred items. Promote one into a milestone before working on it.
 - [ ] Next from the engagement list: in-run merchant and risk events, build-defining boons, daily seed and
       bounties, leaderboards (needs accounts).
 - [x] A ritual chamber could go on without end for a party that never held a circle; the fire now spreads by itself in overtime (found in a live bot session with an idle hero).
+- [ ] Polish 1 follow-ups: defend now ends party runs most often (9.7 % of chambers vs 3.7 % for slay); hunt bonus
+      for parties overshot (81 %; 4 s per extra hero would land nearer solo); mage and templar are now the weakest
+      fresh classes; codex text for the hunt timer still shows the solo value; enemies crowd on one spot in
+      four-hero fights (spacing or fewer-but-tougher enemies); fixtures block movement but not shots.
+- [ ] Clarity: ally heroes have no marker of their own; allies' thin rings and the dome ring still cross the fight.
