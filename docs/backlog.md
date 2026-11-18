@@ -20,3 +20,13 @@ Deferred items. Promote one into a milestone before working on it.
 - [ ] Remove telegraph decals when an enemy is staggered out of its windup (a cancelled Matron beam still flashes).
 - [ ] Tips: dismiss by click; coach texts should follow rebinding once key rebinding exists.
 - [ ] Accounts or signed saves if progression ever needs to be tamper-proof.
+- [ ] Update 3 playtest: feel of the three new classes, ultimate charge rate (maxed parties cast very often),
+      readability of ultimates over hostile telegraphs, depth 2+ and Oath 4+ balance (only run for termination).
+- [ ] Knight is the weakest fresh class (about 21 % solo wins against an average of 35 %): buff or rework.
+- [ ] Relic shards drop from the champion, heralds and bosses only; decide whether elite-flagged rank and file
+      should roll too (one line in `killEnemy`, would give 7–12 shards per cursed chamber).
+- [ ] 3D reaction word mark: show the reaction's name instead of "RESONANCE" (needs localised atlas words).
+- [ ] Umbra / smoke contrast on dark floors; spellblade silhouette versus mage from the game camera.
+- [ ] Ground aim marker in the 3D scene to go with the reticle cursor.
+- [ ] Other players' relic and talent counts on lobby cards (needs `RosterEntry` fields).
+- [ ] German settings row for the aim cursor only fits at a small font size.

@@ -13,7 +13,8 @@ The files in `client/public/assets/models` are produced by `tools/build-assets.m
 quantisation, meshopt compression). To rebuild: clone the three repositories into one folder and run
 `npm run assets -- <folder>`.
 
-Audio is synthesised at runtime with the Web Audio API; there are no audio files.
+Sound effects are samples cut from CC0 Kenney packs (sources and licences: `docs/AUDIO.md`), layered with
+runtime synthesis; the score is generated at runtime.
 
 ## Update 2 subset
 

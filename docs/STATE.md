@@ -1,15 +1,17 @@
 # State
 
-- Phase: release candidate for update 2 (meta upgrades, wardrobe, three bosses, biomes + hazards, training,
-  codex, sample-based audio). All milestones in `docs/milestones/README.md` are done; quality gate passed locally.
-- Last session: integrated backend, render kit, UI/audio; added browser e2e suite, QA start-chamber option,
-  perf probe; wrote README.
-- Hosting changed to single-origin Netlify Server (ADR 0002); verified with Netlify's bundler and local
-  emulator only.
-- Not done (needs credentials / hardware): deploy to Netlify, check `/ws/health`, then repeat README section 15
-  with two machines over the internet; measure FPS on real GPUs; listen to the audio;
-  test Firefox and Edge.
-- Next concrete step: deploy the cache fix (branch `update-2`), reload the Netlify preview, run the two-client check.
+- Phase: release candidate for update 3 "The Endless Descent" on branch `update-3` (spec:
+  `docs/milestones/update-3.md`). Quality gate passed locally: typecheck, lint, 435 unit/integration tests,
+  19 browser tests on the production build.
+- Last session: wrote the update 3 contract (types, data tables, protocol v3, client profile), ran four work
+  streams (sim/server, render, UI, audio), integrated them, added three browser tests and the aim cursor.
+- Contract changes of update 3 (all consumers updated): `CLASS_IDS` +3, `ELEMENT_IDS` + `umbra`, `BTN.ULTIMATE`,
+  `PlayerSnap.ult`, `EF.WITHER`, 3-bit projectile element, `Loadout` (paragon, mastery, art, talents, relics),
+  `RosterEntry.mastery/art`, `RunReward`, `RunState.depth/cleared/chambersCleared`, new events, `sanitizeLoadout(raw, cls)`,
+  new data files `mods`, `reactions`, `mastery`, `relics`, `feats`; client core: profile fields and helpers in
+  `GameState.ts`, `game:progress`, `game:localAction.slot`, `Settings.cursor`.
+- Not done: human playtest of update 3, listening pass, real GPUs, Firefox/Edge, deployment of update 3.
+- Next concrete step: owner merges `update-3`, Netlify deploys, owner plays a run with a new class.
 - Deferred ideas live in `docs/backlog.md`.
 
 ## Fix after the first deploy of update 2: stale model cache

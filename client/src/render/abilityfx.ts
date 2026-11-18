@@ -411,14 +411,14 @@ export class AbilityFx {
         vfx.ring(hx, hz, 1, def.radius * 2, 0.7, PALETTE.holy, 0.4, 2.1, def.windup);
         vfx.ring(hx, hz, 1, def.radius * 2.3, 1.0, PALETTE.shield, 0.2, 1.6, def.windup + 0.1);
         vfx.groundFlash(hx, hz, def.radius * 2, 0.8, PALETTE.holy, 0.9, def.windup);
-        vfx.flash(hx, 2.6, hz, PALETTE.holy, 7, 0.5, 2);
+        vfx.flash(hx, 2.6, hz, PALETTE.holy, 5, 0.45, 1.3);
         vfx.motes(hx, 0.2, hz, PALETTE.holy, 30, 1.6, 4, 1.3);
         this.trauma += 0.3;
         return true;
       }
       case 'barb_rage':
         // the roar: everything around the barbarian is thrown outwards
-        vfx.flash(hx, 1.3, hz, PALETTE.rage, 6, 0.4, 2);
+        vfx.flash(hx, 1.3, hz, PALETTE.rage, 4.5, 0.35, 1.3);
         vfx.ring(hx, hz, 0.8, 9, 0.5, PALETTE.rage, 0.5, 2.3, def.windup * 0.5);
         vfx.stamp(DECAL.CRACKLE, hx, hz, 2, 11, 0.7, PALETTE.rage, 1.8, 1, 0.4, 1, 0, def.windup * 0.5);
         vfx.groundFlash(hx, hz, 8, 0.6, PALETTE.rage, 1);
@@ -496,7 +496,7 @@ export class AbilityFx {
           this.trauma += 0.4;
         } else {
           // judgement: the blade comes down inside a shaft of light
-          vfx.flash(x, 3.2, z, PALETTE.holy, 3.6, 0.3, 1.9);
+          vfx.flash(x, 3.2, z, PALETTE.holy, 3.2, 0.3, 1.3);
           vfx.particle(x, 4.5, z, 0, 0, 0, 0.32, 1.8, 0.5, 2.2, 2.0, 1.4, 0.9, SPRITE.GLOW, 1, 0, 0, 0, 1.2);
           vfx.ring(x, z, 0.6, d * 1.05, 0.42, PALETTE.holy, 0.5, 2.2);
           vfx.stamp(DECAL.HALLOW, x, z, d * 0.4, d * 1.05, 0.7, PALETTE.holy, 1.7, 1, 0.25, -1, 1);
@@ -511,7 +511,7 @@ export class AbilityFx {
       case SK.LANCE: {
         const sin = Math.sin(s.rot);
         const cos = Math.cos(s.rot);
-        vfx.flash(x, 1.2, z, PALETTE.white, 3.2, 0.14, 2);
+        vfx.flash(x, 1.2, z, PALETTE.white, 3, 0.14, 1.4);
         vfx.ring(x, z, 0.5, 3.4, 0.3, s.hex, 0.4, 1.9);
         vfx.streak(x, z, s.rot, s.r, 2.4, 0.5, s.hex);
         for (let k = 1; k <= 6; k++) {
@@ -523,8 +523,8 @@ export class AbilityFx {
       }
       case SK.METEOR: {
         // the biggest single hit in the game: a white-out, three shock fronts, fire, flung rock and a lasting scorch
-        vfx.flash(x, 1.5, z, PALETTE.white, s.r * 3.2, 0.22, 2.4);
-        vfx.flash(x, 2.2, z, s.hex, s.r * 3.4, 0.6, 1.6);
+        vfx.flash(x, 1.5, z, PALETTE.white, s.r * 1.8, 0.18, 1.4);
+        vfx.flash(x, 2.2, z, s.hex, s.r * 2.4, 0.5, 1.3);
         vfx.groundFlash(x, z, d * 1.35, 0.7, s.hex, 1.5);
         vfx.ring(x, z, 1, d * 1.04, 0.45, s.hex, 0.7, 2.6);
         vfx.duoRing(x, z, 1, d * 1.5, 0.9, s.hex, PALETTE.arcane, 0.35, 2.1, 0.06);
@@ -543,7 +543,7 @@ export class AbilityFx {
       case SK.NOVA: {
         const h = this.heroes.get(s.slot);
         if (h) { x = h.x + h.offX; z = h.z + h.offZ; }
-        vfx.flash(x, 1.2, z, PALETTE.white, s.r * 1.7, 0.16, 2.2);
+        vfx.flash(x, 1.2, z, PALETTE.white, s.r * 1.4, 0.16, 1.5);
         vfx.groundFlash(x, z, d * 1.1, 0.6, PALETTE.white, 0.8);
         // one shock front per element, each a beat behind the last, each throwing its own matter
         for (let k = 0; k < ALL_ELEMENTS.length; k++) {

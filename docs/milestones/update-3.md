@@ -35,7 +35,7 @@ four elements with six named reactions, set and duo boons, and five layers of pe
 - Every pair of elements has a **named reaction** (`data/reactions.ts`): Shatter, Conflagration, Superconduct,
   Soulfire, Entomb, Void Arc. The Resonance burst stays; each reaction adds its own effect. The existing
   `resonance` event already carries both elements; clients look the reaction up with `reactionOf(a, b)`.
-- Boons grow from 33 to 82 (`data/boons.ts`): umbra and ultimate infusions, new boons in every category,
+- Boons grow from 33 to 80 (`data/boons.ts`): umbra and ultimate infusions, new boons in every category,
   the `ultimate` category, two **class boons** per class (generic `ability` field changes) and six legendary
   **duo boons** (one per reaction; offered only to a hero with infusions of both elements).
 - **Set bonuses** (`SETS`, `setProgress()`): owning enough different boons of one element or category switches

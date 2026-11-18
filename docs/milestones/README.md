@@ -17,4 +17,6 @@ evidence that exists. Feel and audio items that only a human can judge are marke
 
 | 10 | Update 2: permanent upgrades, wardrobe, three bosses + heralds, three biomes with hazards, training, codex, sample-based audio | a new player completes training; a run pays Glimmer that buys an upgrade | 311 unit/integration tests, 14 browser tests, showcase/uidemo/audiodemo harnesses | done; human playtest and listening pass open |
 
-`npm test` runs 311 tests in total. Regression suite before any change is called done: `npm run typecheck && npm run lint && npm test && npm run test:e2e`.
+| 11 | Update 3: seven classes with arts and ultimates, umbra and six reactions, sets, mastery, Ascension, relics, Chronicle, endless descent ([spec](update-3.md)) | a run with a new class pays XP and relics that are spent on talents, slots and ranks; the party can descend | 435 unit/integration tests, 19 browser tests, bot run with descent in the browser, showcase/uidemo/audiodemo harnesses | done; human playtest and listening pass open |
+
+`npm test` runs 435 tests in total. Regression suite before any change is called done: `npm run typecheck && npm run lint && npm test && npm run test:e2e`.
