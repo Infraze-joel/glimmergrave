@@ -34,9 +34,9 @@ export const OBJECTIVE_TUNING = {
   SURVIVE: { SECONDS: 55, SECONDS_PER_CHAMBER: 3, MAX_SECONDS: 80, SPAWN_INTERVAL: 6, BUDGET_FRACTION: 0.4 },
   DEFEND: {
     /** Shard health (scaled like enemy damage by chamber, Oath and depth) and size. */
-    HP: 520, RADIUS: 1.1,
+    HP: 600, RADIUS: 1.1,
     /** Polish 1: a hero who is alone cannot guard the shard and fight at once; its shard has this much more health. */
-    SOLO_HP_MUL: 1.5,
+    SOLO_HP_MUL: 1.3,
     /** Share of each wave that goes for the shard instead of the heroes. */
     ATTACKER_SHARE: 0.3,
     /** Heroes standing within this distance slowly repair the shard between hits. */

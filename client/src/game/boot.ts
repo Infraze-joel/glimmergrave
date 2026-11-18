@@ -54,6 +54,7 @@ async function boot(): Promise<void> {
     view.setZoom(settings.zoom);
     view.setDamageNumbers(settings.damageNumbers);
     cursor.setStyle(settings.cursor);
+    view.setClarity(settings.effects, settings.allyNumbers);
   };
   applySettings();
   bus.on('settings:changed', applySettings);
