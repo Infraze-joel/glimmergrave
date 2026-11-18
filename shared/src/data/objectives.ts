@@ -31,7 +31,7 @@ export const OBJECTIVE_TUNING = {
   BONUS_GLIMMER: 14,
   /** The two doors of a choice never show the same special objective; at most this many vaults per depth. */
   MAX_VAULTS_PER_DEPTH: 1,
-  SURVIVE: { SECONDS: 55, SECONDS_PER_CHAMBER: 3, MAX_SECONDS: 80, SPAWN_INTERVAL: 5, BUDGET_FRACTION: 0.45 },
+  SURVIVE: { SECONDS: 55, SECONDS_PER_CHAMBER: 3, MAX_SECONDS: 80, SPAWN_INTERVAL: 6, BUDGET_FRACTION: 0.4 },
   DEFEND: {
     /** Shard health (scaled like enemy damage by chamber, Oath and depth) and size. */
     HP: 520, RADIUS: 1.1,
@@ -48,10 +48,10 @@ export const OBJECTIVE_TUNING = {
   RITUAL: {
     SITES: 3, RADIUS: 2.4, SECONDS_TO_LIGHT: 7,
     /** Progress drains at this fraction of the fill rate while no hero stands inside. */
-    DECAY: 0.35,
+    DECAY: 0.25,
     /** Each extra hero in the same circle adds this much speed. */
     EXTRA_HERO_SPEED: 0.35,
-    BONUS_SECONDS: 60, SPAWN_INTERVAL: 6, BUDGET_FRACTION: 0.4,
+    BONUS_SECONDS: 60, SPAWN_INTERVAL: 7, BUDGET_FRACTION: 0.35,
     /**
      * A ritual must always end, even for a party that cannot hold a circle (a hero away from the keyboard, a
      * room that is too hot). Once the bonus time has passed the braziers stop cooling, and from

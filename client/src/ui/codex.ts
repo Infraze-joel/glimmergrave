@@ -28,15 +28,15 @@ import { boonIcon, boonTint } from './model.ts';
 import { pageHead } from './pages.ts';
 import { richEl } from './rich.ts';
 import { ui, type CodexTab } from './store.ts';
-import { FOE_ICON, NEW_FOES, foeParams } from './tips.ts';
+import { FOE_ICON, NEW_FOES, foeParams, tipContent, type TipDetail, type TipId } from './tips.ts';
 import { OBJECTIVE_ICON, hasBonus, objectiveBonus, objectiveGoal, objectiveName } from './objective.ts';
 import type { View } from './view.ts';
 
 const PERCENT = 100;
-const TABS: readonly CodexTab[] = ['elements', 'classes', 'combat', 'objectives', 'hazards', 'bestiary', 'doors', 'boons', 'progress'];
+const TABS: readonly CodexTab[] = ['elements', 'classes', 'combat', 'objectives', 'hazards', 'bestiary', 'doors', 'boons', 'progress', 'tips'];
 const TAB_ICON: Record<CodexTab, IconName> = {
   elements: 'element', classes: 'users', combat: 'combat', objectives: 'hunt', hazards: 'spikes', bestiary: 'skull', doors: 'door', boons: 'boon',
-  progress: 'ascension',
+  progress: 'ascension', tips: 'tip',
 };
 const HAZARD_KINDS: readonly Hazard['kind'][] = ['spikes', 'vent', 'frost'];
 const FOES: readonly EnemyKind[] = ['minion', 'warrior', 'archer', 'mage'];
@@ -525,10 +525,33 @@ function progressTab(): HTMLElement[] {
   ];
 }
 
+/** Every first-encounter tip, grouped, with the same texts the HUD shows (generic where a tip names something live). */
+const TIP_GROUPS: readonly { title: I18nKey; ids: readonly TipId[] }[] = [
+  { title: 'codex.tips.group.basics', ids: ['status.ember', 'status.rime', 'status.storm', 'status.umbra', 'resonance', 'ally', 'set'] },
+  { title: 'codex.tips.group.fight', ids: ['ultimate', 'downed', 'hazard', 'elite', 'affix', 'boss'] },
+  { title: 'codex.tips.group.foes', ids: ['enemy.shaman', 'enemy.aegis', 'enemy.bomber', 'enemy.necromancer', 'enemy.reaver', 'ward'] },
+  { title: 'codex.tips.group.path', ids: ['objective', 'cursed', 'descend'] },
+];
+
+function tipsTab(): HTMLElement[] {
+  const detail: TipDetail = { name: t('codex.tips.ally') };
+  const out: HTMLElement[] = [h('p', { class: 'gg-codex-lead' }, t('codex.tips.intro'))];
+  for (const group of TIP_GROUPS) {
+    const list = h('div', { class: 'gg-codex-tips' });
+    for (const id of group.ids) {
+      const tip = tipContent(id, detail);
+      list.append(h('article', { class: 'gg-codex-tip', 'data-testid': `codex-tip-${id}`, 'data-tone': tip.tone },
+        icon(tip.icon), h('div', null, h('b', null, tip.title), richEl('p', '', tip.body))));
+    }
+    out.push(heading(t(group.title)), list);
+  }
+  return out;
+}
+
 const BUILDERS: Record<CodexTab, () => HTMLElement[]> = {
   elements: elementsTab, classes: classesTab, combat: combatTab, objectives: objectivesTab, hazards: hazardsTab, bestiary: bestiaryTab, doors: doorsTab,
   boons: boonsTab,
-  progress: progressTab,
+  progress: progressTab, tips: tipsTab,
 };
 
 export function createCodex(close: () => void): View {

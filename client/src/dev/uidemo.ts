@@ -20,6 +20,8 @@
  *                 #doors-obj #doors-obj-2 #doors-obj-vault #doors-obj-same #doors-obj-deep #draft-bonus #draft-bonus-event #draft-nobonus #draft-vault
  *                 #ward #ward-own #foes #summary-objectives #codex-bestiary #codex-objectives #tip-enemy.<kind> #tip-ward
  *                 #tip-objective #boss-doors (dead boss, descend / ascend doors: no boss bar)
+ *   Polish 1      #busy #busy-down (burst of a four-hero fight: feed, callouts, tips) #obj-hunt-reload #obj-hunt-escort-reload
+ *                 #codex-tips
  *   Query params  profile=new|mid|end (progression stage for every route; default mid)   lang=en|de   bg=noisy (busy backdrop for contrast checks)   panel=0 (hide the dev panel)
  *                 freeze (stop the fake tickers)   tips=1 (leave all tips unseen)
  *   window.__uidemo  { go, fire, patchRun, screen, error, audio, nextStep, intents, missing }  for scripted checks
@@ -242,6 +244,7 @@ const REROLLED: BoonOffer[][] = [
   [{ id: 'deadeye', level: 1 }, { id: 'infuse_rime_dash', level: 1 }, { id: 'shared_vigor', level: 1 }],
 ];
 const intentLog: string[] = [];
+const labelLog: EventMap['ui:labels'][] = [];
 type AudioDebug = typeof import('../audio/index.ts').audioDebug;
 let audioDebug: AudioDebug = () => null;
 
@@ -324,7 +327,6 @@ function baseline(): void {
   ui.hubRelic = null;
   ui.progress = null;
   ui.oathBaseline = null;
-  ui.objectives = { done: 0, bonus: 0, tracked: false };
   ui.lastObjective = null;
   stageProfile(DEFAULT_STAGE);
   Object.assign(state.profile, { cls: 'knight', looks: { ...defaultLooks(), knight: look(2, 1), mage: look(5, 2, true, false) } });
@@ -690,6 +692,10 @@ const OBJECTIVE_ROUTES: Record<string, () => void> = {
     emitAll();
   },
   'draft-vault': () => objectiveDraft('vault', false, [{ id: 'encore', level: 1 }, { id: 'infuse_storm_dash', level: 1 }, { id: 'iron_heart', level: 2 }, { id: 'echo', level: 1 }]),
+  // A hunt joined in mid-chamber: one of three marked elites is left, the two dead ones must still show as pips.
+  'obj-hunt-reload': () => objectiveRoute('hunt', 'lost'),
+  'obj-hunt-escort-reload': () => { objectiveRoute('hunt', 'lost'); if (state.run?.objective) { state.run.objective = { ...state.run.objective, targets: [], progress: 1 }; emitAll(); } },
+  'codex-tips': () => { setScreen('menu'); ui.codexTab = 'tips'; ui.page = 'codex'; emitAll(); },
   busy: () => busyFight(false),
   'busy-down': () => busyFight(true),
   ward: () => { inGame({ entered: 'boon', chamber: 5, objective: objectiveState('slay', 'mid') }); ELEMENT_IDS.forEach((ward, i) => fire({ e: 'spawn', id: 80 + i, kind: 'warrior', x: 2, z: -1, elite: false, ward })); },
@@ -701,13 +707,11 @@ const OBJECTIVE_ROUTES: Record<string, () => void> = {
     fire({ e: 'mend', id: 90, targets: [12, 13] });
   },
   'summary-objectives': () => {
-    ui.objectives = { done: 5, bonus: 3, tracked: true };
-    summary({ phase: 'victory', chamber: 7, chamberKind: 'boss', elapsed: 754, bossKind: 'matron', cleared: 1, chambersCleared: 8 },
+    summary({ phase: 'victory', chamber: 7, chamberKind: 'boss', elapsed: 754, bossKind: 'matron', cleared: 1, chambersCleared: 8, objectivesDone: 5, objectiveBonuses: 3 },
       [reward(0, 261, 372, ['storm_coil']), reward(1, 237, 340), reward(2, 237, 340, ['whetstone']), reward(3, 237, 340)], { oathBaseline: 2 });
   },
   'summary-objectives-fell': () => {
-    ui.objectives = { done: 9, bonus: 1, tracked: true };
-    summary({ phase: 'defeat', chamber: 3, chamberKind: 'elite', elapsed: 1722, depth: 1, cleared: 1, chambersCleared: 11, oath: 3 },
+    summary({ phase: 'defeat', chamber: 3, chamberKind: 'elite', elapsed: 1722, depth: 1, cleared: 1, chambersCleared: 11, oath: 3, objectivesDone: 9, objectiveBonuses: 1 },
       [reward(0, 544, 910, ['whetstone', 'phoenix']), reward(1, 498, 860, ['tome']), reward(2, 498, 860), reward(3, 498, 860)], { oathBaseline: 3 });
   },
 };
@@ -1325,6 +1329,7 @@ declare global {
       screen(screen: Screen): void;
       /** Every `ui:*` intent emitted so far, as "name payload". */
       intents: string[];
+      labels: EventMap['ui:labels'][];
       routes: string[];
       errors: ConnError[];
     };
@@ -1338,6 +1343,8 @@ function boot(): void {
   if (lang === 'en' || lang === 'de') updateSettings({ lang });
   paintBackdrop();
   baseline();
+  // What the 3D view would receive: kept for scripted checks (`__uidemo.labels`).
+  bus.on('ui:labels', (labels) => { labelLog.push(labels); });
   initUI(root);
   startAudio();
   wireIntents();
@@ -1361,6 +1368,7 @@ function boot(): void {
     patchRun: (patch) => { if (state.run) { setRun({ ...state.run, ...patch }); bus.emit('state:hud'); } },
     screen: (screen) => { setScreen(screen); emitAll(); },
     intents: intentLog,
+    labels: labelLog,
     routes: Object.keys(ROUTES),
     errors: CONN_ERRORS,
   };

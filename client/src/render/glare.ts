@@ -14,12 +14,12 @@ const GLARE = {
   COLS: 28,
   ROWS: 24,
   /** Summed demand a patch may show; about one strong flash. */
-  BUDGET: 1.25,
+  BUDGET: 1.1,
   /** Quads smaller than this (sparks, motes) are neither counted nor dimmed. */
   MIN_SIZE: 0.9,
   /** Big quads spread their demand over this many cells around the centre. */
   MAX_SPAN: 2,
-  FLOOR: 0.1,
+  FLOOR: 0.04,
   /** Demand a telegraph adds to the cells it covers. */
   TELEGRAPH: 1.6,
 } as const;

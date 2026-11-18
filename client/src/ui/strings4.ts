@@ -184,7 +184,7 @@ export const DE4: Record<Key4, string> = {
   'tip.objective.body': 'Jede Tür zeigt jetzt, [[b|was ihre Kammer von euch verlangt]]. Erfüllt ihr die [[b|Bonus]]-Bedingung, bietet die Auswahl dieser Kammer einen Boon mehr, selten oder besser, und es gibt Glimmer.',
   'ward.name': '{element}-Schutzbann',
   'toast.ward': 'Gegner mit Schutzbann: {element} wirkt nicht auf sie',
-  'toast.wardOwn': 'Schutzbann gegen dein {element} – Status und Explosionen verpuffen',
+  'toast.wardOwn': 'Schutzbann gegen {element} – dein Element wirkt nicht',
 
   // ---------------------------------------------------------------- codex
   'codex.tab.bestiary': 'Bestiarium',

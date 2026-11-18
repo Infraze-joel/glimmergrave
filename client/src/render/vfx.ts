@@ -12,6 +12,7 @@ import { LIMITS, PALETTE } from './config.ts';
 const FX = {
   TELEGRAPH_FLASH: 0.22,
   TELEGRAPH_Y: 0.06,
+  TELEGRAPH_SHADE: 0.42,
   NUMBER_LIFE: 0.85,
   NUMBER_RISE: 1.9,
   NUMBER_SIZE: 0.62,
@@ -21,6 +22,9 @@ const FX = {
   /** Word marks shown at once; a new burst next to a standing word of the same reaction only refreshes that word. */
   WORD_NEAR: 7,
   WORD_REFRESH: 0.5,
+  /** Word marks on screen at once: other heroes' bursts stop adding words first. */
+  WORDS_ALLY: 2,
+  WORDS_MAX: 6,
 } as const;
 
 /**
@@ -32,14 +36,17 @@ const NUM = {
   MERGE_WINDOW: 0.55,
   /** A merged number is closed after this long, so the total stays a readable "one burst". */
   MERGE_SPAN: 2.2,
-  MAX: 14,
-  ALLY_MAX: 6,
+  MAX: 12,
+  ALLY_MAX: 5,
   /** Age a number is put back to when another hit joins it (it has already popped, it just stays). */
   HOLD: 0.14,
   COUNT_RATE: 14,
   RISE_CAP: 1.5,
-  ALLY_SIZE: 0.66,
-  ALLY_ALPHA: 0.6,
+  ALLY_SIZE: 0.62,
+  /** An ally's crit is only this much larger than its plain numbers, and its numbers sit lower than the own hero's. */
+  ALLY_CRIT: 1.15,
+  ALLY_DROP: 0.55,
+  ALLY_ALPHA: 0.55,
   ALLY_LIFE: 0.7,
   /** How far an ally's number is washed towards grey. */
   ALLY_WASH: 0.45,
@@ -107,6 +114,8 @@ interface Floater {
   rise: number;
   /** Extra white flash at the start (0..1). */
   hot: number;
+  /** Left half of a word mark (counted for the cap). */
+  word: boolean;
 }
 
 interface DamageNumber {
@@ -185,7 +194,7 @@ export class Vfx {
       });
     }
     for (let i = 0; i < LIMITS.FLOATERS; i++) {
-      this.floaters.push({ active: false, x: 0, y: 0, z: 0, age: 0, life: 1, uv: atlas.plus, w: 1, h: 1, ox: 0, r: 1, g: 1, b: 1, rise: 1, hot: 0 });
+      this.floaters.push({ active: false, x: 0, y: 0, z: 0, age: 0, life: 1, uv: atlas.plus, w: 1, h: 1, ox: 0, r: 1, g: 1, b: 1, rise: 1, hot: 0, word: false });
     }
     for (let i = 0; i < LIMITS.DAMAGE_NUMBERS; i++) {
       this.numbers.push({
@@ -491,12 +500,13 @@ export class Vfx {
 
   // ---------------------------------------------------------------- floaters
 
-  private floater(x: number, y: number, z: number, uv: UvRect, w: number, h: number, ox: number, hex: number, life: number, rise: number, hot: number): void {
+  private floater(x: number, y: number, z: number, uv: UvRect, w: number, h: number, ox: number, hex: number, life: number, rise: number, hot: number): Floater {
     const f = this.floaters[this.floaterCursor];
     this.floaterCursor = (this.floaterCursor + 1) % this.floaters.length;
     const c = rgb(hex);
     f.active = true; f.x = x; f.y = y; f.z = z; f.age = 0; f.life = life; f.uv = uv; f.w = w; f.h = h; f.ox = ox;
-    f.r = c[0]; f.g = c[1]; f.b = c[2]; f.rise = rise; f.hot = hot;
+    f.r = c[0]; f.g = c[1]; f.b = c[2]; f.rise = rise; f.hot = hot; f.word = false;
+    return f;
   }
 
   /** Element icon that pops above a target when a status lands. */
@@ -511,14 +521,17 @@ export class Vfx {
    */
   word(x: number, y: number, z: number, hexA: number, hexB: number, scale = 1, index = 0): void {
     const mark = this.atlas.words[index] ?? this.atlas.words[0];
+    let words = 0;
     for (const f of this.floaters) {
-      if (!f.active || f.uv !== mark.halves[0] || f.age > FX.WORD_REFRESH) continue;
-      if (Math.hypot(f.x - x, f.z - z) < FX.WORD_NEAR) return;
+      if (!f.active || !f.word) continue;
+      words++;
+      if (f.uv === mark.halves[0] && f.age <= FX.WORD_REFRESH && Math.hypot(f.x - x, f.z - z) < FX.WORD_NEAR) return;
     }
+    if (words >= (scale < 1 ? FX.WORDS_ALLY : FX.WORDS_MAX)) return;
     const h = FX.WORD_HEIGHT * scale;
     const half = h * mark.aspect * 0.5;
     const life = FX.WORD_LIFE * (scale < 1 ? 0.8 : 1);
-    this.floater(x, y, z, mark.halves[0], half, h, -half * 0.5, hexA, life, 0.7, scale < 1 ? 0.2 : 0.45);
+    this.floater(x, y, z, mark.halves[0], half, h, -half * 0.5, hexA, life, 0.7, scale < 1 ? 0.2 : 0.45).word = true;
     this.floater(x, y, z, mark.halves[1], half, h, half * 0.5, hexB, life, 0.7, scale < 1 ? 0.2 : 0.45);
   }
 
@@ -582,7 +595,7 @@ export class Vfx {
         if (deco === 2 && d.deco !== 2) {
           // a crit joined: the whole number turns into one
           d.deco = 2;
-          d.size = Math.max(d.size, FX.NUMBER_SIZE * size * (ally ? NUM.ALLY_SIZE : 1));
+          d.size = Math.max(d.size, FX.NUMBER_SIZE * (ally ? Math.min(size, NUM.ALLY_CRIT) * NUM.ALLY_SIZE : size));
         }
         if (deco === 2 || d.deco !== 2) {
           d.r = c[0] + (NUM.WASH - c[0]) * wash; d.g = c[1] + (NUM.WASH - c[1]) * wash; d.b = c[2] + (NUM.WASH - c[2]) * wash;
@@ -599,11 +612,11 @@ export class Vfx {
     this.numberCursor = (this.numberCursor + 1) % this.numbers.length;
     d.active = true; d.deco = deco; d.key = key; d.total = v; d.shown = v; d.span = 0; d.since = 0; d.ally = ally; d.bump = 0;
     this.setDigits(d, v);
-    d.x = x + (Math.random() - 0.5) * 0.7; d.y = y; d.y0 = y; d.z = z + (Math.random() - 0.5) * 0.3;
+    d.x = x + (Math.random() - 0.5) * 0.7; d.y = ally ? y - NUM.ALLY_DROP : y; d.y0 = d.y; d.z = z + (Math.random() - 0.5) * 0.3;
     d.age = 0; d.life = FX.NUMBER_LIFE * (size > 1.2 ? 1.25 : 1) * (ally ? NUM.ALLY_LIFE : 1);
     d.alpha = ally ? NUM.ALLY_ALPHA : 1;
     d.r = c[0] + (NUM.WASH - c[0]) * wash; d.g = c[1] + (NUM.WASH - c[1]) * wash; d.b = c[2] + (NUM.WASH - c[2]) * wash;
-    d.size = FX.NUMBER_SIZE * size * (ally ? NUM.ALLY_SIZE : 1); d.drift = (Math.random() - 0.5) * (ally ? 0.4 : 0.8);
+    d.size = FX.NUMBER_SIZE * (ally ? Math.min(size, NUM.ALLY_CRIT) * NUM.ALLY_SIZE : size); d.drift = (Math.random() - 0.5) * (ally ? 0.4 : 0.8);
   }
 
   /** Numbers on screen right now (debug overlay). */
@@ -632,6 +645,8 @@ export class Vfx {
           if (over > FX.TELEGRAPH_FLASH) { t.active = false; break; }
           const flash = over > 0 ? 1 - over / FX.TELEGRAPH_FLASH : 0;
           const alpha = over > 0 ? flash : Math.min(1, t.age * 8);
+          // first a dark copy of the shape, so whatever glows underneath is turned down inside the warning
+          if (over <= 0 && warnings !== decals) warnings.push(t.shape, t.x, t.y - 0.004, t.z, t.rot, t.s0, t.sz, 0, 0, 0, alpha, 0, k, 0, t.p2, FX.TELEGRAPH_SHADE);
           warnings.push(t.shape, t.x, t.y, t.z, t.rot, t.s0, t.sz, t.r, t.g, t.b, alpha, over > 0 ? 0.8 : t.additive, k, flash, t.p2);
           if (this.glare && over <= 0) this.reserve(t);
           break;

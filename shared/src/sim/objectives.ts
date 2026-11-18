@@ -101,11 +101,20 @@ export function rollDoorObjectives(w: World, types: readonly DoorType[], nextCha
 
 interface Spot { x: number; z: number; r: number }
 
-/** Smallest free distance from a circle to obstacles, hazards, walls, spawn points, door zones and `others`, each minus its wanted gap. */
-function clearance(w: World, x: number, z: number, r: number, others: readonly Spot[], otherGap: number, relax: number): number {
+/**
+ * Smallest free distance from a circle to obstacles, hazards, walls, spawn points, door zones and `others`, each
+ * minus its wanted gap. `body` > 0: a solid fixture of that radius stands in the middle; whatever the gaps have
+ * shrunk to, a hero-wide lane (FIXTURE_LANE) stays open between it and every obstacle.
+ */
+function clearance(w: World, x: number, z: number, r: number, others: readonly Spot[], otherGap: number, relax: number, body: number): number {
   const room = w.room;
   let free = Math.min(room.w / 2 - Math.abs(x) - r - OBJECTIVE.WALL_GAP * relax, room.d / 2 - Math.abs(z) - r - OBJECTIVE.WALL_GAP * relax);
-  for (const o of room.obstacles) free = Math.min(free, Math.hypot(o.x - x, o.z - z) - o.r - r - OBJECTIVE.OBSTACLE_GAP * relax);
+  for (const o of room.obstacles) {
+    const gap = Math.hypot(o.x - x, o.z - z) - o.r;
+    free = Math.min(free, gap - r - OBJECTIVE.OBSTACLE_GAP * relax);
+    if (body > 0) free = Math.min(free, gap - body - OBJECTIVE.FIXTURE_LANE);
+  }
+  if (body > 0) free = Math.min(free, room.w / 2 - Math.abs(x) - body - OBJECTIVE.FIXTURE_LANE, room.d / 2 - Math.abs(z) - body - OBJECTIVE.FIXTURE_LANE);
   for (const h of room.hazards) free = Math.min(free, Math.hypot(h.x - x, h.z - z) - h.r - r - OBJECTIVE.HAZARD_GAP * relax);
   for (const s of room.spawns) free = Math.min(free, Math.hypot(s.x - x, s.z - z) - r - OBJECTIVE.SPAWN_GAP * relax);
   for (const count of [1, 2]) {
@@ -145,7 +154,7 @@ export function findObjectiveSpot(w: World, r: number, spread: number, others: r
     for (let i = 0; i < OBJECTIVE.PLACE_ATTEMPTS; i++) {
       const x = round2(w.rng.range(-hx, hx));
       const z = round2(w.rng.range(-hz, hz));
-      if (clearance(w, x, z, r, others, otherGap, relax) >= 0 && (body <= 0 || fixtureFits(w, x, z, body))) return { x, z };
+      if (clearance(w, x, z, r, others, otherGap, relax, body) >= 0 && (body <= 0 || fixtureFits(w, x, z, body))) return { x, z };
     }
   }
   // Grid scan: the roomiest point; with a solid fixture the roomiest one that keeps the room walkable, if any does.
@@ -155,7 +164,7 @@ export function findObjectiveSpot(w: World, r: number, spread: number, others: r
   let fitFree = -Infinity;
   for (let x = -Math.floor(w.room.w / 2 - r); x <= w.room.w / 2 - r; x++) {
     for (let z = -Math.floor(w.room.d / 2 - r); z <= w.room.d / 2 - r; z++) {
-      const free = clearance(w, x, z, r, others, 0, 0);
+      const free = clearance(w, x, z, r, others, 0, 0, body);
       if (free > bestFree) { bestFree = free; best = { x, z }; }
       if (body > 0 && free > fitFree && free >= 0 && fixtureFits(w, x, z, body)) { fitFree = free; fit = { x, z }; }
     }

@@ -223,6 +223,7 @@ export class AbilityFx {
       z.sprung = sprung;
       if (z.kind === ZK.TRAP && sprung) {
         const vfx = this.vfx;
+        vfx.owner(this.foreign(z.slot) ? OWNER.ALLY : OWNER.SELF);
         const hex = z.el ? ELEMENT_COLOR[z.el] : TUNE.TRAP;
         vfx.ring(z.x, z.z, 0.6, z.r * 2.05, 0.32, hex, 0.5, 2.1);
         vfx.stamp(DECAL.CRACKLE, z.x, z.z, z.r * 0.8, z.r * 2.1, 0.4, hex, 1.6, 1, 0.5, 1);
@@ -231,6 +232,7 @@ export class AbilityFx {
         vfx.puff(z.x, 0.25, z.z, TUNE.DUST, 6, z.r * 0.6, 0.3);
         if (z.el) this.elementBurst(z.el, z.x, 0.3, z.z, z.r * 0.6, 0.8);
         this.trauma += 0.12;
+        vfx.owner(OWNER.WORLD);
       }
     }
   }
@@ -324,8 +326,10 @@ export class AbilityFx {
       case ZK.SMOKE: {
         const s = rgb(PALETTE.shadow);
         const rim = rgb(tint !== 0 ? tint : PALETTE.umbra);
-        decals.push(DECAL.SMOKE, x, 0.04, z, time * 0.2, d * 1.1, d * 1.1, s[0], s[1], s[2], 0.9 * a, 0, 1, rim[0] * 0.3, rim[1] * 0.3, rim[2] * 0.3);
-        decals.push(DECAL.SMOKE, x, 0.042, z, -time * 0.33 + 2, d * 0.72, d * 0.72, s[0] * 1.6, s[1] * 1.6, s[2] * 1.6, 0.5 * a, 0, 0.9);
+        decals.push(DECAL.SMOKE, x, 0.04, z, time * 0.2, d * 1.1, d * 1.1, s[0], s[1], s[2], 0.9 * a, 0, 1, rim[0] * 0.95, rim[1] * 0.95, rim[2] * 0.95);
+        decals.push(DECAL.SMOKE, x, 0.042, z, -time * 0.33 + 2, d * 0.72, d * 0.72, s[0] * 2, s[1] * 2, s[2] * 2, 0.5 * a, 0, 0.9);
+        // its reach as a pale dashed outline: the cloud itself is dark on a dark floor
+        decals.push(DECAL.ZONE, x, 0.046, z, time * 0.15, d, d, rim[0] * 1.5, rim[1] * 1.5, rim[2] * 1.5, 0.7 * a, 0.5, 0);
         if (live) {
           zn.acc += dt * 6 * vfx.density;
           while (zn.acc >= 1) {

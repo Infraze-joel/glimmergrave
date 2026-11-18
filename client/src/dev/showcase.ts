@@ -34,6 +34,11 @@
  * Polish 1:
  *       mode=fight[&at=6]  the stress scene as a real brawl: the party in a knot at the shard, area hits on many enemies at
  *                       once, and at `at` four ultimates + a chain of ten reactions under hostile telegraphs
+ *       demo=numbers    from `at` on: the own hero and an ally each strike the same enemies eight times in a second
+ *                       (merged numbers counting up, own versus ally look), one lone crit, healing ticks on two heroes
+ *       demo=latejoin   warded, affixed and raised enemies WITHOUT their spawn events; the traits arrive via setTraits
+ *       lang=de         German reaction names through setLabels (lang=test: a name with ß and umlauts)
+ *       aim=x,z         ground aim marker at that point (otherwise it follows the mouse)
  *       seed=N          reproducible script (same moment before / after a rendering change) · local=0..3 own hero's slot
  */
 import { AnimationMixer, Vector3 } from 'three';
@@ -80,7 +85,7 @@ const SLOTS = NET.MAX_PLAYERS;
 const OLD_CLASSES: ClassId[] = ['knight', 'barbarian', 'mage', 'rogue'];
 const NEW_CLASSES: ClassId[] = ['templar', 'spellblade', 'shade', 'mage'];
 const DEMOS = ['art', 'ult', 'primary', 'zones', 'reactions', 'umbra', 'affix', 'doors', 'ready', 'lineup',
-  'horde', 'hordeact', 'wards', 'dome', 'mend', 'objective', 'objdoors'] as const;
+  'horde', 'hordeact', 'wards', 'dome', 'mend', 'objective', 'objdoors', 'numbers', 'latejoin'] as const;
 const HORDE_KINDS: EnemyKind[] = ['shaman', 'aegis', 'bomber', 'necromancer', 'reaver'];
 const OLD_KINDS: EnemyKind[] = ['minion', 'warrior', 'archer', 'mage'];
 const HT = ENEMY_TUNING;
@@ -209,6 +214,10 @@ function enemyScript(kind: EnemyKind): EnemyStep[] {
   return base;
 }
 
+const LABELS_DE: Record<string, string> = {
+  shatter: 'Zersplittern', conflagration: 'Feuersbrunst', superconduct: 'Supraleitung', soulfire: 'Seelenfeuer', entomb: 'Einsargen', voidarc: 'Leerenbogen',
+};
+
 /** mode=fight: hero formation [x, z], volley rhythm and the hostile warnings laid across the climax [x, z, r]. */
 const FIGHT = {
   HEROES: [[-1.6, 3.4], [1.8, 2.6], [-3.4, 1.2], [3.2, 0.6]],
@@ -273,6 +282,9 @@ class Showcase {
   private fightHit = 0;
   /** Slot the view treats as the own hero. */
   private local = 0;
+  private aim: { x: number; z: number } | null = null;
+  private mouseSeen = false;
+  private traits: { id: number; ward?: ElementId; affix?: (typeof AFFIX_IDS)[number]; raisedBy?: number }[] = [];
   private doorsOn = true;
   private paused = false;
   private zoom = 1;
@@ -314,6 +326,12 @@ class Showcase {
     if (quality && QUALITIES.includes(quality)) this.quality = quality;
     this.fight = params.get('mode') === 'fight';
     this.stress = params.get('mode') === 'stress' || this.fight;
+    const aim = (params.get('aim') ?? '').split(',').map(Number);
+    if (aim.length === 2 && aim.every(Number.isFinite)) this.aim = { x: aim[0], z: aim[1] };
+    const lang = params.get('lang');
+    if (lang === 'de') view.setLabels({ resonance: 'Resonanz', reactions: LABELS_DE });
+    else if (lang === 'test') view.setLabels({ resonance: 'Größenwahn', reactions: { shatter: 'Überstoß', entomb: 'Äonengrab', voidarc: 'Leerenbogen' } });
+    else if (lang === 'en') view.setLabels({ resonance: 'Resonance', reactions: {} });
     if (params.has('seed')) rndState = Number(params.get('seed')) >>> 0;
     this.local = Math.max(0, Math.min(SLOTS - 1, Number(params.get('local') ?? 0) || 0));
     if (this.fight && !params.has('classes')) this.classes = ['mage', 'templar', 'spellblade', 'barbarian'];
@@ -370,7 +388,7 @@ class Showcase {
 
     window.addEventListener('resize', () => view.resize());
     window.addEventListener('keydown', (e) => this.key(e.key.toLowerCase()));
-    window.addEventListener('mousemove', (e) => { view.screenToGround(e.clientX, e.clientY, this.cursor); });
+    window.addEventListener('mousemove', (e) => { this.mouseSeen = view.screenToGround(e.clientX, e.clientY, this.cursor); });
     requestAnimationFrame(this.frame);
   }
 
@@ -387,8 +405,10 @@ class Showcase {
       return;
     }
     if (this.demo) {
-      // the ability demos show every class in its own colours
-      for (let slot = 0; slot < SLOTS; slot++) this.view.setInfusions(slot, { primary: null, secondary: null, dash: null, ultimate: null });
+      // the ability demos show every class in its own colours (&infuse=ember: that element on every primary)
+      const el = new URLSearchParams(window.location.search).get('infuse') as ElementId | null;
+      const primary = el && ELEMENT_IDS.includes(el) ? el : null;
+      for (let slot = 0; slot < SLOTS; slot++) this.view.setInfusions(slot, { primary, secondary: null, dash: null, ultimate: null });
       return;
     }
     // infusion demo: ember blade, rime secondary, storm bolts + storm dash, ember dash + umbra ultimate
@@ -440,6 +460,7 @@ class Showcase {
     this.shots = [];
     this.pending = [];
     this.raised = [];
+    this.traits = [];
     this.objective = null;
     this.timers = { tele: 0.5, reso: 1.2, shot: 0.3, event: 2, hit: 0.4, stressFx: 0 };
     const hd = this.room.d / 2;
@@ -956,6 +977,15 @@ class Showcase {
         .forEach(([kind, x, z]) => { this.dummy(kind, x, z).snap.hp = 0.35; });
       const mage = this.interrupt ? this.scripted('mage', 4.2, -5.8, [{ anim: 'windup', dur: 0.7 }, { anim: 'stun', dur: 1.4 }]) : this.dummy('mage', 4.2, -5.8);
       mage.snap.hp = 0.35;
+    } else if (demo === 'numbers') {
+      for (let i = 0; i < 4; i++) this.dummy(row[i], -7.5 + i * 5, -1);
+    } else if (demo === 'latejoin') {
+      // what a client sees that joined after the spawn events: bare rows first, the traits only from the run state
+      const warded = ELEMENT_IDS.map((el, i) => ({ id: this.dummy(row[i], -10.5 + i * 3, -2).snap.id, ward: el }));
+      const elites = AFFIX_IDS.map((affix, i) => ({ id: this.dummy(row[i], 2 + i * 3, -2, EF.ELITE).snap.id, affix }));
+      const necro = this.dummy('necromancer', 0, 3);
+      const raisedRows = [-2.6, 2.6].map((dx) => ({ id: this.dummy('minion', dx, 4.6).snap.id, raisedBy: necro.snap.id }));
+      this.later(this.demoAt, () => { this.traits = [...warded, ...elites, ...raisedRows]; });
     } else if (demo === 'objective') {
       const obj = this.obj;
       if (obj === 'defend') {
@@ -1040,6 +1070,23 @@ class Showcase {
       this.emit({ e: 'cast', who: { t: 'p', id: 3 }, ability: 'knight_bulwark', x: this.heroes[3].snap.x, z: this.heroes[3].snap.z, rot: NORTH });
     } else if (demo === 'ready') {
       for (const h of this.heroes) this.emit({ e: 'ultReady', slot: h.snap.slot });
+    } else if (demo === 'numbers') {
+      // enemy 0: eight quick hits of the own hero; 1: eight of an ally; 2: both at once; 3: one lone crit of the own hero
+      const hit = (i: number, by: number, dmg: number, crit: boolean, el: ElementId | null): void => {
+        const e = this.enemies[i].snap;
+        this.emit({ e: 'hit', target: { t: 'e', id: e.id }, x: e.x, z: e.z, dmg, crit, el, by });
+      };
+      for (let k = 0; k < 8; k++) {
+        this.later(k * 0.12, () => {
+          hit(0, this.local, 43, false, 'rime');
+          hit(1, (this.local + 1) % SLOTS, 43, false, 'rime');
+          hit(2, this.local, 27, k === 5, 'ember');
+          hit(2, (this.local + 2) % SLOTS, 31, false, null);
+          this.emit({ e: 'heal', slot: this.local, amount: 6 });
+          this.emit({ e: 'heal', slot: (this.local + 1) % SLOTS, amount: 6 });
+        });
+      }
+      this.later(0.5, () => hit(3, this.local, 485, true, null));
     } else if (demo === 'hordeact') {
       // the second bomber is slain: its charge lies there for the delay, announced like any hostile blast
       const b = this.enemies.find((e) => e.snap.kind === 'bomber' && e.script.length === 1);
@@ -1605,6 +1652,10 @@ class Showcase {
       this.view.setServerTick(this.time * NET.TICK_HZ);
       if (!this.menu) this.applyFocus();
       this.view.setObjective(this.menu ? null : this.objective);
+      if (this.aim) this.view.setAim(this.aim.x, this.aim.z);
+      else if (this.mouseSeen) this.view.setAim(this.cursor.x, this.cursor.z);
+      else this.view.setAim(null);
+      if (this.traits.length > 0) this.view.setTraits(this.traits);
       this.view.syncPlayers(this.playerRows, this.local);
       this.view.syncEnemies(this.enemyRows);
       this.view.syncProjectiles(this.projectileRows);
@@ -1619,6 +1670,7 @@ class Showcase {
       + `frame JS ${this.jsMs.toFixed(1)} ms   ${(1000 / this.frameMs).toFixed(0)} fps\n`
       + `enemies ${d.enemies}  proj ${d.projectiles}  particles ${d.particles}\n`
       + `decals ${d.decals}  fx ${d.fxSprites}  ui ${d.uiSprites}  geo ${s.geometries} tex ${s.textures}\n`
+      + `numbers ${d.numbers}  warnings ${d.warnings}  glare ${d.glare.toFixed(1)}x\n`
       + `zones ${d.zones}  depth ${d.depth}  domes ${d.domes}  objective ${d.objective ?? '-'}${this.demo ? `  demo ${this.demo}` : ''}\n`
       + `hazards ${d.hazards}  hero bakes ${d.heroTemplates}  cursor ${this.cursor.x.toFixed(1)}, ${this.cursor.z.toFixed(1)}\n`
       + '[1/2/3] chamber [4/5/6] biome [B]oss [L]ooks [M]enu [T] marker [C]lasses de[X]cend\n'

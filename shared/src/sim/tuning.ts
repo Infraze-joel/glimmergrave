@@ -259,9 +259,10 @@ export const OBJECTIVE = {
   /**
    * Polish 1: the fixtures are solid. Collision radius of a brazier's bowl (the shard uses DEFEND.RADIUS, the
    * reliquary VAULT_RADIUS), and how far from a fixture's edge a hero's edge must find walkable ground that is
-   * connected to the spawn points and the doors.
+   * connected to the spawn points and the doors (checked at FIXTURE_APPROACH_POINTS points around it). FIXTURE_LANE:
+   * free ground that always stays between a fixture and every obstacle and wall (a hero is 1 m wide).
    */
-  RITUAL_BOWL_RADIUS: 0.6, FIXTURE_APPROACH: 0.8, FIXTURE_APPROACH_POINTS: 8,
+  RITUAL_BOWL_RADIUS: 0.6, FIXTURE_APPROACH: 0.8, FIXTURE_APPROACH_POINTS: 8, FIXTURE_LANE: 1.2,
 } as const;
 
 export const DIRECTOR = {

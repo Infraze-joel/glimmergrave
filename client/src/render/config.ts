@@ -241,7 +241,8 @@ export const HERO_OUTFIT: Record<ClassId, HeroOutfit> = {
     cloth: { hueMin: 318, hueMax: 9, satMin: 0.5 },
   },
   spellblade: {
-    body: 'mage', baseCloth: 0xd9741f, head: 'Mage_Hat', cape: 'Mage_Cape',
+    body: 'mage', baseCloth: 0xd9741f, head: null, cape: 'Mage_Cape',
+    headExtras: ['spellCrest'],
     gear: [['Spellbook_open'], ['Spellbook'], ['1H_Wand']],
     belt: [[], [], []],
     offhand: [[], [], ['1H_Wand']],

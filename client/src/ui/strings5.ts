@@ -41,7 +41,7 @@ export const DE5: Record<Key5, string> = {
   'toast.downMany': '{names} liegen am Boden!',
   'toast.revivedMany': '{names} stehen wieder',
   'toast.wardMany': 'Gegner mit Schutzbann: {elements} wirken nicht auf sie',
-  'toast.wardOwnMany': 'Schutzbann gegen deine Elemente {elements} – Status und Explosionen verpuffen',
+  'toast.wardOwnMany': 'Schutzbann gegen {elements} – deine Elemente wirken nicht',
   'toast.affixMany': 'Elitegegner: {affixes}',
   'tip.foes.title': 'Neue Gegner',
   'tip.foes.more': 'Mehr im Kodex',

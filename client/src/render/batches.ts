@@ -30,7 +30,7 @@ export const DECAL = {
   FROST: 12,
   /** Energy ribbon along +z: quad covers the lane. p0 = white-hot core 0..1. */
   BEAM: 13,
-  /** Hazard warning: an iris closing from the rim to the centre. p0 = progress. */
+  /** Hazard warning: an iris closing from the rim to the centre. p0 = progress. (Telegraph shapes: p3 > 0 = dark underlay of that strength.) */
   WARN: 14,
   /** Vent grate fixture. p0 = glow between the bars. */
   GRATE: 15,
@@ -154,6 +154,7 @@ void main() {
     col = mix( col, vec3( 1.0, 0.86, 0.6 ), lead * 0.6 + outline * 0.25 );
     col = mix( col, vec3( 1.0, 0.95, 0.85 ), vParam.y );
     a = mix( a, mask * 0.9, vParam.y );
+    if ( vParam.w > 0.0 ) { a = mask * vParam.w; col = vec3( 0.03, 0.0, 0.0 ); }   // underlay: dims what lies beneath
   } else if ( shape == 4 ) {        // TELEGRAPH line: quad covers the lane, p0 progress, p1 flash
     vec2 d = ( 1.0 - abs( vUv ) ) * vHalf;           // metres inside the border
     float m = min( d.x, d.y );
@@ -167,6 +168,7 @@ void main() {
     col = mix( col, vec3( 1.0, 0.86, 0.6 ), lead * 0.6 + outline * 0.25 );
     col = mix( col, vec3( 1.0, 0.95, 0.85 ), vParam.y );
     a = mix( a, 0.9, vParam.y );
+    if ( vParam.w > 0.0 ) { a = vParam.w; col = vec3( 0.03, 0.0, 0.0 ); }
   } else if ( shape == 5 ) {        // PROGRESS ring: p0 fraction (clockwise from forward)
     float ringMask = band( edge - 0.11, 0.075, 0.03 );
     float frac = fract( ang / ( 2.0 * PI ) + 1.0 );

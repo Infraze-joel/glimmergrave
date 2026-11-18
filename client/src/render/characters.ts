@@ -187,6 +187,8 @@ interface EnemyLook {
   cloth: number; clothAmount: number; emissive: number; walk: boolean; bar: boolean; glide?: boolean; clothBoost?: number;
   /** Forward lean of the whole body in radians (hunched shaman, crouched reaver, the bomber bent under its keg). */
   lean?: number;
+  /** Visual size on top of the balance table's scale (polish 1: the shaman was too small to pick out). */
+  grow?: number;
   /** Idle clip other than Idle_Combat, and its speed. */
   idle?: string;
   idleSpeed?: number;
@@ -201,8 +203,8 @@ const ENEMY_LOOK: Record<EnemyKind, EnemyLook> = {
   regent: { cloth: 0x7a2cff, clothAmount: 0.95, emissive: 0x12041c, walk: true, bar: false },
   matron: { cloth: 0x6a2fd0, clothAmount: 0.96, emissive: 0x0a0416, walk: true, bar: false, glide: true },
   stalker: { cloth: 0xb9ad45, clothAmount: 0.94, emissive: 0x0c0b02, walk: false, bar: false, clothBoost: 2.4 },
-  shaman: { cloth: 0, clothAmount: 0, emissive: 0x020a02, walk: false, bar: true, lean: 0.16 },
-  aegis: { cloth: 0x4a5aa8, clothAmount: 0.92, emissive: 0x000000, walk: true, bar: true, idle: 'Blocking', idleSpeed: 0.6 },
+  shaman: { cloth: 0, clothAmount: 0, emissive: 0x020a02, walk: false, bar: true, lean: 0.16, grow: 1.22 },
+  aegis: { cloth: 0x9fb0ff, clothAmount: 0.92, emissive: 0x000000, walk: true, bar: true, idle: 'Blocking', idleSpeed: 0.6 },
   bomber: { cloth: 0xc9a227, clothAmount: 0.92, emissive: 0x060300, walk: false, bar: true },
   necromancer: { cloth: 0, clothAmount: 0, emissive: 0x05020a, walk: false, bar: true, glide: true, idle: 'Spellcasting', idleSpeed: 0.3 },
   reaver: { cloth: 0x2b3040, clothAmount: 0.96, emissive: 0x000000, walk: false, bar: true, lean: 0.26 },
@@ -248,7 +250,7 @@ const BOSS2 = {
 
 const STATUS_VIS = {
   BURN_TINT: 0.26, CHILL_TINT: 0.62, SHOCK_TINT: 0.22, WITHER_TINT: 0.7,
-  RIM: { burn: 2.2, chill: 1.5, shock: 2.6, wither: 1.0 },
+  RIM: { burn: 2.2, chill: 1.5, shock: 2.6, wither: 2.1 },
   WISPS: 3,
   FROST: [0.78, 0.95, 1.0],
   FLICKER_HZ: 17,
@@ -1253,7 +1255,7 @@ export class Enemies {
       const elite = (e.flags & EF.ELITE) !== 0;
       const def = enemyDef(e.kind);
       view.elite = elite;
-      view.baseScale = def.scale * (elite ? ENEMY_TUNING.ELITE_SCALE_MUL : 1);
+      view.baseScale = def.scale * (elite ? ENEMY_TUNING.ELITE_SCALE_MUL : 1) * (ENEMY_LOOK[e.kind].grow ?? 1);
       view.height = ENEMY_VIS.HEIGHT * view.baseScale;
       view.radius = def.radius * (elite ? ENEMY_TUNING.ELITE_SCALE_MUL : 1);
       view.place(e.x, e.z, e.rot);
@@ -1379,6 +1381,21 @@ export class Enemies {
       return true;
     }
     return false;
+  }
+
+  /**
+   * RunState.traits: ward, affix and necromancer link of the living enemies. The `spawn` event announces them once;
+   * this brings a client that joined or reloaded later up to date. Idempotent, safe to call on every run-state update.
+   */
+  setTraits(traits: readonly { id: number; ward?: ElementId; affix?: AffixId; raisedBy?: number }[]): void {
+    for (const t of traits) {
+      if (this.killed.has(t.id)) continue;
+      const v = this.byId.get(t.id);
+      if (v && v.dying) continue;
+      if (t.ward && this.wards.get(t.id) !== t.ward) { this.wards.set(t.id, t.ward); if (v) v.ward = t.ward; }
+      if (t.affix && this.affixes.get(t.id) !== t.affix) { this.affixes.set(t.id, t.affix); if (v) v.affix = t.affix; }
+      if (t.raisedBy !== undefined && this.masters.get(t.id) !== t.raisedBy) { this.masters.set(t.id, t.raisedBy); if (v) v.master = t.raisedBy; }
+    }
   }
 
   /** `interrupt` event: the wind-up of this enemy was broken; whatever it was channelling stops at once. */
@@ -2131,7 +2148,9 @@ export class Enemies {
       // a pool of shadow with a pale rim, and wisps of the victim's strength sinking out of it
       const c = STATUS_COLORS.wither;
       decals.push(DECAL.SMOKE, v.x, 0.031, v.z, v.seed * 6.283 + time * 0.3, v.radius * 5.2, v.radius * 5.2, UMBRA_CORE[0], UMBRA_CORE[1], UMBRA_CORE[2], 0.92, 0, 0.9,
-        c.r * 0.9, c.g * 0.9, c.b * 0.9);
+        c.r * 1.5, c.g * 1.5, c.b * 1.5);
+      // a pale outline around the pool: on the dark floors the pool alone used to disappear
+      decals.push(DECAL.SHOCK, v.x, 0.034, v.z, 0, v.radius * 5, v.radius * 5, c.r * 1.5, c.g * 1.5, c.b * 1.5, 0.5 + 0.2 * Math.sin(time * 2.6 + v.seed * 9), 1, 0.1);
       for (let k = 0; k < STATUS_VIS.WISPS; k++) {
         const ph = (time * 0.55 + k / STATUS_VIS.WISPS + v.seed) % 1;
         const a = v.seed * 6.283 + k * 2.094 + Math.sin(time * 1.3 + k) * 0.5;

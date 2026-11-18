@@ -3,10 +3,11 @@
 /* ---------------------------------------------------------------- element strip: in the flow of the bottom centre
    The strip (and the reaction callout on top of it) used to float beside the ability bar, so a prompt above the
    bar ("You are down", "Stand next to …") could slide under the callout. Now the row is as tall as the strip:
-   whatever sits above the row sits above the callout too. The empty left column keeps the bar centred. */
+   whatever sits above the row sits above the callout too. The side columns have no width (the strip overflows
+   to the right as before), so the bar stays exactly centred. */
 .gg-ability-row {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: 0 auto 0;
   align-items: end;
   justify-content: center;
 }
@@ -20,6 +21,11 @@
   grid-column: 3;
   justify-self: start;
   margin: 0 0 1.7em 1.1em;
+}
+
+/* A downed hero causes no bursts, and the "you are down" prompt must not be pushed towards the centre. */
+.gg-ability-row:has(.gg-abilities.is-downed) .gg-combo {
+  display: none;
 }
 
 /* ---------------------------------------------------------------- reaction callout: one headline, the rest small */
@@ -69,7 +75,7 @@
 
 /* ---------------------------------------------------------------- event feed: merged lines, three at most */
 .gg-feed-item {
-  max-width: 23em;
+  max-width: 21em;
 }
 
 .gg-feed-item span {
@@ -231,3 +237,9 @@
 .gg-codex-tip[data-tone='cursed'] { --tone: var(--gg-storm); }
 .gg-codex-tip[data-tone='danger'] { --tone: var(--gg-danger); }
 .gg-codex-tip[data-tone^='hazard'] { --tone: #ff8a3c; }
+
+/* The chamber track can reach far to the right (Oath and depth badges, a long boss name): no feed line is wider. */
+.gg-feed-item[data-tone='affix'],
+.gg-feed-item[data-tone^='ward'] {
+  max-width: 21em;
+}

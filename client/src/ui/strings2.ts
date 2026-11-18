@@ -533,7 +533,7 @@ export const DE2: Record<Key2, string> = {
 
   'codex.title': 'Kodex',
   'codex.tab.elements': 'Elemente',
-  'codex.tab.combat': 'Kampf-Grundlagen',
+  'codex.tab.combat': 'Kampf',
   'codex.tab.hazards': 'Fallen',
   'codex.tab.enemies': 'Gegner & Bosse',
   'codex.tab.doors': 'Türen & Eid',

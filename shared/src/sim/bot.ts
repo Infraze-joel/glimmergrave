@@ -81,7 +81,7 @@ const BOT = {
   /** Without a target the bot waits this far from the shard's edge; it stands this close to a reliquary. */
   SHARD_STAND: 1.6, VAULT_STAND: 0.7,
   /** Ritual: the bot holds this fraction of its circle's radius and steps back in when it is pushed further out. */
-  SITE_HOLD: 0.62, SITE_STEP: 0.6,
+  SITE_HOLD: 0.75, SITE_STEP: 0.6,
   /**
    * Obstacles (pillars and the solid objective fixtures): when the way ahead is blocked within LOOKAHEAD the bot
    * walks along the obstacle's edge instead of pushing into it, PAD outside the distance at which it collides.
@@ -154,6 +154,8 @@ export class BotBrain {
   private preferCursed: boolean;
   /** Centre of the objective fixture the bot is walking up to this tick (not steered around), or null. */
   private goal: { x: number; z: number } | null = null;
+  /** The bot is leaving a telegraphed area this tick. */
+  private dodging = false;
 
   constructor(slot: number, cls: ClassId, seed = 1, opts: BotOptions = {}) {
     this.slot = slot;
@@ -314,6 +316,7 @@ export class BotBrain {
   think(view: BotView): InputCmd {
     const cmd: InputCmd = { seq: ++this.seq, moveX: 0, moveZ: 0, aim: this.aim, aimDist: 6, buttons: 0 };
     this.goal = null;
+    this.dodging = false;
     const me = view.players.find((p) => p.slot === this.slot);
     const room = view.run.room;
     this.art = view.art ?? 0;
@@ -338,7 +341,7 @@ export class BotBrain {
     if (tutorial) this.tutorial(view, me, room, cmd, tutorial);
     else {
       this.combat(view, me, room, cmd);
-      this.steerAround(room, me, cmd);
+      if (!this.dodging) this.steerAround(room, me, cmd);
     }
     this.rememberProjectiles(view);
     this.lastButtons = cmd.buttons;
@@ -686,6 +689,8 @@ export class BotBrain {
     // Dodge: telegraphs first, then projectiles.
     const danger = this.dangerAt(view, me.x, me.z, BOT.TELEGRAPH_MARGIN);
     if (danger) {
+      // Getting out of a telegraph comes first: the way out is not bent around obstacles.
+      this.dodging = true;
       const out = this.escape(danger, me, room);
       const left = (danger.lands - view.tick) * TICK_DT;
       const walk = out.dist / BOT.WALK_SPEED;
