@@ -243,3 +243,11 @@
 .gg-feed-item[data-tone^='ward'] {
   max-width: 21em;
 }
+
+/* ---------------------------------------------------------------- settings: one-line hint under the Effects row */
+.gg-set-hint {
+  margin: -0.35em 0 0;
+  font-size: 0.76em;
+  line-height: 1.3;
+  color: var(--gg-text-dim);
+}

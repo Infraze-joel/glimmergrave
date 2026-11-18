@@ -54,6 +54,8 @@ export const UI_CONFIG = {
   /** Event feed (ui/feed.ts): lifetime of a line, at most FEED_MAX lines at once. */
   FEED_MS: 5200,
   FEED_MAX: 3,
+  /** ... and only this many with the effects setting on "minimal". */
+  FEED_MAX_MINIMAL: 2,
   /** From this many lines on the feed counts as crowded: every line then leaves after FEED_BUSY_MS. */
   FEED_BUSY_LINES: 2,
   FEED_BUSY_MS: 3400,

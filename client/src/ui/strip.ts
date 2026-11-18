@@ -8,6 +8,7 @@
 import { reactionOf } from '@shared/data/reactions.ts';
 import type { ElementId } from '@shared/types.ts';
 import { selfRoster, state } from '../core/GameState.ts';
+import { settings } from '../core/Settings.ts';
 import { h, icon, retrigger, setAttr, show } from './dom.ts';
 import { distinctElements, infusionsOf, pairName, reactionsOf, statusLine } from './elements.ts';
 import { t, type I18nKey } from './i18n.ts';
@@ -111,6 +112,8 @@ export function createStrip(): StripView {
     const tally: Tally = { count: (tallies.get(id)?.count ?? 0) + 1, at: now, a, b };
     tallies.set(id, tally);
     const own = by === state.conn.slot;
+    // Effects on "minimal": allies' bursts get no callout at all (they are still counted).
+    if (!own && settings.effects === 'minimal') return;
     const visible = !combo.hidden && !combo.classList.contains('is-leaving');
     // An ally's burst does not take the headline from a burst the own hero caused a moment ago.
     if (!own && visible && id !== head && now < ownHoldUntil) { paintOthers(); return; }

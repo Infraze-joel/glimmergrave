@@ -8,6 +8,7 @@
  *    is less important than everything on screen is not shown at all;
  *  - lines live shorter while the feed is crowded, and low-priority lines always live short.
  */
+import { settings } from '../core/Settings.ts';
 import { h, icon, retrigger, setAttr, setText } from './dom.ts';
 import type { IconName } from './icons.ts';
 import { UI_CONFIG } from './store.ts';
@@ -112,7 +113,10 @@ export function createFeed(): FeedView {
       schedule();
       return;
     }
-    if (lines.length >= UI_CONFIG.FEED_MAX) {
+    // The "minimal" effects setting also thins the feed out.
+    const max = settings.effects === 'minimal' ? UI_CONFIG.FEED_MAX_MINIMAL : UI_CONFIG.FEED_MAX;
+    while (lines.length > max) remove(lines[0], false);
+    if (lines.length >= max) {
       // Room is made by the least important line (the stalest among equals) — unless the newcomer is it.
       const weakest = lines.reduce((a, b) => (b.entry.priority < a.entry.priority || (b.entry.priority === a.entry.priority && b.touched < a.touched) ? b : a));
       if (weakest.entry.priority > entry.priority) return;

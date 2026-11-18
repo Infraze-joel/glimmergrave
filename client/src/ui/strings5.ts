@@ -31,6 +31,15 @@ export const EN5 = {
   'codex.tips.group.foes': 'Foes',
   'codex.tips.group.path': 'Doors and the way down',
   'codex.tips.ally': 'An ally',
+  // ---------------------------------------------------------------- settings: how loud the fight is drawn
+  'settings.effects': 'Visual effects',
+  'settings.effects.clear': 'Clear',
+  'settings.effects.full': 'Full',
+  'settings.effects.minimal': 'Minimal',
+  'settings.effects.clear.hint': "Clear keeps allies' effects quiet so enemy attacks stand out",
+  'settings.effects.full.hint': 'Full shows every effect at full strength',
+  'settings.effects.minimal.hint': "Minimal: allies' effects as outlines only, fewer notices on the HUD",
+  'settings.allyNumbers': "Allies' damage numbers",
 } as const;
 
 export type Key5 = keyof typeof EN5;
@@ -60,4 +69,12 @@ export const DE5: Record<Key5, string> = {
   'codex.tips.group.foes': 'Gegner',
   'codex.tips.group.path': 'Türen und der Weg hinab',
   'codex.tips.ally': 'Ein Verbündeter',
+  'settings.effects': 'Bildeffekte',
+  'settings.effects.clear': 'Klar',
+  'settings.effects.full': 'Voll',
+  'settings.effects.minimal': 'Minimal',
+  'settings.effects.clear.hint': 'Klar hält die Effekte der Verbündeten ruhig, damit gegnerische Angriffe auffallen',
+  'settings.effects.full.hint': 'Voll zeigt jeden Effekt in voller Stärke',
+  'settings.effects.minimal.hint': 'Minimal: Effekte der Verbündeten nur als Umrisse, weniger Meldungen im HUD',
+  'settings.allyNumbers': 'Schadenszahlen der Verbündeten',
 };
