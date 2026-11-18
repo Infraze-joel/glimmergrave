@@ -176,13 +176,14 @@ not be verified: `/home/claude/reports/backend-polish1.md`).
   slain by a hero (not summoned, not crumbled), every hero rolls, at most `CURSED_SHARDS_PER_CHAMBER` (1) per hero
   and chamber (`Hero.cursedShards`, `rollCursedShard` in sim/loot.ts, own loot stream as before).
 - Numbers changed (no id or order changed; new keys are listed in the report): `OBJECTIVE_TUNING` SURVIVE
-  SPAWN_INTERVAL 5 -> 6 and BUDGET_FRACTION 0.45 -> 0.4; RITUAL SPAWN_INTERVAL 6 -> 7, BUDGET_FRACTION 0.4 -> 0.35,
-  DECAY 0.35 -> 0.25; DEFEND HP 520 -> 600 and new SOLO_HP_MUL 1.3; HUNT new SECONDS_PER_EXTRA_PLAYER 5 (`huntSeconds`);
-  `DIRECTOR.DAMAGE_PER_EXTRA_PLAYER` 0.15 -> 0.1 (sim/tuning.ts, offsets the charge falloff for fresh parties).
-  The knight was not changed: on 120 runs per class it wins 40 % solo against an average of 42-43 %.
+  SPAWN_INTERVAL 5 -> 6 and BUDGET_FRACTION 0.45 -> 0.4; RITUAL SPAWN_INTERVAL 6 -> 7 and DECAY 0.35 -> 0.25;
+  DEFEND HP 520 -> 600 and new SOLO_HP_MUL 1.3; HUNT new SECONDS_PER_EXTRA_PLAYER 5 (`huntSeconds`); knight maxHp
+  125 -> 135 and slashes 18 / 18 / 31 -> 19 / 19 / 33; `DIRECTOR.DAMAGE_PER_EXTRA_PLAYER` 0.15 -> 0.1 (sim/tuning.ts,
+  offsets the charge falloff for fresh parties).
 - Tools: `shared/test/tools/soakp1.ts [seeds] [solo|party|max|maxparty] [mixed|prefer|classic|cursed] [classes]`
   (win rate, ultimates per hero, shards per hero, objective table with the share of chambers that ended a run);
   bot option `preferCursed` (`RunOptions.preferCursed` in the test harness).
 - Known limits: a reaver in the air and a boss charge fly in a straight line over obstacles as before (they land
-  outside); bots still do not repair the shard on purpose; defend ends a run about twice as often per chamber as
-  slay; bots never choose talents or relics; depth 2+ and Oaths above 0 were not measured.
+  outside); bots still do not repair the shard on purpose; defend ends a party's run about 2.6 times as often per
+  chamber as slay; a last hero standing against necromancers can take very long (438 s in one of 300 party runs);
+  bots never choose talents or relics; depth 2+ and Oaths above 0 were not measured.
