@@ -15,6 +15,7 @@ import { DECAL, SPRITE } from './batches.ts';
 import type { BillboardBatch, DecalBatch } from './batches.ts';
 import type { Enemies, EnemyView, Heroes } from './characters.ts';
 import { ELEMENT_COLOR, PALETTE } from './config.ts';
+import { CL } from './clarity.ts';
 import { OWNER, rgb } from './vfx.ts';
 import type { Vfx } from './vfx.ts';
 
@@ -55,6 +56,9 @@ const TUNE = {
   /** Lasting effects of other heroes: their ground shapes stay readable but translucent, their light is turned down. */
   ALLY_SHAPE: 0.62,
   ALLY_LIGHT: 0.45,
+  /** Clarity: alpha of the outline that is left of another hero's lasting effect. */
+  OUTLINE: 0.5,
+  CAGE_SEE: 0.45, CAGE_LOW: 0.6,
 } as const;
 
 const ALL_ELEMENTS: readonly ElementId[] = ['ember', 'rime', 'storm', 'umbra'];
@@ -72,7 +76,7 @@ interface Scheduled { active: boolean; at: number; type: number; x: number; z: n
 interface Meteor { active: boolean; x: number; z: number; r: number; age: number; dur: number; hex: number; acc: number; slot: number }
 interface Banner { active: boolean; x: number; z: number; r: number; age: number; dur: number; acc: number; slot: number }
 interface Follow { active: boolean; slot: number; age: number; dur: number; r: number; hex: number }
-interface Prison { active: boolean; x: number; z: number; r: number; age: number; dur: number; seed: number }
+interface Prison { active: boolean; x: number; z: number; r: number; age: number; dur: number; seed: number; slot: number }
 
 /** Cheap deterministic hash in [0, 1). */
 function hash1(n: number): number {
@@ -126,7 +130,7 @@ export class AbilityFx {
     for (let i = 0; i < LIMIT.BANNERS; i++) this.banners.push({ active: false, x: 0, z: 0, r: 1, age: 0, dur: 1, acc: 0, slot: -1 });
     for (let i = 0; i < LIMIT.WARDS; i++) this.wards.push({ active: false, slot: -1, age: 0, dur: 1, r: 1, hex: 0 });
     for (let i = 0; i < LIMIT.NOVAS; i++) this.novas.push({ active: false, slot: -1, age: 0, dur: 1, r: 1, hex: 0 });
-    for (let i = 0; i < LIMIT.PRISONS; i++) this.prisons.push({ active: false, x: 0, z: 0, r: 1, age: 0, dur: 1, seed: 0 });
+    for (let i = 0; i < LIMIT.PRISONS; i++) this.prisons.push({ active: false, x: 0, z: 0, r: 1, age: 0, dur: 1, seed: 0, slot: -1 });
   }
 
   /** Is this another hero's effect? Unknown owners and spectators (no own hero) count as own. */
@@ -254,7 +258,9 @@ export class AbilityFx {
     const live = zn.ended < 0;
     // another hero's zone: the outline stays, the fill and the light above it are turned down
     const foreign = this.foreign(zn.slot);
-    const lit = foreign ? TUNE.ALLY_LIGHT : 1;
+    if (foreign && CL.outlines) { this.outlineZone(zn, a, decals); return; }
+    const lit = foreign ? TUNE.ALLY_LIGHT : CL.ownFill;
+    const fillK = foreign ? 1 : CL.ownFill;
     if (foreign) a *= TUNE.ALLY_SHAPE;
     vfx.owner(foreign ? OWNER.ALLY : OWNER.SELF);
     const tint = zn.el ? ELEMENT_COLOR[zn.el] : 0;
@@ -262,7 +268,7 @@ export class AbilityFx {
       case ZK.CONSECRATE: {
         const c = rgb(PALETTE.holy);
         const g = rgb(PALETTE.holyDeep);
-        decals.push(DECAL.DISC, x, 0.032, z, 0, d * 1.15, d * 1.15, g[0], g[1], g[2], 0.14 * a, 1, 0.2);
+        decals.push(DECAL.DISC, x, 0.032, z, 0, d * 1.15, d * 1.15, g[0], g[1], g[2], 0.14 * a * fillK, 1, 0.2);
         decals.push(DECAL.HALLOW, x, 0.044, z, 0, d, d, c[0] * 1.4, c[1] * 1.4, c[2] * 1.4, 0.85 * a, 1, 0.07, (zn.age * 1.1) % 1, 1);
         if (live) {
           zn.acc += dt * 12 * vfx.density;
@@ -274,9 +280,9 @@ export class AbilityFx {
         const c = rgb(PALETTE.holy);
         const g = rgb(PALETTE.holyDeep);
         const breathe = 0.85 + 0.15 * Math.sin(time * 2.2);
-        decals.push(DECAL.DISC, x, 0.032, z, 0, d * 1.2, d * 1.2, g[0], g[1], g[2], 0.2 * a, 1, 0.25);
+        decals.push(DECAL.DISC, x, 0.032, z, 0, d * 1.2, d * 1.2, g[0], g[1], g[2], 0.2 * a * fillK, 1, 0.25);
         decals.push(DECAL.HALLOW, x, 0.044, z, 0, d, d, c[0] * 1.6, c[1] * 1.6, c[2] * 1.6, 0.95 * a, 1, 0.1, (zn.age * 0.9) % 1, 1);
-        decals.push(DECAL.HALLOW, x, 0.046, z, Math.PI / 8, d * 0.6, d * 0.6, g[0] * 1.6, g[1] * 1.6, g[2] * 1.6, 0.7 * a, 1, 0.05, (zn.age * 0.9 + 0.5) % 1, 1);
+        decals.push(DECAL.HALLOW, x, 0.046, z, Math.PI / 8, d * 0.6, d * 0.6, g[0] * 1.6, g[1] * 1.6, g[2] * 1.6, 0.7 * a * fillK, 1, 0.05, (zn.age * 0.9 + 0.5) % 1, 1);
         // a column of light over the centre, slim pillars around the rim and a faint dome
         fx.push(SPRITE.GLOW, x, 4.6, z, 2.4 * breathe, 10, c[0], c[1], c[2], 0.24 * a * lit, 1, 0.4);
         fx.push(SPRITE.GLOW, x, 1.2, z, d * 0.95, d * 0.6, c[0], c[1], c[2], 0.05 * a * lit, 1, 0);
@@ -294,7 +300,7 @@ export class AbilityFx {
       case ZK.VOLLEY: {
         const hex = tint !== 0 ? tint : TUNE.BOLT;
         const c = rgb(hex);
-        decals.push(DECAL.DISC, x, 0.032, z, 0, d * 1.1, d * 1.1, c[0], c[1], c[2], 0.12 * a, 1, 0.3);
+        decals.push(DECAL.DISC, x, 0.032, z, 0, d * 1.1, d * 1.1, c[0], c[1], c[2], 0.12 * a * fillK, 1, 0.3);
         decals.push(DECAL.ZONE, x, 0.046, z, time * 0.3, d, d, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, 0.85 * a, 0.5, 0);
         if (!live) break;
         // bolts falling at a slant; each lands with a pin of light where it strikes
@@ -358,6 +364,23 @@ export class AbilityFx {
         decals.push(DECAL.ZONE, x, 0.046, z, 0, d, d, c[0] * 1.4, c[1] * 1.4, c[2] * 1.4, 0.8 * a, 0.4, 0);
       }
     }
+  }
+
+  /**
+   * Clarity: another hero's zone is only its reach, a thin dashed ring in the zone's colour. No fill, no light
+   * above it, no particles. A snare keeps its plate (it is a small object, not an effect).
+   */
+  private outlineZone(zn: Zone, a: number, decals: DecalBatch): void {
+    const d = zn.r * 2;
+    const hex = zn.el ? ELEMENT_COLOR[zn.el] : zn.kind === ZK.CONSECRATE || zn.kind === ZK.SANCTUARY ? PALETTE.holy
+      : zn.kind === ZK.VOLLEY ? TUNE.BOLT : zn.kind === ZK.SMOKE ? PALETTE.mark : zn.kind === ZK.TRAP ? TUNE.TRAP : PALETTE.arcane;
+    const c = rgb(hex);
+    if (zn.kind === ZK.TRAP) {
+      const closed = zn.sprung ? Math.min(1, zn.ended / 0.07) : 0;
+      decals.push(DECAL.TRAP, zn.x, 0.04, zn.z, zn.seed * 6.283, TUNE.TRAP_PLATE, TUNE.TRAP_PLATE, c[0] * 1.2, c[1] * 1.2, c[2] * 1.2, a * 0.8, 0, 0.4, closed);
+      return;
+    }
+    decals.push(DECAL.ZONE, zn.x, 0.046, zn.z, this.time * 0.2, d, d, c[0] * 1.2, c[1] * 1.2, c[2] * 1.2, TUNE.OUTLINE * a, 0.3, 0);
   }
 
   // ------------------------------------------------------------------------------------------ casts
@@ -666,7 +689,7 @@ export class AbilityFx {
       case 'entomb': {
         // a cage of black ice slams shut and stands for as long as the root lasts
         const p = this.take(this.prisons);
-        p.active = true; p.x = x; p.z = z; p.r = Math.min(r * 0.55, 1.9); p.age = 0; p.dur = REACTION_TUNING.ENTOMB_ROOT_SECONDS; p.seed = Math.random();
+        p.active = true; p.x = x; p.z = z; p.r = Math.min(r * 0.55, 1.9); p.age = 0; p.dur = REACTION_TUNING.ENTOMB_ROOT_SECONDS; p.seed = Math.random(); p.slot = ev.by;
         vfx.stamp(DECAL.FROST, x, z, d * 0.9, d * 0.6, 0.5, TUNE.PRISON_RIM, 1.6, 0.9, 0.3);
         vfx.smoke(x, 0.4, z, PALETTE.umbraCore, 6, r * 0.5, 0.4, 0.9, 1.3);
         vfx.frost(x, 1.2, z, ELEMENT_COLOR.rime, 10, r * 0.6);
@@ -719,9 +742,16 @@ export class AbilityFx {
       if (b.age >= b.dur) { b.active = false; continue; }
       // the Banner of the Last Bell: a standard of light planted where the knight called it, its reach drawn on the floor
       const foreign = this.foreign(b.slot);
-      const lit = foreign ? TUNE.ALLY_LIGHT : 1;
+      const lit = foreign ? TUNE.ALLY_LIGHT : CL.ownFill;
       const a = Math.min(1, b.age * 3, (b.dur - b.age) * 2) * (foreign ? TUNE.ALLY_SHAPE : 1);
       const c = rgb(PALETTE.holy);
+      if (foreign && CL.outlines) {
+        // the banner's reach and the bell over it: allies inside are protected, that much has to stay
+        const uvb = this.atlas.icons.bell;
+        decals.push(DECAL.ZONE, b.x, 0.045, b.z, -time * 0.2, b.r * 2, b.r * 2, c[0] * 1.2, c[1] * 1.2, c[2] * 1.2, TUNE.OUTLINE * a, 0.3, 0);
+        fx.push(SPRITE.ATLAS, b.x, 2.6, b.z, 0.7, 0.7, 1.3, 1.2, 0.9, 0.8 * a, 0, 0, 0, 0, 0, uvb[0], uvb[1], uvb[2], uvb[3]);
+        continue;
+      }
       const g = rgb(PALETTE.holyDeep);
       const sh = rgb(PALETTE.shield);
       const sway = Math.sin(time * 2.1) * 0.08;
@@ -747,6 +777,10 @@ export class AbilityFx {
       const foreign = this.foreign(w.slot);
       const a = Math.min(1, w.age * 6, (w.dur - w.age) * 3) * (foreign ? TUNE.ALLY_SHAPE : 1);
       const c = rgb(w.hex);
+      if (foreign && CL.outlines) {
+        decals.push(DECAL.RUNE, h.x + h.offX, 0.046, h.z + h.offZ, time * 2.4, w.r * 2, w.r * 2, c[0] * 1.2, c[1] * 1.2, c[2] * 1.2, TUNE.OUTLINE * a, 0.5, 0);
+        continue;
+      }
       const x = h.x + h.offX;
       const z = h.z + h.offZ;
       const d = w.r * 2;
@@ -771,7 +805,8 @@ export class AbilityFx {
       const k = n.age / n.dur;
       const x = h.x + h.offX;
       const z = h.z + h.offZ;
-      const q = this.foreign(n.slot) ? TUNE.ALLY_LIGHT : 1;
+      if (this.foreign(n.slot) && CL.outlines) continue;
+      const q = this.foreign(n.slot) ? TUNE.ALLY_LIGHT : CL.ownLight;
       for (let e = 0; e < ALL_ELEMENTS.length; e++) {
         const c = rgb(ELEMENT_COLOR[ALL_ELEMENTS[e]]);
         const ang = e * (Math.PI / 2) + k * 5.5;
@@ -795,7 +830,14 @@ export class AbilityFx {
       const c = rgb(m.hex);
       const w = rgb(PALETTE.arcane);
       const d = m.r * 2;
-      const q = this.foreign(m.slot) ? TUNE.ALLY_LIGHT : 1;
+      const q = this.foreign(m.slot) ? TUNE.ALLY_LIGHT : CL.ownLight;
+      if (this.foreign(m.slot) && CL.outlines) {
+        // an ally's star: only the closing iris on the floor (stand clear) and a small spark coming down
+        const fallK = k * k;
+        decals.push(DECAL.WARN, m.x, 0.047, m.z, 0, d, d, w[0] * 1.3, w[1] * 1.3, w[2] * 1.3, 0.4, 0.3, k);
+        fx.push(SPRITE.SPARK, m.x + TUNE.STAR_FROM.x * (1 - fallK), 0.6 + TUNE.STAR_FROM.y * (1 - fallK), m.z + TUNE.STAR_FROM.z * (1 - fallK), 0.9, 0.9, c[0] * 1.6, c[1] * 1.6, c[2] * 1.6, 0.9, 1, 0, time * 6);
+        continue;
+      }
       // for allies: an iris in the caster's blue-white closing on the point of impact, lit warmer as the star nears
       decals.push(DECAL.WARN, m.x, 0.047, m.z, 0, d, d, w[0] * 1.5, w[1] * 1.5, w[2] * 1.5, 0.45, 0.35, k);
       decals.push(DECAL.DISC, m.x, 0.034, m.z, 0, d * (0.5 + 0.7 * k), d * (0.5 + 0.7 * k), c[0], c[1], c[2], (0.1 + 0.4 * k * k) * q, 1, 0.1);
@@ -825,11 +867,22 @@ export class AbilityFx {
       if (!p.active) continue;
       const before = p.age;
       p.age += dt;
+      const outline = this.foreign(p.slot) && CL.outlines;
       if (before < p.dur && p.age >= p.dur) {
+        vfx.owner(this.foreign(p.slot) ? OWNER.ALLY : OWNER.SELF);
         vfx.shards(p.x, 0.8, p.z, TUNE.PRISON_RIM, 14, 8, 0.5, 0.4);
         vfx.frost(p.x, 0.8, p.z, ELEMENT_COLOR.rime, 8, p.r);
+        vfx.owner(OWNER.WORLD);
       }
       if (p.age >= p.dur) { p.active = false; continue; }
+      if (outline) {
+        // an ally's cage: the frost sigil on the floor says "rooted here", no wall of ice in front of the enemies
+        const rimc = rgb(TUNE.PRISON_RIM);
+        decals.push(DECAL.FROST, p.x, 0.045, p.z, p.seed * 6, p.r * 3, p.r * 3, rimc[0] * 1.2, rimc[1] * 1.2, rimc[2] * 1.2, TUNE.OUTLINE, 0.5, 0);
+        continue;
+      }
+      // clarity: the own hero's cage is lower and translucent, so whoever stands inside can still be seen
+      const see = CL.level === 'full' ? 1 : TUNE.CAGE_SEE;
       const grow = Math.min(1, p.age * 9);
       const pop = grow < 1 ? grow * 1.15 : 1 + 0.15 * Math.max(0, 1 - (p.age - 0.11) * 8);
       const crack = p.age > p.dur - 0.4 ? 0.6 + 0.4 * Math.sin(time * 40) : 1;
@@ -840,10 +893,10 @@ export class AbilityFx {
       // back shards first, so the cage closes around whoever stands inside
       for (let k = 0; k < TUNE.PRISON_SHARDS; k++) {
         const ang = p.seed * 6.283 + (k / TUNE.PRISON_SHARDS) * Math.PI * 2;
-        const h = (2.3 + 0.9 * hash1(k * 3.7 + p.seed * 50)) * pop;
+        const h = (2.3 + 0.9 * hash1(k * 3.7 + p.seed * 50)) * pop * (see < 1 ? TUNE.CAGE_LOW : 1);
         const lean = Math.sin(ang) * -0.22;
         fx.push(SPRITE.SHARD, p.x + Math.sin(ang) * p.r, h * 0.42, p.z + Math.cos(ang) * p.r, 0.78, h, ice[0] + rim[0] * 0.12, ice[1] + rim[1] * 0.12, ice[2] + rim[2] * 0.12,
-          0.96 * crack, 0.04, 0.7, lean);
+          0.96 * crack * see, 0.04, 0.7, lean);
       }
       fx.push(SPRITE.GLOW, p.x, 1.1, p.z, p.r * 3.4, p.r * 3.4, rim[0], rim[1], rim[2], 0.12, 1, 0);
     }

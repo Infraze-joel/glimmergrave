@@ -7,6 +7,7 @@
  *   deflects     – the spark when a hit of the warded element lands on a warded enemy
  * Per-enemy dressing (ward shell, fuse, tethers, hunt markers) lives in characters.ts.
  */
+import { CL } from './clarity.ts';
 import { DoubleSide, DynamicDrawUsage, InstancedBufferAttribute, InstancedMesh, Matrix4, NormalBlending, Quaternion, ShaderMaterial, SphereGeometry, Vector3 } from 'three';
 import type { Object3D } from 'three';
 import type { ElementId } from '@shared/types.ts';
@@ -53,6 +54,7 @@ void main() {
 
 const DOME_FRAG = /* glsl */ `
 uniform float uTime;
+uniform float uFill;
 uniform vec3 uColor;
 varying vec3 vLocal;
 varying vec3 vNormalW;
@@ -73,7 +75,8 @@ void main() {
   // a slow pulse climbing the shell, and a bright foot where it meets the floor
   float sweep = pow( 0.5 + 0.5 * sin( h * 7.0 - uTime * 1.7 + vDome.y * 20.0 ), 6.0 );
   float foot = 1.0 - smoothstep( 0.0, 0.09, h );
-  float a = ( 0.022 + fres * 0.3 + lattice * 0.15 + sweep * 0.05 + foot * 0.36 ) * k;
+  // uFill < 1 (clarity): the glass thins out to a faint outline, the foot ring stays readable
+  float a = ( ( 0.022 + fres * 0.3 + lattice * 0.15 + sweep * 0.05 ) * uFill + foot * 0.36 * ( 0.5 + 0.5 * uFill ) ) * k;
   // it rises from the floor when raised and sinks back when it drops
   a *= 1.0 - smoothstep( k * 1.15 - 0.15, k * 1.15, h );
   if ( a < 0.004 ) discard;
@@ -126,7 +129,7 @@ export class HordeFx {
     const c = rgb(PALETTE.aegis);
     this.domeMaterial = new ShaderMaterial({
       vertexShader: DOME_VERT, fragmentShader: DOME_FRAG,
-      uniforms: { uTime: { value: 0 }, uColor: { value: new Vector3(c[0] * 1.25, c[1] * 1.25, c[2] * 1.25) } },
+      uniforms: { uTime: { value: 0 }, uFill: { value: 1 }, uColor: { value: new Vector3(c[0] * 1.25, c[1] * 1.25, c[2] * 1.25) } },
       transparent: true, premultipliedAlpha: true, blending: NormalBlending, depthWrite: false, side: DoubleSide,
     });
     this.domes = new InstancedMesh(geo, this.domeMaterial, LIMITS.DOMES);
@@ -209,6 +212,7 @@ export class HordeFx {
     this.enemies.forEachDome(this.pushDome);
     this.domes.count = this.domeCount;
     this.domes.visible = this.domeCount > 0;
+    this.domeMaterial.uniforms.uFill.value = CL.dome;
     if (this.domeCount > 0) {
       this.domeMaterial.uniforms.uTime.value = time;
       this.domes.instanceMatrix.needsUpdate = true;

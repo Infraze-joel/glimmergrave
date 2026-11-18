@@ -80,6 +80,8 @@ export const SPRITE = {
   ARC: 7,
   /** Faceted crystal: a tall diamond with a lit and a dark half and no white core. param = highlight 0..1. */
   SHARD: 8,
+  /** Ring with a dark edge filling the quad (an ellipse when the quad is squashed: a floor ring as an overlay). param = band width 0..1. */
+  HOOP: 9,
 } as const;
 
 const DECAL_STRIDE = 16;
@@ -111,6 +113,7 @@ void main() {
 
 const DECAL_FRAG = /* glsl */ `
 uniform float uTime;
+uniform float uCap;
 uniform sampler2D uMap;
 varying vec2 vUv;
 varying vec2 vHalf;
@@ -315,7 +318,9 @@ void main() {
   }
   a = clamp( a, 0.0, 1.0 ) * vColor.a;
   if ( a < 0.004 ) discard;
-  gl_FragColor = vec4( col * a, a * ( 1.0 - vShape.y ) );
+  vec3 lit = col * a;
+  if ( uCap > 0.0 ) lit = min( lit, vec3( uCap ) );   // clarity: no single decal is brighter than this (keeps bloom off)
+  gl_FragColor = vec4( lit, a * ( 1.0 - vShape.y ) );
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }
@@ -350,6 +355,7 @@ void main() {
 const SPRITE_FRAG = /* glsl */ `
 uniform sampler2D uMap;
 uniform float uTime;
+uniform float uCap;
 varying vec2 vUv;
 varying vec2 vQuad;
 varying vec4 vColor;
@@ -402,6 +408,10 @@ void main() {
     float edgeL = 1.0 - smoothstep( 0.0, 0.07, abs( vQuad.x ) );
     col *= mix( 0.45, 1.15, lit ) + smoothstep( 0.6, 1.0, d ) * 0.35;
     col = mix( col, col + vec3( 0.55 ), edgeL * vMisc.z );
+  } else if ( mode == 9 ) {         // HOOP
+    float d = abs( r - 0.84 );
+    a = 1.0 - smoothstep( vMisc.z, vMisc.z + 0.03, d );
+    col = mix( vec3( 0.02, 0.02, 0.04 ), col, 1.0 - smoothstep( vMisc.z * 0.5, vMisc.z * 0.5 + 0.03, d ) );
   } else {                          // ARC
     float y = vQuad.y * 0.5 + 0.5;
     float s = vMisc.z;
@@ -415,7 +425,9 @@ void main() {
   }
   a *= vColor.a;
   if ( a < 0.004 ) discard;
-  gl_FragColor = vec4( col * a, a * ( 1.0 - vMisc.y ) );
+  vec3 lit = col * a;
+  if ( uCap > 0.0 ) lit = min( lit, vec3( uCap ) );
+  gl_FragColor = vec4( lit, a * ( 1.0 - vMisc.y ) );
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }
@@ -436,6 +448,8 @@ abstract class QuadBatch {
   protected readonly data: Float32Array;
   protected readonly buffer: InstancedInterleavedBuffer;
   protected count = 0;
+  /** Factor on the alpha of every quad with an additive share pushed while it is set (clarity: light hung on enemies). */
+  gain = 1;
   protected readonly capacity: number;
   protected readonly stride: number;
 
@@ -473,6 +487,11 @@ abstract class QuadBatch {
     return this.count;
   }
 
+  /** Brightest a single quad of this batch may come out (0 = no cap). */
+  setCap(cap: number): void {
+    this.mesh.material.uniforms.uCap.value = cap;
+  }
+
   dispose(): void {
     this.mesh.geometry.dispose();
     this.mesh.material.dispose();
@@ -486,7 +505,7 @@ export class DecalBatch extends QuadBatch {
   /** `map` (the sprite atlas) is only needed for DECAL.ATLAS. */
   constructor(capacity: number, map: Texture | null = null, renderOrder = 2) {
     super(capacity, DECAL_STRIDE, ['iPosRot', 'iSize', 'iColor', 'iParam'], 'xz', new ShaderMaterial({
-      vertexShader: DECAL_VERT, fragmentShader: DECAL_FRAG, uniforms: { uTime: { value: 0 }, uMap: { value: map } },
+      vertexShader: DECAL_VERT, fragmentShader: DECAL_FRAG, uniforms: { uTime: { value: 0 }, uCap: { value: 0 }, uMap: { value: map } },
       transparent: true, premultipliedAlpha: true, blending: NormalBlending, depthWrite: false, side: DoubleSide,
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
     }));
@@ -499,6 +518,7 @@ export class DecalBatch extends QuadBatch {
     r: number, g: number, b: number, a: number, additive = 0, p0 = 0, p1 = 0, p2 = 0, p3 = 0,
   ): void {
     if (this.count >= this.capacity) return;
+    if (additive > 0) a *= this.gain;
     if (this.glare && additive >= GLARE_ADDITIVE && DECAL_GLARE[shape] > 0) {
       a *= this.glare.take(x, 0, z, Math.sqrt(sx * sz), a * Math.max(r, g, b) * DECAL_GLARE[shape] * additive);
     }
@@ -518,7 +538,7 @@ export class BillboardBatch extends QuadBatch {
   constructor(capacity: number, map: Texture, opts: { depthTest: boolean; toneMapped: boolean; renderOrder: number }) {
     super(capacity, SPRITE_STRIDE, ['iPosRot', 'iSizeOff', 'iUv', 'iColor', 'iMisc'], 'xy', new ShaderMaterial({
       vertexShader: SPRITE_VERT, fragmentShader: SPRITE_FRAG,
-      uniforms: { uTime: { value: 0 }, uMap: { value: map } },
+      uniforms: { uTime: { value: 0 }, uCap: { value: 0 }, uMap: { value: map } },
       transparent: true, premultipliedAlpha: true, blending: NormalBlending, depthWrite: false, side: DoubleSide,
       depthTest: opts.depthTest, toneMapped: opts.toneMapped,
     }));
@@ -532,6 +552,7 @@ export class BillboardBatch extends QuadBatch {
     additive = 0, param = 0, rot = 0, ox = 0, oy = 0, u0 = 0, v0 = 0, u1 = 1, v1 = 1,
   ): void {
     if (this.count >= this.capacity) return;
+    if (additive > 0) a *= this.gain;
     if (this.glare && additive >= GLARE_ADDITIVE && (mode === SPRITE.GLOW || mode === SPRITE.FLAME || mode === SPRITE.ARC)) {
       a *= this.glare.take(x, y, z, Math.sqrt(w * h), a * Math.max(r, g, b) * GLARE_SPRITE * additive);
     }

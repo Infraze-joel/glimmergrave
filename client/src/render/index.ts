@@ -22,7 +22,8 @@ import { ENEMY_TUNING } from '@shared/data/enemies.ts';
 import type { ChamberKind } from '@shared/constants.ts';
 import { CLASSES } from '@shared/data/classes.ts';
 import type { AbilityDef } from '@shared/data/classes.ts';
-import type { Quality } from '../core/Settings.ts';
+import type { EffectsLevel, Quality } from '../core/Settings.ts';
+import { CL, setClarityLevel } from './clarity.ts';
 import { loadAssets } from './assets.ts';
 import type { Assets } from './assets.ts';
 import { Atlas } from './atlas.ts';
@@ -106,6 +107,14 @@ const AIM = {
   FADE: 8,
 } as const;
 
+/** Clarity: size of the status icon that pops over an enemy the own hero afflicted. */
+const STATUS_POP = 0.65;
+/** Clarity: strength of the white flash on a struck enemy for the own hero's and for other heroes' hits. */
+const HIT_FLASH = { OWN: 0.75, ALLY: 0.3 } as const;
+
+/** Own hero's find-yourself marker (clarity levels `clear` and `minimal`). */
+const SELF = { RING: 2.9, PULSE: 0.04, RATE: 3.2, OVERLAY: 0.95, HOOP: 0.05, CHEVRON: 1.1, CHEVRON_Y: 0.8 } as const;
+
 /** How long after a hero's cast a friendly `aoe` at its target is taken to be that hero's (the event names nobody). */
 const AOE_OWNER = { WINDOW: 2.2, REACH: 1.5 } as const;
 
@@ -167,6 +176,7 @@ export class WorldView implements FollowSource {
   private readonly fog: Fog;
   private composer: EffectComposer | null = null;
   private bloomTarget: WebGLRenderTarget | null = null;
+  private bloomPass: UnrealBloomPass | null = null;
 
   private quality: Quality = 'high';
   private profile: QualityProfile = QUALITY.high;
@@ -288,6 +298,7 @@ export class WorldView implements FollowSource {
     this.enemies.prewarm();
 
     this.setQuality('high');
+    this.setClarity(CL.level, false);
     this.resize();
   }
 
@@ -300,6 +311,18 @@ export class WorldView implements FollowSource {
     this.vfx.density = this.profile.particles;
     if (!this.profile.bloom) this.disposeComposer();
     this.resize();
+  }
+
+  /**
+   * Effect clarity (Settings.effects) and whether other heroes' damage numbers are shown (Settings.allyNumbers).
+   * Call at start and whenever the settings change; takes effect on the next frame. See render/clarity.ts.
+   */
+  setClarity(level: EffectsLevel, allyNumbers: boolean): void {
+    setClarityLevel(level, allyNumbers);
+    this.glare.budget = CL.glare;
+    this.decals.setCap(CL.quadCap);
+    this.fx.setCap(CL.quadCap);
+    if (this.bloomPass) this.bloomPass.strength = BLOOM.STRENGTH * CL.bloom;
   }
 
   setShake(scale: number): void {
@@ -336,7 +359,8 @@ export class WorldView implements FollowSource {
     this.bloomTarget = new WebGLRenderTarget(1, 1, { type: HalfFloatType, samples: 4 });
     const composer = new EffectComposer(this.renderer, this.bloomTarget);
     composer.addPass(new RenderPass(this.scene, this.camera));
-    composer.addPass(new UnrealBloomPass(new Vector2(256, 256), BLOOM.STRENGTH, BLOOM.RADIUS, BLOOM.THRESHOLD));
+    this.bloomPass = new UnrealBloomPass(new Vector2(256, 256), BLOOM.STRENGTH * CL.bloom, BLOOM.RADIUS, BLOOM.THRESHOLD);
+    composer.addPass(this.bloomPass);
     composer.addPass(new OutputPass());
     this.composer = composer;
   }
@@ -348,6 +372,7 @@ export class WorldView implements FollowSource {
     this.bloomTarget?.dispose();
     this.composer = null;
     this.bloomTarget = null;
+    this.bloomPass = null;
   }
 
   private updateFog(): void {
@@ -621,10 +646,12 @@ export class WorldView implements FollowSource {
         if (ev.target.t === 'e') {
           const v = this.enemies.get(ev.target.id);
           const y = v ? v.height * 0.55 : 1.1;
+          const own = ev.by === this.localSlot || this.localSlot < 0;
+          const gain = CL.level === 'full' ? 1 : own ? HIT_FLASH.OWN : HIT_FLASH.ALLY;
           if (ev.el) {
             const c = rgb(hex);
-            this.enemies.hit(ev.target.id, Math.min(1, c[0] * 1.6 + 0.3), Math.min(1, c[1] * 1.6 + 0.3), Math.min(1, c[2] * 1.6 + 0.3));
-          } else this.enemies.hit(ev.target.id, 1, 1, 1);
+            this.enemies.hit(ev.target.id, Math.min(1, c[0] * 1.6 + 0.3), Math.min(1, c[1] * 1.6 + 0.3), Math.min(1, c[2] * 1.6 + 0.3), gain);
+          } else this.enemies.hit(ev.target.id, 1, 1, 1, gain);
           const mine = ev.by === this.localSlot || this.localSlot < 0;
           this.lastHitBy.set(ev.target.id, ev.by);
           vfx.sparks(ev.x, y, ev.z, hex, ev.crit ? 12 : 6, ev.crit ? 9 : 6.5);
@@ -718,7 +745,7 @@ export class WorldView implements FollowSource {
         const named = reactionOf(ev.a, ev.b);
         vfx.word(ev.x, 3.2, ev.z, a, b, ev.by === this.localSlot || this.localSlot < 0 ? 1 : 0.74, named ? REACTION_IDS.indexOf(named.id) + 1 : 0);
         this.ability.reaction(ev);
-        this.shake(ev.by === this.localSlot ? 0.3 : 0.1);
+        this.shake(ev.by === this.localSlot ? 0.3 : CL.outlines ? 0 : 0.1);
         break;
       }
       case 'status': {
@@ -727,7 +754,11 @@ export class WorldView implements FollowSource {
         const hex = ELEMENT_COLOR[ev.el];
         const icon = ev.el === 'ember' ? this.atlas.icons.burn : ev.el === 'rime' ? this.atlas.icons.chill
           : ev.el === 'storm' ? this.atlas.icons.shock : this.atlas.icons.wither;
-        vfx.iconPop(v.x, v.lift + v.height + 0.95, v.z, icon, hex, isBigEnemy(v.kind) ? 1.3 : 0.95);
+        // clarity: the pip row already says which statuses an enemy carries; the pop is the own hero's feedback only
+        const quiet = CL.level !== 'full';
+        if (!quiet || this.slotOwner(this.lastHitBy.get(ev.id) ?? -1) === OWNER.SELF) {
+          vfx.iconPop(v.x, v.lift + v.height + 0.95, v.z, icon, hex, (isBigEnemy(v.kind) ? 1.3 : 0.95) * (quiet ? STATUS_POP : 1));
+        }
         vfx.ring(v.x, v.z, 0.5, v.radius * 4.6, 0.32, hex, 0.35, 1.5);
         vfx.flash(v.x, v.lift + v.height * 0.55, v.z, hex, v.height * 1.1, 0.2, 1.3);
         this.elementBurst(ev.el, v.x, v.lift + v.height * 0.35, v.z, v.radius * 1.1, 0.6);
@@ -1127,7 +1158,12 @@ export class WorldView implements FollowSource {
     if (this.level.diorama) this.preview.update(step);
     const blobs = this.profile.blobShadows;
     this.heroes.update(step, time, this.decals, this.ui, this.fx, blobs);
+    // clarity: the light hung on enemies (auras, pools, wisps, channel glows) is turned down as one
+    this.decals.gain = CL.enemyGlow;
+    this.fx.gain = CL.enemyGlow;
     this.enemies.update(step, time, this.decals, this.ui, this.fx, blobs);
+    this.decals.gain = 1;
+    this.fx.gain = 1;
     this.heroes.forEach(this.cullHero);
     this.enemies.forEachView(this.perEnemy);
     this.heroes.forEach(this.heroFx);
@@ -1135,12 +1171,17 @@ export class WorldView implements FollowSource {
     this.projectiles.update(step, time, this.decals, this.fx, this.vfx);
     // lasting friendly ground effects go in before the timed pool, whose telegraphs are drawn last (always on top)
     this.objectives.update(step, time, this.decals, this.fx, this.ui);
+    this.decals.gain = CL.enemyGlow;
+    this.fx.gain = CL.enemyGlow;
     this.horde.update(step, time, this.decals, this.fx);
+    this.decals.gain = 1;
+    this.fx.gain = 1;
     this.shake(this.objectives.takeShake() + this.horde.takeShake());
     this.ability.update(step, time, this.decals, this.fx);
     this.shake(this.ability.takeShake());
     this.drawAim(step);
     this.vfx.update(step, this.decals, this.fx, this.ui, this, this.warnings);
+    if (CL.selfMarker) this.drawSelf(time);
 
     this.decals.end(time);
     this.warnings.end(time);
@@ -1148,6 +1189,31 @@ export class WorldView implements FollowSource {
     this.ui.end(time);
 
     if (render) this.render(step);
+  }
+
+  /**
+   * Find-yourself marker (clarity): a bright double ring in the own hero's slot colour and a chevron over the head.
+   * Both are overlay sprites: above every effect, and as a thin ring it hides nothing of a warning it stands in (a
+   * hero inside a telegraph is exactly the one who has to be found).
+   */
+  private drawSelf(time: number): void {
+    const h = this.heroes.get(this.localSlot);
+    if (!h || !this.hasRoom) return;
+    const c = rgb(SLOT_COLORS[h.slot] ?? PALETTE.white);
+    const x = h.x + h.offX;
+    const z = h.z + h.offZ;
+    const alive = h.state === 'alive';
+    const d = SELF.RING * (1 + SELF.PULSE * Math.sin(time * SELF.RATE));
+    const on = alive ? 1 : 0.6;
+    // an overlay ring (an ellipse that matches the camera pitch, so it reads as lying on the floor): thin, drawn over
+    // everything, so it shows through a pile of enemies without hiding them
+    const squash = Math.sin(CAMERA.PITCH_DEG * DEG);
+    this.ui.push(SPRITE.HOOP, x, 0.05, z, d * 1.19, d * 1.19 * squash, Math.min(1.3, c[0] * 1.4 + 0.15), Math.min(1.3, c[1] * 1.4 + 0.15), Math.min(1.3, c[2] * 1.4 + 0.15), SELF.OVERLAY * on,
+      0, SELF.HOOP);
+    const uv = this.atlas.icons.marker;
+    const y = HERO_VIS.LABEL_Y + SELF.CHEVRON_Y + Math.abs(Math.sin(time * SELF.RATE)) * 0.12 + (h.lift > 0 ? h.lift : 0);
+    this.ui.push(SPRITE.ATLAS, x, y, z, SELF.CHEVRON, SELF.CHEVRON, Math.min(1.4, c[0] * 1.5 + 0.2), Math.min(1.4, c[1] * 1.5 + 0.2), Math.min(1.4, c[2] * 1.5 + 0.2), 1,
+      0, 0, 0, 0, 0, uv[0], uv[1], uv[2], uv[3]);
   }
 
   private drawAim(dt: number): void {
@@ -1209,7 +1275,8 @@ export class WorldView implements FollowSource {
     const vfx = this.vfx;
     const stage = this.level.diorama;
     if (this.level.width === 0 && !stage) return;
-    const d = vfx.density;
+    const d = vfx.density * CL.ambient;
+    if (d <= 0) return;
     const biome = this.level.biome;
     const cx = stage ? 0 : this.target.x;
     const cz = stage ? 0 : this.target.z;

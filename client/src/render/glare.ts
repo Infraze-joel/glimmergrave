@@ -13,8 +13,6 @@ const GLARE = {
   CELL: 3,
   COLS: 28,
   ROWS: 24,
-  /** Summed demand a patch may show; about one strong flash. */
-  BUDGET: 1.1,
   /** Quads smaller than this (sparks, motes) are neither counted nor dimmed. */
   MIN_SIZE: 0.9,
   /** Big quads spread their demand over this many cells around the centre. */
@@ -27,13 +25,15 @@ const GLARE = {
 export class Glare {
   /** Metres a quad is shifted north per metre of height, so a glow in the air loads the floor it is seen against. */
   lift = 0.65;
+  /** Summed demand a patch may show (about one strong flash at 1.1); set from the clarity level. */
+  budget = 1.1;
   private prev = new Float32Array(GLARE.COLS * GLARE.ROWS);
   private cur = new Float32Array(GLARE.COLS * GLARE.ROWS);
   private peakValue = 0;
 
   /** Highest demand of the last finished frame relative to the budget (debug overlay; above 1 = the cap was at work). */
   get peak(): number {
-    return this.peakValue / GLARE.BUDGET;
+    return this.peakValue / this.budget;
   }
 
   begin(): void {
@@ -78,7 +78,7 @@ export class Glare {
       }
     }
     const load = Math.max(this.prev[c], cur[c]);
-    return load > GLARE.BUDGET ? Math.max(GLARE.FLOOR, GLARE.BUDGET / load) : 1;
+    return load > this.budget ? Math.max(GLARE.FLOOR, this.budget / load) : 1;
   }
 
   /** A hostile warning covers this circle: friendly light there gets a smaller share. */

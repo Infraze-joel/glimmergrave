@@ -250,7 +250,7 @@ describe('tutorial sessions', () => {
     const look = { color: 5, head: true, cape: false, style: 0 };
     await enter(c, { t: 'create', name: 'Rookie', cls: 'rogue', tutorial: true, loadout: { look, meta: maxLoadout().meta } });
     const roster = await c.next('roster');
-    expect(roster.players).toEqual([{ slot: 0, name: 'Rookie', cls: 'rogue', look, mastery: 1, art: 0, ready: false, connected: true, host: true, boons: [] }]);
+    expect(roster.players).toEqual([{ slot: 0, name: 'Rookie', cls: 'rogue', look, mastery: 1, art: 0, relics: 0, talents: 0, ready: false, connected: true, host: true, boons: [] }]);
     const run = (await c.next('run')).state;
     expect(run.phase).toBe('combat');
     expect(run.tutorial).toMatchObject({ step: TUTORIAL_STEPS[0], index: 0, total: TUTORIAL_STEPS.length, progress: 0 });

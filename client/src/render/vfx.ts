@@ -67,7 +67,7 @@ const NUM = {
 /** Who an effect belongs to: the own hero's are drawn in full, other heroes' quieter (see Vfx.owner). */
 export const OWNER = { SELF: 0, ALLY: 1, WORLD: 2 } as const;
 /** Clarity: what is left of another hero's shockwave. */
-const THIN = { BAND: 0.09, INTENSITY: 1.5, ALPHA: 0.7, SWING: 0.4 } as const;
+const THIN = { BAND: 0.08, INTENSITY: 1.3, ALPHA: 0.42, SWING: 0.35 } as const;
 const QUIET = {
   /** Light of an ally's additive effects (flashes, shockwaves, swings) relative to the own hero's. */
   LIGHT: 0.5,
@@ -413,6 +413,7 @@ export class Vfx {
 
   /** Expanding shockwave ring. */
   ring(x: number, z: number, d0: number, d1: number, dur: number, hex: number, thickness = 0.35, intensity = 1.5, delay = 0): void {
+    if (this.thin && delay > 0) return;
     if (this.thin) { thickness = Math.min(thickness, THIN.BAND); intensity = Math.min(intensity, THIN.INTENSITY); }
     const t = this.timedSlot();
     const c = rgb(hex);
@@ -423,6 +424,8 @@ export class Vfx {
 
   /** Expanding shockwave whose band swirls between two colours (Resonance). */
   duoRing(x: number, z: number, d0: number, d1: number, dur: number, hexA: number, hexB: number, thickness = 0.4, intensity = 2, delay = 0): void {
+    // an ally's burst keeps one ring, not the echo behind it
+    if (this.thin && delay > 0) return;
     if (this.thin) { thickness = Math.min(thickness, THIN.BAND); intensity = Math.min(intensity, THIN.INTENSITY); }
     const t = this.timedSlot();
     const a = rgb(hexA);
@@ -563,8 +566,8 @@ export class Vfx {
       words++;
       if (f.uv === mark.halves[0] && f.age <= FX.WORD_REFRESH && Math.hypot(f.x - x, f.z - z) < FX.WORD_NEAR) return;
     }
-    if (words >= (scale < 1 ? FX.WORDS_ALLY : FX.WORDS_MAX)) return;
-    const h = FX.WORD_HEIGHT * scale;
+    if (words >= (scale < 1 ? FX.WORDS_ALLY : Math.min(FX.WORDS_MAX, CL.wordMax))) return;
+    const h = FX.WORD_HEIGHT * scale * CL.wordSize;
     const half = h * mark.aspect * 0.5;
     const life = FX.WORD_LIFE * (scale < 1 ? 0.8 : 1);
     this.floater(x, y, z, mark.halves[0], half, h, -half * 0.5, hexA, life, 0.7, scale < 1 ? 0.2 : 0.45).word = true;

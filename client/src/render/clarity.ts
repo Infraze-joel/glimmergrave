@@ -20,6 +20,9 @@ interface Profile {
   /** Reaction word marks for the own hero's / other heroes' bursts. */
   ownWords: boolean;
   allyWords: boolean;
+  /** Own words on screen at once, and their size. */
+  wordMax: number;
+  wordSize: number;
   /** Damage numbers: size factor, own numbers at once, whether allies' numbers show without the setting. */
   numberSize: number;
   numberMax: number;
@@ -46,16 +49,16 @@ interface Profile {
 
 const PROFILES: Record<EffectsLevel, Profile> = {
   full: {
-    outlines: false, allyFlash: 1, ownCount: 1, ownFill: 1, ownLight: 1, ownWords: true, allyWords: true, numberSize: 1, numberMax: 12, allyNumbers: true,
+    outlines: false, allyFlash: 1, ownCount: 1, ownFill: 1, ownLight: 1, ownWords: true, allyWords: true, wordMax: 6, wordSize: 1, numberSize: 1, numberMax: 12, allyNumbers: true,
     enemyGlow: 1, enemyRim: 1, pipMax: 8, pipSize: 1, wardShell: true, dome: 1, ambient: 1, glare: 1.1, quadCap: 0, bloom: 1, selfMarker: false,
   },
   clear: {
-    outlines: true, allyFlash: 0.3, ownCount: 0.5, ownFill: 0.5, ownLight: 0.75, ownWords: true, allyWords: false, numberSize: 0.6, numberMax: 6, allyNumbers: false,
-    enemyGlow: 0.3, enemyRim: 0.35, pipMax: 2, pipSize: 0.8, wardShell: false, dome: 0.3, ambient: 0.6, glare: 0.55, quadCap: 0.9, bloom: 0.45, selfMarker: true,
+    outlines: true, allyFlash: 0.3, ownCount: 0.5, ownFill: 0.5, ownLight: 0.75, ownWords: true, allyWords: false, wordMax: 2, wordSize: 0.8, numberSize: 0.6, numberMax: 6, allyNumbers: false,
+    enemyGlow: 0.3, enemyRim: 0.35, pipMax: 2, pipSize: 0.8, wardShell: false, dome: 0.12, ambient: 0.6, glare: 0.55, quadCap: 0.9, bloom: 0.45, selfMarker: true,
   },
   minimal: {
-    outlines: true, allyFlash: 0, ownCount: 0.3, ownFill: 0.4, ownLight: 0.65, ownWords: false, allyWords: false, numberSize: 0.5, numberMax: 5, allyNumbers: false,
-    enemyGlow: 0.2, enemyRim: 0.3, pipMax: 2, pipSize: 0.75, wardShell: false, dome: 0.2, ambient: 0, glare: 0.45, quadCap: 0.8, bloom: 0.3, selfMarker: true,
+    outlines: true, allyFlash: 0, ownCount: 0.3, ownFill: 0.4, ownLight: 0.65, ownWords: false, allyWords: false, wordMax: 0, wordSize: 0.8, numberSize: 0.5, numberMax: 5, allyNumbers: false,
+    enemyGlow: 0.2, enemyRim: 0.3, pipMax: 2, pipSize: 0.75, wardShell: false, dome: 0.08, ambient: 0, glare: 0.45, quadCap: 0.8, bloom: 0.3, selfMarker: true,
   },
 };
 

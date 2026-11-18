@@ -51,7 +51,7 @@ export const OBJECTIVE_TUNING = {
     DECAY: 0.25,
     /** Each extra hero in the same circle adds this much speed. */
     EXTRA_HERO_SPEED: 0.35,
-    BONUS_SECONDS: 60, SPAWN_INTERVAL: 7, BUDGET_FRACTION: 0.35,
+    BONUS_SECONDS: 60, SPAWN_INTERVAL: 7, BUDGET_FRACTION: 0.4,
     /**
      * A ritual must always end, even for a party that cannot hold a circle (a hero away from the keyboard, a
      * room that is too hot). Once the bonus time has passed the braziers stop cooling, and from

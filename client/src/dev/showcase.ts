@@ -39,6 +39,7 @@
  *       demo=latejoin   warded, affixed and raised enemies WITHOUT their spawn events; the traits arrive via setTraits
  *       lang=de         German reaction names through setLabels (lang=test: a name with ß and umlauts)
  *       aim=x,z         ground aim marker at that point (otherwise it follows the mouse)
+ *       effects=clear|full|minimal  clarity level (default clear; key E cycles) · allynum=1 other heroes' numbers (key A)
  *       seed=N          reproducible script (same moment before / after a rendering change) · local=0..3 own hero's slot
  */
 import { AnimationMixer, Vector3 } from 'three';
@@ -59,7 +60,8 @@ import { ENEMY_TUNING, STATUS } from '@shared/data/enemies.ts';
 import { DEFAULT_LOOK, LOOK } from '@shared/data/meta.ts';
 import { NET, WORLD } from '@shared/constants.ts';
 import { enemyDef } from '../render/config.ts';
-import type { Quality } from '../core/Settings.ts';
+import { EFFECTS_LEVELS } from '../core/Settings.ts';
+import type { EffectsLevel, Quality } from '../core/Settings.ts';
 
 const DEG = Math.PI / 180;
 /**
@@ -283,6 +285,8 @@ class Showcase {
   /** Slot the view treats as the own hero. */
   private local = 0;
   private aim: { x: number; z: number } | null = null;
+  private effects: EffectsLevel = 'clear';
+  private allyNumbers = false;
   private mouseSeen = false;
   private traits: { id: number; ward?: ElementId; affix?: (typeof AFFIX_IDS)[number]; raisedBy?: number }[] = [];
   private doorsOn = true;
@@ -326,6 +330,10 @@ class Showcase {
     if (quality && QUALITIES.includes(quality)) this.quality = quality;
     this.fight = params.get('mode') === 'fight';
     this.stress = params.get('mode') === 'stress' || this.fight;
+    const effects = params.get('effects') as EffectsLevel | null;
+    if (effects && EFFECTS_LEVELS.includes(effects)) this.effects = effects;
+    this.allyNumbers = params.get('allynum') === '1';
+    view.setClarity(this.effects, this.allyNumbers);
     const aim = (params.get('aim') ?? '').split(',').map(Number);
     if (aim.length === 2 && aim.every(Number.isFinite)) this.aim = { x: aim[0], z: aim[1] };
     const lang = params.get('lang');
@@ -334,6 +342,8 @@ class Showcase {
     else if (lang === 'en') view.setLabels({ resonance: 'Resonance', reactions: {} });
     if (params.has('seed')) rndState = Number(params.get('seed')) >>> 0;
     this.local = Math.max(0, Math.min(SLOTS - 1, Number(params.get('local') ?? 0) || 0));
+    // solo=1: no slot is somebody else's, every effect is drawn as the own hero's (what a solo player sees)
+    if (params.get('solo') === '1') this.local = -1;
     if (this.fight && !params.has('classes')) this.classes = ['mage', 'templar', 'spellblade', 'barbarian'];
     if (this.fight && !params.has('at')) this.demoAt = 6;
     if (params.has('freeze')) this.freezeAt = Number(params.get('freeze'));
@@ -435,6 +445,8 @@ class Showcase {
     else if (k === 's') { this.stress = !this.stress; this.reset(); }
     else if (k === 'd') this.doorsOn = !this.doorsOn;
     else if (k === 'p') this.paused = !this.paused;
+    else if (k === 'e') { this.effects = EFFECTS_LEVELS[(EFFECTS_LEVELS.indexOf(this.effects) + 1) % EFFECTS_LEVELS.length]; this.view.setClarity(this.effects, this.allyNumbers); }
+    else if (k === 'a') { this.allyNumbers = !this.allyNumbers; this.view.setClarity(this.effects, this.allyNumbers); }
     else if (k === 'z') { this.zoom = this.zoom >= 1.3 ? 0.8 : this.zoom + 0.25; this.view.setZoom(this.zoom); }
     else if (k === 'n') { this.numbers = !this.numbers; this.view.setDamageNumbers(this.numbers); }
     else if (k === 'f') { this.focusIndex = this.focusIndex >= 10 ? -1 : this.focusIndex + 1; this.focusName = this.focusIndex < 0 ? '' : this.focusIndex < 4 ? `hero${this.focusIndex}` : `enemy${this.focusIndex - 4}`; }
@@ -1670,7 +1682,7 @@ class Showcase {
       + `frame JS ${this.jsMs.toFixed(1)} ms   ${(1000 / this.frameMs).toFixed(0)} fps\n`
       + `enemies ${d.enemies}  proj ${d.projectiles}  particles ${d.particles}\n`
       + `decals ${d.decals}  fx ${d.fxSprites}  ui ${d.uiSprites}  geo ${s.geometries} tex ${s.textures}\n`
-      + `numbers ${d.numbers}  warnings ${d.warnings}  glare ${d.glare.toFixed(1)}x\n`
+      + `effects ${this.effects}${this.allyNumbers ? ' +ally numbers' : ''}  numbers ${d.numbers}  warnings ${d.warnings}  glare ${d.glare.toFixed(1)}x\n`
       + `zones ${d.zones}  depth ${d.depth}  domes ${d.domes}  objective ${d.objective ?? '-'}${this.demo ? `  demo ${this.demo}` : ''}\n`
       + `hazards ${d.hazards}  hero bakes ${d.heroTemplates}  cursor ${this.cursor.x.toFixed(1)}, ${this.cursor.z.toFixed(1)}\n`
       + '[1/2/3] chamber [4/5/6] biome [B]oss [L]ooks [M]enu [T] marker [C]lasses de[X]cend\n'
