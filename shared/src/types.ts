@@ -184,7 +184,14 @@ export interface Obstacle {
   /** Collision radius in metres. */
   r: number;
   /** Visual hint for the client. */
-  kind: 'pillar' | 'column' | 'barrels' | 'crates' | 'rubble' | 'brazier' | 'sarcophagus' | 'stalagmite' | 'anvil' | 'crystal';
+  kind:
+    | 'pillar' | 'column' | 'barrels' | 'crates' | 'rubble' | 'brazier' | 'sarcophagus' | 'stalagmite' | 'anvil' | 'crystal'
+    /**
+     * Objective fixtures (polish 1): the bell shard, a ritual brazier's bowl and the vault's reliquary block the
+     * way like any obstacle. The simulation adds them to the room's obstacles when the chamber is set up, so
+     * client prediction collides with them too. The view draws them from RunState.objective, NOT from this list.
+     */
+    | 'shard' | 'ritualBowl' | 'reliquary';
 }
 
 /**
@@ -313,6 +320,9 @@ export interface RosterEntry {
   mastery: number;
   /** Active secondary variant (0 = standard), so every client shows the right ability. */
   art: number;
+  /** Relics equipped and talents chosen (counts only, for lobby cards). */
+  relics: number;
+  talents: number;
   ready: boolean;
   connected: boolean;
   host: boolean;
@@ -401,6 +411,11 @@ export interface RunState {
   chambersCleared: number;
   /** Objective of the current chamber; null in the lobby and when the run is over. */
   objective: ObjectiveState | null;
+  /**
+   * Traits of the enemies that are alive right now and have any (ward, affix, raised by a necromancer). The
+   * `spawn` event announces them once; this list lets a client that joined or reloaded later show them too.
+   */
+  traits: { id: number; ward?: ElementId; affix?: AffixId; raisedBy?: number }[];
   /** Special objectives (every kind but `slay`) completed in this run, across all depths. */
   objectivesDone: number;
   /** How many of them were completed with their bonus. */

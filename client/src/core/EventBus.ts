@@ -32,6 +32,11 @@ export interface EventMap {
    * should be centred on, so the UI can keep that area free. null hides the showcase.
    */
   'ui:showcase': { cls: ClassId; screenX: number } | null;
+  /**
+   * Localised words the 3D view draws into the world (it has no access to the UI's texts). Emitted by ui/ at
+   * start and whenever the language changes. `reactions` is keyed by ReactionId (data/reactions.ts).
+   */
+  'ui:labels': { resonance: string; reactions: Record<string, string> };
   /** First user gesture happened — audio may start. */
   'ui:gesture': undefined;
 
