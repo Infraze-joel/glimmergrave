@@ -262,6 +262,7 @@ export class NetClient {
       case 'draft':
         state.draft = msg.options;
         state.draftRerolls = msg.rerolls;
+        state.draftKeystone = msg.keystone ?? null;
         bus.emit('state:draft');
         break;
       case 'ev':
