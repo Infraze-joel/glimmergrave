@@ -131,8 +131,11 @@ describe('tutorial session', () => {
         expect(seen.hazard!.enemies).toBe(1);
         expect(seen.draft).toMatchObject({ phase: 'draft', enemies: 0 });
         expect(seen.door).toMatchObject({ phase: 'doors', enemies: 0 });
-        // One boon more than the three grants: the draft pick.
-        expect(w.getBoons(0)).toHaveLength(4);
+        // One pick more than the three grants: the draft (it may be a new boon, a second level, or another
+        // infusion for an ability that already had one).
+        expect(s.events.filter((e) => e.e === 'boon')).toHaveLength(4);
+        expect(w.getBoons(0).length).toBeGreaterThanOrEqual(3);
+        expect(w.getBoons(0).length).toBeLessThanOrEqual(4);
         expect(s.events.some((e) => e.e === 'resonance')).toBe(true);
         expect(s.events.some((e) => e.e === 'hazardHit' && e.target.t === 'e')).toBe(true);
         expect(s.events).toContainEqual({ e: 'doorChosen', type: 'boon' });

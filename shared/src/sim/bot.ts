@@ -64,7 +64,7 @@ const BOT = {
   /** Ultimates: a full bar counts from here (the wire value is quantised), group sizes worth spending it on. */
   ULT_READY: 0.995, ULT_PACK: 3, ULT_SELF_RANGE: 0.6, ULT_LOW_HP: 0.5, RAGE_RANGE: 4.5, BANNER_BOSS_RANGE: 8,
   /** Secondaries by shape: fractions of the ability's reach at which the bot uses it. */
-  LUNGE_REACH: 0.8, FAN_REACH: 0.7, SHOT_REACH: 0.8, LEAP_MIN: 2.5, ZONE_REACH: 0.8, ZONE_HEAL_HP: 0.7, TRAP_MIN: 2,
+  LUNGE_REACH: 0.8, FAN_REACH: 0.7, SHOT_REACH: 0.8, LEAP_MIN: 2.5, ZONE_REACH: 0.95, ZONE_HEAL_HP: 0.7, TRAP_MIN: 2,
   TUTORIAL_DASH_LEAD_SECONDS: 0.2, TUTORIAL_STAND: { x: 0, z: 1.5 }, TUTORIAL_HAZARD_STANDOFF: 1.8, TUTORIAL_STORM_DASH_RANGE: 3.6, TUTORIAL_CLOSE_RANGE: 3,
 } as const;
 

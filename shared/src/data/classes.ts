@@ -188,7 +188,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
       { ...base, id: 'templar_swing3', shape: 'arc', anim: 'primary3', cooldown: 0.85, windup: 0.32, lock: 0.7, damage: 50, range: 3.7, arc: 200, moveMul: 0.3, knockback: 2.5, stun: 0.3 },
     ],
     // Consecrate: hallowed ground around the templar hurts enemies and mends heroes.
-    secondary: { ...base, id: 'templar_consecrate', shape: 'zone', anim: 'secondary', cooldown: 11, windup: 0.3, lock: 0.5, moveMul: 0.3, damage: 7, heal: 1.5, range: 0, radius: 3.6, duration: 5, tick: 0.5 },
+    secondary: { ...base, id: 'templar_consecrate', shape: 'zone', anim: 'secondary', cooldown: 12, windup: 0.3, lock: 0.5, moveMul: 0.3, damage: 6, heal: 0.8, range: 0, radius: 3.6, duration: 5, tick: 0.5 },
     arts: [
       // Judgement: leap and smite.
       { ...base, id: 'templar_judgement', shape: 'leap', anim: 'art', cooldown: 8, windup: 0.45, lock: 0.7, moveMul: 0, damage: 42, range: 7, radius: 2.8, stun: 1 },

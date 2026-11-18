@@ -59,3 +59,47 @@ smoke test (run + tutorial) against the built server.
 - Known limits: hero burn / chill from hazards has no snapshot flag (clients infer it from `hazardHit` and
   `HAZARD`); one solo Regent fight in the balance set lasted 190 s; ranged bots avoid hazards but only melee bots
   deliberately fight next to them.
+
+## Backend, update 3
+
+Simulation and server for update 3 "The Endless Descent". Verified with `tsc -p shared`, `tsc -p server`,
+`eslint shared server`, `vitest run`, both server builds and a bot smoke test against the built server (see
+`/home/claude/reports/backend-update3.md` for the measured numbers and what could not be verified).
+
+- New sim files: `sim/build.ts` (loadout -> `HeroBuild`, the `Mods` pipeline, abilities after class boons and
+  `area`), `sim/zones.ts` (zone / trap shapes, sanctuary, smoke, delayed hostile blasts), `sim/loot.ts` (relic
+  shard rolls). `sim/combat.ts` holds Wither, the six reactions, the ultimate charge, affix effects on damage.
+- One `Mods` per hero (`hero.mods`): Armory (`metaMods`) + Ascension + `masteryMods` + talents + relics
+  (`hero.perm`, uncapped) + active set tiers + boon mods (stoneskin, zealot), then `capMods`. Recomputed by
+  `refreshHero` whenever a boon is picked. `MetaStats` keeps only what is not a mod (rerolls, attunement, resolve,
+  foresight, tenacity). Training sessions use a plain hero (no permanent bonus of any kind).
+- `World.addPlayer(slot, cls, name, loadout?)` takes a (partial) `Loadout` or, as before, the list of upgrade
+  levels; `setLoadout`, `setClass(slot, cls, loadout?)`, `getBuild`. Everything is clamped again in the sim with
+  `sanitizeLoadout`. A class change without a loadout keeps upgrades, Ascension and relics and resets mastery, art
+  and talents. `Room` stores the clamped mastery / art in the session for the roster.
+- Abilities: `hero.abil` = primary chain, equipped secondary (`secondaryOf`), ultimate. `leap` moves the hero as a
+  dash (`SelfState.dashTime / dashDir`, DASH.SPEED) during the last `distance / DASH.SPEED` seconds of the windup
+  and is rooted before and after, exactly like `lunge` after its windup; nothing new in `movement.ts`.
+- Ultimate: `BTN.ULTIMATE` (buffered press) with `hero.ult >= ULTIMATE.MAX`; charge from strikes (not from the
+  ultimate itself), damage taken and Resonances; kept between chambers and depths; `ultReady` once per fill.
+- Descent: a dead final boss clears the chamber (draft), then doors `descend` (left) and `ascend` (right).
+  `descend` -> `RunState.depth + 1`, `planDescent` (new final boss != the last one, herald, biomes), heal, `descend`
+  event, `enterChamber(0, 'descend')`. `ascend` -> `victory`. Rewards exist only in `victory` / `defeat`.
+- Rewards: `director.earnings` accumulates every payment with the depth bonus of the moment it is earned;
+  `finishRun` applies Oath, compass and the hero's `glimmer` / `xp` mods. Relic shards: champion (DROP_ELITE),
+  herald, final boss; rolled for every hero from `world.lootRng` (seeded from the run seed, separate stream).
+- Affixes: elites (elite-flagged rank and file) and champions, when `depth >= AFFIX_FROM_DEPTH` or
+  `oath >= AFFIX_FROM_OATH`; numbers in `AFFIX` (sim/tuning.ts). Talent numbers in `TALENT` (sim/tuning.ts).
+- Extra `cast` ability ids: `voidarc` (one per leap, at the struck enemy), `storm_coil`, `phoenix`.
+- Tuning changed while balancing: `ULTIMATE.PER_DAMAGE_DEALT` 0.04 (was 0.055), `PER_DAMAGE_TAKEN` 0.3 (0.35);
+  `RUN.HP_GROWTH_PER_CHAMBER` 0.3 (0.22), `DAMAGE_GROWTH_PER_CHAMBER` 0.2 (0.12), `HP_PER_EXTRA_PLAYER` 0.85 (0.56),
+  `RUN.DEPTH.HP_STEP` 1.4 (0.75), `DAMAGE_STEP` 0.8 (0.4); `ENEMY_TUNING.BOSS_HP_PER_EXTRA_PLAYER` 1.3 (1.0);
+  `DIRECTOR.DAMAGE_PER_EXTRA_PLAYER` 0.15 (0); `BUFFS.bloodrage` 0.3 / 0.25 / 0.2 / 4; templar, spellblade, shade
+  and the rogue ultimate (see the report). No exported shape, id or array order was changed.
+- `BOONS` has 80 entries (the milestone text says 82).
+- Balance tools: `npx tsx --tsconfig server/tsconfig.json shared/test/tools/soak3.ts [seeds] [solo|party|max|maxparty|depth]`.
+- Bot client: `--cls` accepts all seven classes, `--meta max` also claims mastery 10 / art 1 / talents 1,
+  `--descend [N]`, `--oath 0-20`; `BotClient.onEvents`.
+- Known limits: a maxed hero wins depth 0 at Oath 0 every time (its challenge is depth and Oath); relic shards do
+  not drop from elite-flagged rank and file (only champion, herald, final boss); Wither leech emits one `heal`
+  event per hit; bots never choose a cursed door and do not pick talents or relics by themselves.

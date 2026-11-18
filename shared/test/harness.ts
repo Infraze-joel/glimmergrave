@@ -1,10 +1,12 @@
 /** Shared helpers for simulation tests and balance soaks. */
-import { TICK_DT, WORLD } from '@shared/constants.ts';
+import { RUN, TICK_DT, WORLD } from '@shared/constants.ts';
 import { killEnemy } from '@shared/sim/combat.ts';
 import { BotBrain, viewFromWorld, World, type RunOverrides } from '@shared/sim/index.ts';
 import type { BossKind, ClassId, EnemyKind, GameEvent, InputCmd, RunPhase } from '@shared/types.ts';
 
 export interface RunResult {
+  /** The party's classes joined with '+'. */
+  label: string;
   phase: RunPhase;
   ticks: number;
   /** Game minutes (run.elapsed). */
@@ -71,7 +73,7 @@ export function runBots(opts: RunOptions): RunResult {
   const bots = opts.classes.map((cls, slot) => new BotBrain(slot, cls, opts.seed, { descendTo: opts.descendTo }));
   const maxTicks = opts.maxTicks ?? 30 * 60 * 30;
   const result: RunResult = {
-    phase: 'combat', ticks: 0, minutes: 0, chamber: 0, damageTaken: 0, damageDealt: 0, downs: 0, resonances: 0,
+    label: opts.classes.join('+'), phase: 'combat', ticks: 0, minutes: 0, chamber: 0, damageTaken: 0, damageDealt: 0, downs: 0, resonances: 0,
     chamberSeconds: [], bossSeconds: 0, heraldSeconds: 0, finalBoss: world.run.finalBoss, herald: null, glimmer: 0,
     hazardHitsHeroes: 0, hazardHitsEnemies: 0, maxEnemies: 0, maxProjectiles: 0, nan: false, events: 0,
     depth: 0, cleared: 0, chambersCleared: 0, ultimates: 0, xp: 0, relics: [], minutesAtFirstClear: 0,
@@ -163,19 +165,22 @@ export interface BalanceRow {
   meanResonances: number;
 }
 
+const RUN_LENGTH = RUN.CHAMBERS.length;
+
 export function summarize(label: string, results: RunResult[]): BalanceRow {
-  const wins = results.filter((r) => r.phase === 'victory');
+  // A run counts as won once a final boss fell (it may have ended in defeat further down).
+  const wins = results.filter((r) => r.cleared > 0);
   const mean = (xs: number[]): number => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
   return {
     label, runs: results.length, winRate: wins.length / Math.max(1, results.length),
-    meanWinMinutes: mean(wins.map((r) => r.minutes)),
-    meanChamber: mean(results.map((r) => r.chamber + (r.phase === 'victory' ? 1 : 0))),
+    meanWinMinutes: mean(wins.map((r) => r.minutesAtFirstClear)),
+    meanChamber: mean(results.map((r) => (r.cleared > 0 ? RUN_LENGTH : r.chamber))),
     meanDamageTaken: mean(results.map((r) => r.damageTaken)),
     maxChamberSeconds: Math.max(0, ...results.flatMap((r) => r.chamberSeconds)),
     meanBossSeconds: mean(wins.map((r) => r.bossSeconds)),
     minBossSeconds: wins.length ? Math.min(...wins.map((r) => r.bossSeconds)) : 0,
     maxBossSeconds: Math.max(0, ...wins.map((r) => r.bossSeconds)),
-    meanHeraldSeconds: mean(results.filter((r) => r.chamber > 6).map((r) => r.heraldSeconds)),
+    meanHeraldSeconds: mean(results.filter((r) => r.chamber > 6 || r.cleared > 0).map((r) => r.heraldSeconds)),
     meanDowns: mean(results.map((r) => r.downs)),
     meanResonances: mean(results.map((r) => r.resonances)),
   };
