@@ -19,4 +19,6 @@ evidence that exists. Feel and audio items that only a human can judge are marke
 
 | 11 | Update 3: seven classes with arts and ultimates, umbra and six reactions, sets, mastery, Ascension, relics, Chronicle, endless descent ([spec](update-3.md)) | a run with a new class pays XP and relics that are spent on talents, slots and ranks; the party can descend | 435 unit/integration tests, 19 browser tests, bot run with descent in the browser, showcase/uidemo/audiodemo harnesses | done; human playtest and listening pass open |
 
-`npm test` runs 435 tests in total. Regression suite before any change is called done: `npm run typecheck && npm run lint && npm test && npm run test:e2e`.
+| 12 | Update 4: six chamber objectives shown on the doors, five enemy kinds, warded enemies, interrupt event ([spec](update-4.md)) | a run asks for something other than killing waves in several chambers and the screen says what to do | 508 unit/integration tests, 20 browser tests (one on a pinned objective), live bot session per objective, showcase/uidemo/audiodemo harnesses | done; human playtest and listening pass open |
+
+`npm test` runs 508 tests in total. Regression suite before any change is called done: `npm run typecheck && npm run lint && npm test && npm run test:e2e`.

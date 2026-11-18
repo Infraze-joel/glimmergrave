@@ -17,7 +17,7 @@ Deferred items. Promote one into a milestone before working on it.
       (Glimmer per run vs. prices), training length.
 - [ ] Listening pass on the new audio (`?audiodemo`): jingles and the sci-fi-derived bolt/zap layers were
       picked by analysis, not by ear; add positional panning and footsteps.
-- [ ] Remove telegraph decals when an enemy is staggered out of its windup (a cancelled Matron beam still flashes).
+- [x] Remove telegraph decals when an enemy is staggered out of its windup. (update 4, `interrupt` event; bosses never send it)
 - [ ] Tips: dismiss by click; coach texts should follow rebinding once key rebinding exists.
 - [ ] Accounts or signed saves if progression ever needs to be tamper-proof.
 - [ ] Update 3 playtest: feel of the three new classes, ultimate charge rate (maxed parties cast very often),
@@ -29,5 +29,16 @@ Deferred items. Promote one into a milestone before working on it.
 - [ ] Umbra / smoke contrast on dark floors; spellblade silhouette versus mage from the game camera.
 - [ ] Ground aim marker in the 3D scene to go with the reticle cursor.
 - [ ] Other players' relic and talent counts on lobby cards (needs `RosterEntry` fields).
-- [ ] German settings row for the aim cursor only fits at a small font size.
-- [ ] The dead final boss's empty health bar stays on screen while the descend / ascend doors are open.
+- [x] German settings row for the aim cursor only fits at a small font size. (update 4)
+- [x] The dead final boss's empty health bar stays on screen while the descend / ascend doors are open. (update 4)
+- [ ] Update 4 playtest: are objectives readable and fun; survive and ritual end runs about three times as often
+      per chamber as slay; hunt bonus is hard for parties (34 %); a solo rogue rarely saves the shard (10 %).
+- [ ] Screen clutter in four-hero fights (stacked damage numbers, additive flashes): cap or merge numbers,
+      tone down friendly effects further.
+- [ ] Shard, braziers and reliquary have no collision (would need a new `Obstacle.kind`).
+- [ ] Late joiners / reloads do not learn wards and affixes of enemies that already spawned (only in `spawn`).
+- [ ] Aegis silhouette without its dome versus the warrior; shaman size; deflect icon overlapping damage numbers.
+- [ ] Five first-encounter tips can queue up in one wave (14 s each); the door card shows the bonus condition
+      but not the reward.
+- [ ] Next from the engagement list: in-run merchant and risk events, build-defining boons, daily seed and
+      bounties, leaderboards (needs accounts).

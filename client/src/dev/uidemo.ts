@@ -116,7 +116,7 @@ function room(biome: BiomeId, hazards = true): RoomLayout {
 function run(patch: Partial<RunState> = {}): RunState {
   return {
     phase: 'combat', oath: 2, chamber: 4, chamberKind: 'combat', entered: 'cursed', wave: 2, waveCount: 3, room: room('flooded', false),
-    bossKind: null, finalBoss: 'matron', rewards: [], tutorial: null, depth: 0, cleared: 0, chambersCleared: 4, objective: null,
+    bossKind: null, finalBoss: 'matron', rewards: [], tutorial: null, depth: 0, cleared: 0, chambersCleared: 4, objective: null, objectivesDone: 0, objectiveBonuses: 0,
     doors: [], doorProgress: [], bossId: -1, draftPending: [], draftTime: RUN.DRAFT_TIMEOUT_SECONDS, elapsed: 437,
     stats: [
       { slot: 0, damage: 12480, kills: 61, resonances: 14, revives: 2, downs: 1, elites: 3, bosses: 1, ultimates: 4 },

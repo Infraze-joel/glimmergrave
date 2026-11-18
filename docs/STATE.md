@@ -1,17 +1,19 @@
 # State
 
-- Phase: release candidate for update 3 "The Endless Descent" on branch `update-3` (spec:
-  `docs/milestones/update-3.md`). Quality gate passed locally: typecheck, lint, 435 unit/integration tests,
-  19 browser tests on the production build.
-- Last session: wrote the update 3 contract (types, data tables, protocol v3, client profile), ran four work
-  streams (sim/server, render, UI, audio), integrated them, added three browser tests and the aim cursor.
-- Contract changes of update 3 (all consumers updated): `CLASS_IDS` +3, `ELEMENT_IDS` + `umbra`, `BTN.ULTIMATE`,
-  `PlayerSnap.ult`, `EF.WITHER`, 3-bit projectile element, `Loadout` (paragon, mastery, art, talents, relics),
-  `RosterEntry.mastery/art`, `RunReward`, `RunState.depth/cleared/chambersCleared`, new events, `sanitizeLoadout(raw, cls)`,
-  new data files `mods`, `reactions`, `mastery`, `relics`, `feats`; client core: profile fields and helpers in
-  `GameState.ts`, `game:progress`, `game:localAction.slot`, `Settings.cursor`.
-- Not done: human playtest of update 3, listening pass, real GPUs, Firefox/Edge, deployment of update 3.
-- Next concrete step: owner merges `update-3`, Netlify deploys, owner plays a run with a new class.
+- Phase: release candidate for update 4 "Objectives and the Horde" on branch `update-4`, which contains
+  update 3 (`update-3`, spec `docs/milestones/update-3.md`). Spec: `docs/milestones/update-4.md`. Quality gate
+  passed locally: typecheck, lint, 508 unit/integration tests, 20 browser tests on the production build.
+- Last session: update 3 (seven classes, ultimates, umbra and reactions, mastery, Ascension, relics, Chronicle,
+  endless descent, aim cursor), then update 4 (objectives, five enemy kinds, wards), each as a contract plus
+  four work streams (sim/server, render, UI, audio) and an integration pass with live bot sessions.
+- Contract changes of update 4 (all consumers updated): `ENEMY_KINDS` +5, `OBJECTIVE_KINDS`, `Door.objective`,
+  `ObjectiveState`, `RunState.objective/objectivesDone/objectiveBonuses`, `spawn.ward/raisedBy`, events
+  `objective`, `dome`, `mend`, `warded`, `interrupt`; new `data/objectives.ts`. Update 3's are listed in git
+  history (`Contract for update 3`). Client core: `Settings.cursor`, `game:progress`, `game:localAction.slot`.
+- QA aids: server env `DEBUG_START_CHAMBER`, `DEBUG_OBJECTIVE`; `botClient --objectives --descend --meta max`;
+  dev client `?autopilot&descend=N`; `tests/e2e/tools/deep-run.mjs`.
+- Not done: human playtest of updates 3 and 4, listening pass, real GPUs, Firefox/Edge, deployment of both.
+- Next concrete step: owner deploys `update-3` or `update-4` to a Netlify preview and plays.
 - Deferred ideas live in `docs/backlog.md`.
 
 ## Fix after the first deploy of update 2: stale model cache

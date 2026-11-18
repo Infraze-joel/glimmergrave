@@ -38,6 +38,19 @@ die Helden dauerhaft stärker. Vollständiges Konzept: [`docs/gameplan.md`](docs
 8. Auswertung mit Glimmer, Klassen-Erfahrung und Relikt-Splittern → Fortschritt ausgeben → nächster Run.
    Ein Sieg schaltet die nächste Oath-Stufe frei (Schwierigkeit 0–20).
 
+**Update 4 – „Objectives and the Horde":**
+
+- **Kammer-Ziele:** jede Kampfkammer hat eines von sechs Zielen, das schon an der Tür steht: Gemetzel (alle
+  Wellen), Ausharren (Timer überleben), Splitter bewachen, Die Jagd (markierte Elitegegner vor Ablauf der
+  Zeit), Feuerschalen entzünden (in drei Kreisen stehen) und die Versiegelte Kammer (kein Kampf, bessere
+  Boon-Auswahl; höchstens eine pro Tiefe). Jedes Sonderziel hat eine Bonusbedingung: erfüllt gibt es eine
+  Boon-Karte mehr, mindestens „selten", und zusätzliches Glimmer. Ein verpasster Bonus beendet den Run nicht.
+- **Fünf neue Gegner:** Schamane (heilt, unterbrechbar), Aegis (Schutzkuppel für andere Gegner, fällt bei
+  Betäubung), Bomber (Lunte, explodiert auch beim Tod und trifft Gegner), Nekromant (beschwört Diener, die mit
+  ihm zerfallen) und Reaver (springt den Helden an, der am weitesten weg steht).
+- **Gefeite Gegner** ab Kammer 5: immun gegen den Zustand und die Explosionen eines Elements.
+- Angriffswarnungen verschwinden sofort, wenn der Gegner aus dem Angriff gerissen wird.
+
 **Update 3 – „The Endless Descent":**
 
 - **Sieben Klassen:** Knight, Barbarian, Mage, Rogue sowie Templar (Zweihänder, heilt die Gruppe), Spellblade
@@ -220,9 +233,17 @@ Bibliotheken: MIT (three, ws, vite, …), Cinzel: SIL Open Font License.
 - **Keine echte FPS-Messung.** Die Testumgebung hat keine GPU (Software-Rendering). Gemessen sind
   Rechenzeit pro Frame, Draw Calls, Dreiecke, Speicher und Netzlast, nicht die Bildrate auf echter Hardware.
 - **Nur Chrome getestet** (headless). Firefox und Edge sind ungetestet.
-- **Audio wurde nie angehört**, nur technisch geprüft (alle 160 Dateien dekodierbar, keine Fehler, Pegel per
+- **Audio wurde nie angehört**, nur technisch geprüft (alle 167 Dateien dekodierbar, keine Fehler, Pegel per
   Offline-Rendering). Die Sounds sind nach Dateiname und Messwerten ausgewählt, nicht nach Gehör. Zum Anhören:
   `npm run dev`, dann `http://localhost:5173/?audiodemo` (jeder Sound und jede Musikstimmung auf Knöpfen).
+- **Update 4 ist nur von Bots und Tests gespielt.** Ziele und neue Gegner sind in der Simulation getestet und
+  in Browser-Sitzungen mit Bots gelaufen. Laut Bot-Läufen enden Runs in „Ausharren" und „Feuerschalen" pro
+  Kammer etwa dreimal so oft wie im Gemetzel, der Jagd-Bonus ist für Gruppen schwer (34 %), und ein
+  Solo-Rogue rettet den Splitter nur in 10 % der Kammern. In vollen Kämpfen mit vier Helden ist das Bild
+  sehr unruhig (viele Effekte und Schadenszahlen übereinander).
+- **Sichtbarkeit in Update 4:** der Aegis ohne Kuppel ähnelt dem Krieger, der Schamane ist klein; Splitter,
+  Feuerschalen und Truhe sind keine Hindernisse (alles läuft hindurch). Wer mitten in einer Kammer beitritt
+  oder neu lädt, sieht Schutzzeichen und Elite-Eigenschaften der schon vorhandenen Gegner nicht.
 - **Update 3 ist nur von Bots und Tests gespielt.** Die neuen Klassen, Ultimates, Reaktionen und der Abstieg
   sind in der Simulation getestet und in Browser-Sitzungen mit Bots gelaufen; kein Mensch hat sie gespielt.
   Voll ausgebaute Helden gewinnen Tiefe 0 und 1 in den Bot-Läufen immer – ab Tiefe 2 und über Oath 3 ist die
@@ -251,11 +272,13 @@ Bibliotheken: MIT (three, ws, vite, …), Cinzel: SIL Open Font License.
 | Prüfung | Ergebnis |
 |---|---|
 | Frische Installation (`npm ci` in neuem Klon), Typprüfung, Lint | fehlerfrei |
-| Unit- und Integrationstests (`npm test`) | 435 Tests in 25 Dateien bestanden |
+| Unit- und Integrationstests (`npm test`) | 508 Tests in 30 Dateien bestanden |
 | – Protokoll, Bewegung, Fähigkeiten, Status/Resonance, Boons, Draft, Gegner, Telegraph-Fairness, Director, Determinismus | enthalten |
 | – Server mit echten WebSocket-Clients: Erstellen/Beitreten/Wiederbeitritt, ungültiger Code, voller Raum, falsche Version, kaputte/zu große Nachrichten, Ratenlimit, Host-Wechsel, Abbruch im Run, Ablauf der Frist, Rückkehr zur Lobby | enthalten |
 | – Zwei Bots spielen einen ganzen Run, auch mit 150 ± 50 ms Latenz | bestanden |
-| Browser-Tests gegen den Produktions-Build (`npm run test:e2e`), Seite und WebSocket auf derselben Adresse | 19 Tests bestanden |
+| Browser-Tests gegen den Produktions-Build (`npm run test:e2e`), Seite und WebSocket auf derselben Adresse | 20 Tests bestanden |
+| – Update 4: eine „Ausharren"-Kammer zeigt ihr Ziel, zählt herunter und meldet den verlorenen Bonus (eigener Server mit festgelegtem Ziel) | enthalten |
+| – Update 4 im Server: jedes Ziel mit gewonnenem und verlorenem Bonus, jedes Gegnerverhalten samt Konter, Schutzzeichen, Türregeln, Bots | 65 eigene Tests |
 | – Update 3: Spielstand von vor Update 3 behält Glimmer und Upgrades; Meisterschaft schaltet Alternative und Talent frei, der Server begrenzt sie pro Klasse; ein beendeter Run zahlt Glimmer und Erfahrung und verbucht sie | enthalten |
 | – Update 3 im Server: jede Klasse, Alternative und jedes Ultimate, Umbra und alle sechs Reaktionen, neue Boons, Sets, Talente, Relikte, Abstieg, Belohnungen, Elite-Eigenschaften | 110 eigene Tests |
 | – Modelle und Sounds werden nur mit Inhaltsversion (`?v=…`) geladen; ein Browser mit einer älteren Modelldatei im Cache lädt die neue Version trotzdem (Fehler `missing prop skel_quiver` nach dem ersten Deploy von Update 2, lokal nachgestellt) | enthalten |
