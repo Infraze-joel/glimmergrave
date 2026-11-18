@@ -5,7 +5,7 @@
 import { bus } from '../core/EventBus.ts';
 import type { ConnError } from '../core/EventBus.ts';
 import { state } from '../core/GameState.ts';
-import { settings, updateSettings, type Quality } from '../core/Settings.ts';
+import { CURSOR_STYLES, settings, updateSettings, type Quality } from '../core/Settings.ts';
 import { h, icon, key, setText, setVar } from './dom.ts';
 import { LANG_LABEL, LANGS, t, type I18nKey } from './i18n.ts';
 import { resetTips, setTipsEnabled, tipsEnabled } from './prefs.ts';
@@ -58,9 +58,10 @@ function controlsReference(): HTMLElement {
     row([icon('mouseLeft', 'gg-controls-mouse')], t('controls.primary')),
     row([icon('mouseRight', 'gg-controls-mouse')], t('controls.secondary')),
     row([key(t('hud.key.dash'))], t('controls.dash')),
+    row([key(t('hud.key.ultimate'))], t('controls.ultimate')),
     row([key('3 s')], t('controls.revive')),
     row([key('Tab')], t('controls.scoreboard')),
-    row([key('1'), key('–'), key('4')], t('controls.pick')),
+    row([key('1'), key('–'), key('5')], t('controls.pick')),
     row([key('R')], t('controls.reroll')),
     row([key('Enter')], t('controls.tip')),
     row([key('Esc')], t('controls.menu')),
@@ -84,6 +85,9 @@ function settingsBody(): { el: HTMLElement; sync: SettingsSync } {
     class: 'gg-switch', type: 'button', role: 'switch', 'aria-label': t('settings.damageNumbers'),
     onClick: () => updateSettings({ damageNumbers: !settings.damageNumbers }),
   });
+  const cursor = segmented(t('settings.cursor'), CURSOR_STYLES, (c) => t(`settings.cursor.${c}`),
+    () => settings.cursor, (c) => updateSettings({ cursor: c }));
+  cursor.row.setAttribute('data-testid', 'settings-cursor');
   const lang = segmented(t('settings.language'), LANGS, (l) => LANG_LABEL[l], () => settings.lang, (l) => updateSettings({ lang: l }));
   // Tips are a UI-only preference (ui/prefs.ts), not part of the Settings contract.
   const tips = h('button', {
@@ -108,6 +112,7 @@ function settingsBody(): { el: HTMLElement; sync: SettingsSync } {
       h('h3', { class: 'gg-label' }, t('settings.video')),
       quality.row, shake.row, zoom.row,
       h('div', { class: 'gg-set-row gg-set-row--inline' }, h('span', { class: 'gg-set-label' }, t('settings.damageNumbers')), numbers),
+      cursor.row,
       lang.row,
       h('div', { class: 'gg-set-row gg-set-row--inline gg-set-row--tips' },
         h('span', { class: 'gg-set-label' }, t('settings.tips')), h('span', { class: 'gg-set-tips' }, tips, reset)),
@@ -115,7 +120,8 @@ function settingsBody(): { el: HTMLElement; sync: SettingsSync } {
     h('div', { class: 'gg-settings-col' }, h('h3', { class: 'gg-label' }, t('settings.controls')), controlsReference()),
   );
   function sync(): void {
-    for (const part of [master, music, sfx, quality, shake, zoom, lang]) part.sync();
+    for (const part of [master, music, sfx, quality, shake, zoom, cursor, lang]) part.sync();
+    cursor.row.setAttribute('data-cursor', settings.cursor);
     numbers.setAttribute('aria-checked', String(settings.damageNumbers));
     tips.setAttribute('aria-checked', String(tipsEnabled()));
   }
@@ -127,9 +133,11 @@ function howToBody(): HTMLElement {
   const lines: [IconName[], I18nKey][] = [
     [['move'], 'howto.1'],
     [['sword'], 'howto.2'],
-    [['ember', 'rime', 'storm'], 'howto.3'],
+    [['ember', 'rime', 'storm', 'umbra'], 'howto.3'],
     [['resonance'], 'howto.4'],
     [['revive', 'door'], 'howto.5'],
+    [['ultimate'], 'howto.6'],
+    [['descend', 'ascend'], 'howto.7'],
   ];
   const list = h('ol', { class: 'gg-howto' });
   lines.forEach(([icons, textKey], i) => {

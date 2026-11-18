@@ -16,13 +16,13 @@ from the GitHub repositories below; for each one the licence file in the reposit
 
 | Pack | Repository | Commit | Licence file → what it states | Used for |
 |---|---|---|---|---|
-| Kenney RPG Audio | https://github.com/Boyquotes/kenney-rpg-audio-for-godot | `22eb79bb843bbcadcaa6ed119353a33265ffad11` | `LICENSE` → "CC0 1.0 Universal" (full legal code) | blades, cloth, doors, creaks, coins, latches, pots |
+| Kenney RPG Audio | https://github.com/Boyquotes/kenney-rpg-audio-for-godot | `22eb79bb843bbcadcaa6ed119353a33265ffad11` | `LICENSE` → "CC0 1.0 Universal" (full legal code) | blades, cloth, doors, creaks, coins, latches, pots; update 3: `ui.book` |
 | Kenney Impact Sounds | https://github.com/Boyquotes/kenney-impact-sounds-for-godot | `999dd1684873f8b020a3aa5b26e713da21688924` | `LICENSE` → "CC0 1.0 Universal" (full legal code) | all impacts: bone, body, metal, glass, plate, earth, bell |
 | Kenney Music Jingles | https://github.com/Boyquotes/kenney-music-jingles-for-godot | `1312c1a8ab2b5830136a5f53ea8c570389bd0808` | `LICENSE` → "CC0 1.0 Universal" (full legal code) | pizzicato jingles, war-drum hits |
-| Kenney Interface Sounds | https://github.com/Calinou/kenney-interface-sounds | `4596a49eaf5a533948d49a47467f606bcdea70ff` | `LICENSE.txt` → "License: (Creative Commons Zero, CC0)" | interface, glass pings, sparks |
+| Kenney Interface Sounds | https://github.com/Calinou/kenney-interface-sounds | `4596a49eaf5a533948d49a47467f606bcdea70ff` | `LICENSE.txt` → "License: (Creative Commons Zero, CC0)" | interface, glass pings, sparks; update 3: `pluck`, `ui.rise`, `bong` |
 | Kenney UI Audio | https://github.com/Calinou/kenney-ui-audio | `8c3d81b9159d058c444f89d12d518276b0b09345` | `LICENSE.txt` → "License (Creative Commons Zero, CC0)" | hover, click, tab |
-| Kenney Sci-Fi Sounds | https://github.com/Boyquotes/kenney-sci-fi-sounds-for-godot | `c094967fe930c57ddb376f67c75f8aa0296690b7` | `LICENSE` → "CC0 1.0 Universal" (full legal code) | blasts, fire texture, force field, bolts, beds |
-| Kenney Digital Audio | https://github.com/Boyquotes/kenney-digital-audio-for-godot | `185a77e7c675341ad8d0805b3bbe4f20427c2481` | `LICENSE` → "CC0 1.0 Universal" (full legal code) | zaps |
+| Kenney Sci-Fi Sounds | https://github.com/Boyquotes/kenney-sci-fi-sounds-for-godot | `c094967fe930c57ddb376f67c75f8aa0296690b7` | `LICENSE` → "CC0 1.0 Universal" (full legal code) | blasts, fire texture, force field, bolts, beds; update 3: iron impacts (`hit.iron`), umbra grain (`tex.void`) |
+| Kenney Digital Audio | https://github.com/Boyquotes/kenney-digital-audio-for-godot | `185a77e7c675341ad8d0805b3bbe4f20427c2481` | `LICENSE` → "CC0 1.0 Universal" (full legal code) | zaps; update 3: arcane rise (`arcane`), chained zap (`zap.chain`), sub drop (`sub.drop`) |
 
 Notes on provenance: the five `Boyquotes/*` repositories are third-party Godot ports of the Kenney packs; their
 only licence statement is the CC0 legal code at the repository root (they do not carry Kenney's own
@@ -62,6 +62,12 @@ The same record ships with the files as `client/public/assets/audio/credits.json
 | `ui.toggle.2.mp3` | Kenney Interface Sounds | `addons/kenney_interface_sounds/toggle_002.wav` | `4596a49eaf` |
 | `ui.drop.1.mp3` | Kenney Interface Sounds | `addons/kenney_interface_sounds/drop_002.wav` | `4596a49eaf` |
 | `ui.drop.2.mp3` | Kenney Interface Sounds | `addons/kenney_interface_sounds/drop_003.wav` | `4596a49eaf` |
+| `pluck.1.mp3` | Kenney Interface Sounds | `addons/kenney_interface_sounds/pluck_001.wav` | `4596a49eaf` |
+| `pluck.2.mp3` | Kenney Interface Sounds | `addons/kenney_interface_sounds/pluck_002.wav` | `4596a49eaf` |
+| `ui.book.1.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/book_place_1.ogg` | `22eb79bb84` |
+| `ui.book.2.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/book_open.ogg` | `22eb79bb84` |
+| `ui.rise.1.mp3` | Kenney Interface Sounds | `addons/kenney_interface_sounds/maximize_004.wav` | `4596a49eaf` |
+| `ui.rise.2.mp3` | Kenney Interface Sounds | `addons/kenney_interface_sounds/maximize_006.wav` | `4596a49eaf` |
 | `swing.blade.1.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/knife_slice.ogg` | `22eb79bb84` |
 | `swing.blade.2.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/knife_slice_2.ogg` | `22eb79bb84` |
 | `swing.draw.1.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/draw_knife_1.ogg` | `22eb79bb84` |
@@ -159,6 +165,12 @@ The same record ships with the files as `client/public/assets/audio/credits.json
 | `ping.2.mp3` | Kenney Interface Sounds | `addons/kenney_interface_sounds/glass_003.wav` | `4596a49eaf` |
 | `ping.3.mp3` | Kenney Interface Sounds | `addons/kenney_interface_sounds/glass_006.wav` | `4596a49eaf` |
 | `tex.fire.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/thruster_fire_004.ogg` | `c094967fe9` |
+| `hit.iron.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/impact_metal_000.ogg` | `c094967fe9` |
+| `hit.iron.2.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/impact_metal_003.ogg` | `c094967fe9` |
+| `arcane.1.mp3` | Kenney Digital Audio | `addons/kenney digital audio/power_up_3.ogg` | `185a77e7c6` |
+| `arcane.2.mp3` | Kenney Digital Audio | `addons/kenney digital audio/power_up_11.ogg` | `185a77e7c6` |
+| `zap.chain.1.mp3` | Kenney Digital Audio | `addons/kenney digital audio/zap_three_tone_down.ogg` | `185a77e7c6` |
+| `tex.void.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/space_engine_low_001.ogg` | `c094967fe9` |
 | `tex.fireLow.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/thruster_fire_003.ogg` | `c094967fe9` |
 | `door.open.1.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/door_open_1.ogg` | `22eb79bb84` |
 | `door.open.2.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/door_open_2.ogg` | `22eb79bb84` |
@@ -180,6 +192,8 @@ The same record ships with the files as `client/public/assets/audio/credits.json
 | `drum.fill.2.mp3` | Kenney Music Jingles | `addons/kenney music jingles/Hit jingles/jingles_hit_9.ogg` | `1312c1a8ab` |
 | `drum.fill.3.mp3` | Kenney Music Jingles | `addons/kenney music jingles/Hit jingles/jingles_hit_3.ogg` | `1312c1a8ab` |
 | `slime.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/slime_000.ogg` | `c094967fe9` |
+| `sub.drop.1.mp3` | Kenney Digital Audio | `addons/kenney digital audio/low_down.ogg` | `185a77e7c6` |
+| `bong.1.mp3` | Kenney Interface Sounds | `addons/kenney_interface_sounds/bong_001.wav` | `4596a49eaf` |
 | `bed.drone.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/space_engine_low_002.ogg` | `c094967fe9` |
 | `bed.rumble.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/space_engine_large_000.ogg` | `c094967fe9` |
 <!-- sources:end -->
@@ -213,8 +227,9 @@ Firefox and Safari alike; this ffmpeg can also write AAC, but AAC in M4A depends
 Firefox and is absent in plain Chromium builds. MP3's weakness, encoder delay at the start of a file, is
 handled at run time: playback starts at the first sample above −48 dB (`leadOf` in `samples.ts`).
 
-Shipped: **146 files, 593 917 bytes** of MP3 plus `credits.json` (7.6 kB) — 0.6 MB of the 1.5 MB budget.
-Per tier: interface 72 kB, core combat 147 kB, abilities / elements / enemies 200 kB, run flow 132 kB, beds 30 kB.
+Shipped: **160 files, 650 306 bytes** of MP3 plus `credits.json` (8.1 kB) — 635 kB of the 900 kB budget the build
+enforces since update 3 (update 2: 146 files, 593 917 bytes; the old files are byte-identical).
+Per tier: interface 89 kB, core combat 147 kB, abilities / elements / enemies 232 kB, run flow 137 kB, beds 30 kB.
 
 ## 3. Runtime
 
@@ -372,3 +387,159 @@ value afterwards; with a third of the files or all of them answered by 404 every
 - Ambience beds are crossfaded with themselves instead of looping seamlessly; water is synthesised (no CC0
   water recording was available).
 - The reverb is a generated impulse response, not a measured room.
+
+## 9. Update 3 — "The Endless Descent"
+
+Nothing in this section was judged by ear either; all of it is measured (section 9.5). Code: `sfx-kit.ts` (shared
+mixing helpers and limiter families), `sfx-abilities.ts` (new classes, arts, ultimates, zones, buffs, marks),
+`sfx-progress.ts` (progression, sets, legendary boons, affixes, descent); umbra, the reaction stingers, the
+weapon layers and the two new doors are in `sfx.ts`, the depth score in `music.ts`.
+
+### 9.1 Abilities
+
+`ABILITY_SOUNDS` in `sfx-abilities.ts` maps every id of `ABILITY_BY_ID`; `unmappedAbilities()` must return `[]`
+(shown at the top of the workbench's "Ability → sound map" section and as `window.__audiodemo.unmapped()`). An
+id that is not in the map still gets a generic sound for its shape. `cast` events and local actions call
+`sfx.ability(id, own)`; the local secondary follows the art in the roster entry, `ultimate` is a local action too.
+
+| Ability | Cast | Impact |
+|---|---|---|
+| templar `templar_swing1/2` | long low two-handed pass: S cloth + blade + draw at half speed, ~ low whoosh (0.42 s), ~ thump and S iron at the end of the wind-up | weapon layer on `hit`: S iron + plate |
+| `templar_swing3` | S draw dragged up, cloth, blade, ~ 0.56 s whoosh; lands with S iron + earth + low ring, ~ 70 Hz thump | same |
+| `templar_consecrate` | sword planted: S iron + earth + small bell, ~ fifths D–A rising | zone bed (9.2) |
+| `templar_judgement` (art) | take-off whoosh for the wind-up, landing: S earth + iron + sub + D bell, ~ fifths, bright air | in the stack |
+| `templar_sanctuary` (ultimate) | build: reversed bell, vowel-band breath, rising fifth; release: S iron + sub + two bells + shimmer, ~ D major "choir" (detuned saws through formant bands) | zone bed |
+| spellblade `spell_cut1/2` | bright S blade (high-passed, pitched up; second cut higher), ~ fast high whoosh, glint: S ping + falling high sine + air | weapon layer: S short blade + ping |
+| `spell_wave` | slice, then the wave leaves: S small bolt + arcane rise + shimmer, ~ bright whoosh, D–A singing tones | same |
+| `spell_blink` | S phase jump + reversed ping, ~ rising chirp; arrival 130 ms later: S blade + ping on D, ~ thump | in the stack |
+| `spell_ward` (art) | S force field + arcane; one glassy pass (S ping, ~ whoosh, note) per damage tick for the ward's duration, ~ slow pulsing drone | weapon layer |
+| `spell_overload` (ultimate) | build: S arcane stretched over the wind-up, rising saws, sparks accelerating; release: S blast + sub + zap + glass + large bolt, ~ sub drop, then the four element layers 90 ms apart with a D-minor arpeggio | in the stack; `buff overload` cue |
+| shade `shade_stab1/2` | one dagger flick: 70 ms of S blade (high-passed, 1.75×), ~ rising air, ~ tiny knock; second stab higher | weapon layer: S bone tick + 50 ms blade |
+| `shade_stab3` | two flicks 50 ms apart, S draw turned in the hand | same |
+| `shade_step` | S cloth + umbra grain, ~ low breath and falling tone; one cut 140 ms later with a ring | in the stack |
+| `shade_smoke` (art) | flint click, pop (S tight thump + glass), ~ rush of hiss | zone bed |
+| `shade_mark` (ultimate) | build: reversed glass, falling breath; release: umbra burst + S sub + half-speed bell, ~ low tritone, five flicks | `mark` stings |
+| knight `knight_toss` (art) | S cloth, plate, ring; ~ whoosh and a hum chopped at 19 Hz (the spin) | weapon layer |
+| `knight_bulwark` (ultimate) | build: reversed bell, cloth, whoosh; release: S plate + iron + earth + sub + D bell, ~ D–A–D | `buff bulwark` cue (horn + bell) |
+| barbarian `barb_leap` (art) | take-off: S cloth, ~ growl and whoosh; landing: S earth + iron + sub + chop + bone clatter | in the stack |
+| `barb_rage` (ultimate) | build: breath dragged in, rising growl; release: S two war drums + blast + sub + chop | `buff bloodrage` cue (roar) |
+| mage `mage_lance` (art) | short gathering (S force field, ~ rise), then S large bolt + long zap + glass, ~ detuned saws D→A | in the stack |
+| `mage_meteor` (ultimate) | build 1.1 s: S force field + arcane, ~ whistle falling four octaves; release: S two blasts + sub + earth + glass + fire, ~ sub drop, debris clatter | in the stack |
+| rogue `rogue_trap` (art) | toss: S cloth, pot + thud, four ratchet clicks rising | arm click on `zone`, snap on `zoneEnd.sprung` |
+| `rogue_volley` (ultimate) | build: four ratchets, ~ rising string tension; release: nine bolt releases 28 ms apart, S thud + drum + blast, ~ whoosh | zone bed (patter) |
+
+Every ultimate shares one frame: a reversed blast as intake over the wind-up, its own level (`LV.ult`), limiter
+family `ult` (four per 0.3 s, each later one ducked) and a duck of the score (to 0.55 for the own hero, 0.75 for
+an ally). `ultReady`: own hero — low pulse, S arcane, A–D–A rising, ping on D7; allies — one very quiet note.
+Pressing without charge arrives as local action `denied` and plays the existing `denied` sound.
+
+### 9.2 Zones, traps, buffs, marks
+
+| Event | Sound |
+|---|---|
+| `zone` `templar_consecrate` | bed for `dur`: ~ D–A–D triangle voices with slow vibrato, two vowel bands of noise, a low D; a soft swell + high note on every ability tick |
+| `zone` `templar_sanctuary` | the same with F♯ and A on top (major), louder, S ping per tick |
+| `zone` `shade_smoke` | ~ band of hiss + air + low body for `dur`, slow puffs, S fire grains high-passed |
+| `zone` `rogue_volley` | patter: an impact every 55–110 ms (S bone / tick / thud in turn + ~ knock), whistles, a thin band of air |
+| `zone` `rogue_trap` | arm: S latch + small ring, ~ rising tick. No bed |
+| `zone` with `el` | + element hit layer; unknown kinds: a soft low swell |
+| `zoneEnd` | sprung: S clang + iron + latch + metal + pot, ~ crack and thump. Otherwise the bed fades in 90 ms; an early end adds a short breath |
+| `buff` `bloodrage` | roar: three detuned saws breaking upwards with 31 Hz roughness, breath band, S blast; four heartbeats (louder for the own hero) |
+| `buff` `bulwark` | horn call D → A (saw pairs through an opening low-pass) over S D bells and plate. One banner = one cue; if the own hero is among later `buff` events of the same banner, a two-note echo |
+| `buff` `overload` | twelve S sparks scattered over 1.2 s, S zap + scratch, ~ 57 Hz buzz and a sizzling band |
+| `mark` | S low ring + blade tick, ~ tritone, low thud and breath; marks inside 100 ms climb in pitch (at most 3 per window) |
+
+Beds are capped at four at a time and 10 s; their grains are pre-scheduled `free` voices outside the voice
+pools (`samples.ts`), because pool limits count what is scheduled, not what sounds.
+
+### 9.3 Umbra and the six reactions
+
+Umbra / Wither: ~ band-passed breath falling from 300 to 130 Hz, two low sines a minor second apart (D2 / E♭2)
+that beat, a filtered triangle an octave up, S engine grain (`tex.void`) and slowed slime; the burst adds a
+reversed, low-passed glass swell, S sub and a long low noise tail. No content above ~1 kHz is added.
+
+`resonance` looks the pair up with `reactionOf(a, b)` and layers the reaction's stinger on the burst (same
+limiter, same mix bus; chain pitch applies to it):
+
+| Reaction | Stinger |
+|---|---|
+| Shatter (ember + rime) | 12 ms high click, S heavy + medium glass pitched up, high partials, five shards trailing off |
+| Conflagration (ember + storm) | 0.9 s band of air sweeping 260 → 2600 Hz, two rough saws, S fire opening up, a slowed blast |
+| Superconduct (rime + storm) | 0.2 s of square / saw buzz with S zap and sparks, cut dead into S glass + ping + snow and two falling sines |
+| Soulfire (ember + umbra) | three vowel bands of noise ("ah"), detuned saw voices on G major with vibrato, a rising triangle arpeggio, low G |
+| Entomb (rime + umbra) | S sub + iron + slowed heavy glass + snow + slowed creak, ~ 74 → 30 Hz drop; nothing bright |
+| Void Arc (storm + umbra) | four zaps 95 ms apart (jumps + 1), each lower and wetter; S chained zap, low breath underneath |
+
+### 9.4 Progression, sets, descent
+
+| Trigger | Sound |
+|---|---|
+| `game:progress` | in order: experience ticks (5–16 by log₂ of the amount, D major pentatonic, 0.9 s) → level-up fanfare → up to three relic chimes → feat gong |
+| level-up | drums, brass call D–D–A–D over a D major chord, bell, air. 2 levels: a second phrase through G; 3+: vowel bands, a run of bells, second bell (capped at 4) |
+| relic shard / rank-up | S glass + ring, D minor add 9 arpeggio; rank-up adds S rising sweep, high bell, D major triad an octave up |
+| feat claimable | S gong, page, A–D |
+| purchases | recognised from how the profile changed at the click (`state:profile` diff, `index.ts`): Armory upgrade → existing `buy`; Ascension rank → coins + rising sweep + D–A–E (unresolved); talent → page + two plucks + A–D; relic equipped → book thud + latch + low hum + ping; relic removed → `equip`; feat claimed → two coin pours + gong + D major; art chosen → belt + drawn blade. The same sounds can be named with `data-sfx="ascend|talent|relic|claim|art"` |
+| `set` | own: latches clicking (3 or 4), then an open fifth (tier 1) or the full D major chord with bell and shimmer (tier 2), element layer for element sets; ally: the chord only, quiet |
+| legendary boon | offered (own draft contains one, once per draft): held shimmer D–A–E. Picked by the own hero: sub, boon jingle, D bell, arcane rise, seven-note rise; by an ally: three quiet notes |
+| elite `spawn` with `affix` | 180 ms after the spawn sound: a low saw note, then swift = two fast passes of air, armored = plate + clang + iron, volatile = hiss climbing with four ticks, vampiric = umbra layer + slime + minor second |
+| `doorChosen` `descend` / `ascend` | stone creak + falling minor second and cold air / rising run, high bell, open fifth climbing to D major |
+| `descend` | the Last Bell three times (D, A, D below), every strike bending down; S sub drop + sub + slowed door under the last one, ~ 110 → 24 Hz, falling air. One semitone lower per depth (up to 7). Ducks the score for 2.4 s |
+| score by depth | `music.setDepth(run.depth)`: one semitone lower per depth (up to 5) from the next bar line; overlay per depth: 1 — flat-second drone and sub pulse between the beats; 2 — tritone tremolo every other bar, ghost hats; 3 — bone ostinato, cluster stab; 4 — war drum on the half bar; 5 — tom pickup. All derived from bar / step numbers, so it loops with the piece. The menu always plays at home pitch |
+| run end | `victory` with more than one boss slain: second, higher phrase, choir, one bell per boss (up to 4). `defeat` with `cleared > 0`: the lament ends on a major chord |
+
+### 9.5 Measurements (update 3)
+
+228 offline renders after the master chain at full volume (`window.__audiodemo.renderAll()`), all non-silent,
+highest peak −2.3 dBFS (ceiling of the soft clipper: −2.2), largest DC offset 3·10⁻⁴. Centroid = spectral
+centroid, amplitude-weighted (new column of the workbench's measurement table).
+
+| Category | Renders | Loudest 400 ms, mean (range) dBFS | Centroid Hz |
+|---|---|---|---|
+| templar primaries | 3 | −19.3 (−21.0 … −16.9) | 1540–1740 |
+| spellblade primaries | 3 | −25.3 (−26.7 … −24.2) | 4640–6480 |
+| shade primaries | 3 | −28.5 (−29.5 … −26.9) | 6910–7320 |
+| for comparison: knight / barbarian / mage / rogue primaries | 12 | −24.1 / −21.3 / −24.0 / −25.1 | 3660–4600 / 1880–2140 / 3510–4600 / 5250–5640 |
+| new secondaries | 3 | −20.2 (−23.7 … −17.7) | 980–4450 |
+| arts | 7 | −19.0 (−24.8 … −13.9) | 1150–7010 |
+| ultimates (own) | 7 | −11.1 (−12.6 … −9.5) | 1240–3550 |
+| zone beds (own; ally consecrate −37) | 4 | −25.8 (−27.5 … −23.7) | 610 (hallowed) – 9110 (smoke) |
+| buff cues | 4 | −16.5 (−19.7 … −14.6) | 590–4430 |
+| hit with element: ember / rime / storm / umbra | 4 | −23.3 / −24.3 / −23.5 / −19.9 | 4380 / 3810 / 3700 / 1160 |
+| status tick: ember / rime / storm / umbra | 4 | −36.8 / −37.8 / −37.5 / −34.8 | 5440 / 5930 / 3350 / 1030 |
+| Resonance with reaction stinger | 12 | −12.3 (−14.2 … −11.3) | 1920–3510 |
+| affix cues | 4 | −20.9 (−22.9 … −17.2) | 1010 (vampiric) – 8250 (volatile) |
+| progression (ticks −34 … fanfare −12) | 9 | −19.0 | 1280–6210 |
+| new purchase sounds | 5 | −29.4 (−33.9 … −26.6) | 3370–6150 |
+| descend (depth 1 / 6) | 2 | −10.2 / −9.1 | 980 / 830 |
+| score at depth 1, 3, 5 | 10 | −17.0 (−18.3 … −16.1) | combat 1630 → 1520, boss 1900 → 1780 |
+| stress: 4 ultimates + 6 reactions + 40 hits + marks + kills, boss score at depth 5 | 1 | −9.2, peak −2.6 | 2670 |
+
+Reaction centroids (a→b / b→a): Shatter 3130 / 3510, Conflagration 2360 / 2800, Superconduct 2940 / 2650, Soulfire
+2120 / 3200, Entomb 2320 / 2290, Void Arc 2010 / 1920 — the pairs differ more in their envelope than in this
+number, which is not measured. The combat score at depth 5 is 1.9 dB louder (RMS) than at depth 0. A 72 s render
+of the combat score and a 62 s render of the boss score at depth 5 (more than one 16-bar cycle each) peak at
+−3.8 / −2.9 dBFS. The 92 renders of the update 3 sounds with an empty sample bank are all non-silent.
+
+Live page (headless Chrome): 160 of 160 files decoded, every request carried `?v=`; all 156 workbench events
+fired in 8 passes (two scenes × four own classes), depth 1–5, the ultimate stress, the stingers: 0 console errors
+or warnings, live peak −3.3 dBFS, no sample voice left sounding. Purchases through the real `GameState` helpers
+on buttons carrying the interface's current `data-sfx` values played: upgrade → `buy`, Ascension → `ascendRank`,
+talent → `talentPick`, relic → `relicEquip`, removal → `equip`, feat → `claim`, art → `artPick`.
+
+### 9.6 Known gaps of update 3
+
+- Not listened to. Most at risk: the synthesised "choir" and horn (saws through band-passes), the brass of the
+  level-up fanfare, whether shade stabs read as daggers at −28 dB, and how the ultimates sit against each other.
+- Ultimates are 1–3 dB under the boss roar / kill (−10.8) on average, not above; the master chain flattens
+  anything hotter. An ally's ultimate measures only about 1.5 dB under the own.
+- The run-end sequence has its own clock (ticks 0.9 s, fanfare, relics 0.55 s apart); it is not synchronised
+  with the summary screen's animation, and sounds only if the summary emits `game:progress` once.
+- Zones are not positional and beds do not follow the zone's radius. A bed's length is fixed when the zone
+  appears; a zone that outlives 10 s loses its bed.
+- `hit` does not name the ability, so impacts of arts and ultimates use the attacker's class layer; the beam,
+  blink and overload impacts are inside their cast stacks and do not depend on something being hit.
+- The buff cue plays at the start only; nothing marks the end of a buff. Heartbeats of bloodrage are four, not
+  for the whole duration.
+- A change of depth transposes a running piece at a bar line, a semitone at a time; it is not a modulation.
+- Affix cues are limited to one per 0.35 s: two elites with different affixes spawning together sound as one.
+

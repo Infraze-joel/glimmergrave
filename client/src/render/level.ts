@@ -116,6 +116,50 @@ const DIORAMA_MOOD: Mood = {
   torch: 0xff9a4a, torchIntensity: 30, floorTint: 0x7a88a6, wallTint: 0xaab2cc, fog: 0x070912, void: 0x090c15,
 };
 
+/**
+ * Endless descent: every depth below the first darkens the chamber and deepens its colours, and a violet tinge from
+ * the abyss creeps into shadows and fog. The steps flatten out after MAX_STEPS so deep runs stay readable.
+ */
+const DESCENT = {
+  MAX_STEPS: 5,
+  LIGHT: 0.82, SUN: 0.82, TORCH: 1.12,
+  SATURATION: 0.16, SURFACE_LIGHT: 0.9,
+  ABYSS: 0x180733, ABYSS_MIX: 0.26, FOG_MIX: 0.2,
+} as const;
+
+const _hsl = { h: 0, s: 0, l: 0 };
+const _abyss = new Color(DESCENT.ABYSS);
+
+function deepenColor(hex: number, steps: number, light: number, abyss: number): number {
+  const c = new Color(hex);
+  c.getHSL(_hsl);
+  c.setHSL(_hsl.h, Math.min(1, _hsl.s + (1 - _hsl.s) * Math.min(0.85, DESCENT.SATURATION * steps * 1.6)), _hsl.l * Math.pow(light, steps));
+  c.lerp(_abyss, Math.min(0.75, abyss * steps));
+  return c.getHex();
+}
+
+/** The mood of a chamber `descent` depths below the first (0 = unchanged). */
+function deepen(mood: Mood, descent: number): Mood {
+  const n = Math.max(0, Math.min(DESCENT.MAX_STEPS, descent));
+  if (n === 0) return mood;
+  return {
+    ...mood,
+    hemiSky: deepenColor(mood.hemiSky, n, 0.97, DESCENT.ABYSS_MIX * 0.6),
+    hemiGround: deepenColor(mood.hemiGround, n, 0.95, DESCENT.ABYSS_MIX),
+    hemiIntensity: mood.hemiIntensity * Math.pow(DESCENT.LIGHT, n),
+    dirColor: deepenColor(mood.dirColor, n, 0.98, DESCENT.ABYSS_MIX * 0.5),
+    dirIntensity: mood.dirIntensity * Math.pow(DESCENT.SUN, n),
+    torch: deepenColor(mood.torch, n, 1, 0),
+    torchIntensity: mood.torchIntensity * Math.pow(DESCENT.TORCH, n),
+    floorTint: deepenColor(mood.floorTint, n, DESCENT.SURFACE_LIGHT, DESCENT.ABYSS_MIX * 0.5),
+    wallTint: deepenColor(mood.wallTint, n, DESCENT.SURFACE_LIGHT, DESCENT.ABYSS_MIX * 0.5),
+    propTint: deepenColor(mood.propTint, n, 0.97, 0),
+    crystal: deepenColor(mood.crystal, n, 1, DESCENT.ABYSS_MIX * 0.4),
+    fog: deepenColor(mood.fog, n, 0.9, DESCENT.FOG_MIX),
+    void: deepenColor(mood.void, n, 0.85, DESCENT.FOG_MIX),
+  };
+}
+
 const CFG = {
   FLOOR_CELL: 2,
   FLOOR_Y: -0.05,
@@ -191,6 +235,8 @@ export class LevelView {
   biome: BiomeId = 'crypt';
   /** True while the wardrobe diorama is built instead of a chamber. */
   diorama = false;
+  /** Depth of the endless descent the next chamber is built for (0 = the first descent). */
+  descent = 0;
   fogColor = new Color(PALETTE.fog);
 
   private readonly assets: Assets;
@@ -266,7 +312,7 @@ export class LevelView {
   /** Rebuilds only when the room, biome, chamber kind or index actually changed. Returns true when rebuilt. */
   setRoom(room: RoomLayout | null, kind: ChamberKind, index: number): boolean {
     const biome: BiomeId = room && room.biome in MOODS ? room.biome : 'crypt';
-    const key = room ? `${room.seed}:${room.w}:${room.d}:${room.obstacles.length}:${biome}:${kind}:${index}` : '';
+    const key = room ? `${room.seed}:${room.w}:${room.d}:${room.obstacles.length}:${biome}:${kind}:${index}:${this.descent}` : '';
     if (key === this.roomKey) return false;
     this.roomKey = key;
     this.clear();
@@ -483,7 +529,7 @@ export class LevelView {
   }
 
   private build(room: RoomLayout, biome: BiomeId, kind: ChamberKind, index: number): void {
-    const mood = MOODS[biome][kind];
+    const mood = deepen(MOODS[biome][kind], this.descent);
     this.applyMood(mood);
     this.biome = biome;
     const { b, finish } = this.begin(room.seed * 7919 + index * 131 + 17, biome, mood);

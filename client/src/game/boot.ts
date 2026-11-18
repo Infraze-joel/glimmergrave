@@ -6,8 +6,9 @@ import { NET, TICK_DT } from '@shared/constants.ts';
 import { ELEMENT_IDS, type AbilitySlot, type ClassId, type ElementId, type InputCmd, type PlayerSnap, type Snapshot } from '@shared/types.ts';
 import { initAudio } from '../audio/index.ts';
 import { bus } from '../core/EventBus.ts';
-import { saveProfile, state } from '../core/GameState.ts';
+import { bookRewards, bookRunEnd, state } from '../core/GameState.ts';
 import { settings } from '../core/Settings.ts';
+import { AimCursor } from './Cursor.ts';
 import { NetClient } from '../net/NetClient.ts';
 import { Prediction } from '../net/Prediction.ts';
 import { SnapshotBuffer } from '../net/SnapshotBuffer.ts';
@@ -18,7 +19,6 @@ import { Input, type InputSample } from './Input.ts';
 /** Longest frame time fed into the simulation; longer stalls (tab switch) are dropped, not replayed. */
 const MAX_FRAME_SECONDS = 0.1;
 const MAX_TICKS_PER_FRAME = 4;
-const MAX_OATH = 3;
 const FRAME_COST_SMOOTHING = 0.05;
 
 async function boot(): Promise<void> {
@@ -42,6 +42,7 @@ async function boot(): Promise<void> {
   const buffer = new SnapshotBuffer();
   const prediction = new Prediction();
   const input = new Input(canvas);
+  const cursor = new AimCursor(canvas);
   const params = new URLSearchParams(window.location.search);
   const autopilot = import.meta.env.DEV && params.has('autopilot') ? (await import('../dev/autopilot.ts')).createAutopilot() : null;
 
@@ -50,6 +51,7 @@ async function boot(): Promise<void> {
     view.setShake(settings.shake);
     view.setZoom(settings.zoom);
     view.setDamageNumbers(settings.damageNumbers);
+    cursor.setStyle(settings.cursor);
   };
   applySettings();
   bus.on('settings:changed', applySettings);
@@ -61,6 +63,7 @@ async function boot(): Promise<void> {
   let lastSelf: PlayerSnap | null = null;
   /** The run just ended in front of this client and its Glimmer has not been credited yet. */
   let rewardPending = false;
+  let endedClass: ClassId = state.profile.cls;
   const sample: InputSample = { moveX: 0, moveZ: 0, aim: 0, aimDist: 0, buttons: 0 };
   const toGround = (x: number, y: number, out: { x: number; z: number }): boolean => view.screenToGround(x, y, out);
 
@@ -83,11 +86,13 @@ async function boot(): Promise<void> {
     const enabled = state.screen === 'game' && !state.overlayOpen;
     if (input.enabled && !enabled) input.release();
     input.enabled = enabled;
+    cursor.setAiming(enabled);
   };
 
   net.onSnapshot = (snap: Snapshot, receivedAt: number): void => {
     buffer.push(snap, receivedAt);
     lastSelf = snap.players.find((p) => p.slot === state.conn.slot) ?? null;
+    cursor.patch({ charged: lastSelf !== null && lastSelf.state === 'alive' && lastSelf.ult >= 1 });
     prediction.reconcile(snap.self, state.run?.room ?? null, lastSelf);
     state.players = snap.players;
     state.enemiesAlive = snap.enemies.length;
@@ -97,16 +102,17 @@ async function boot(): Promise<void> {
     bus.emit('state:hud');
   };
 
-  const INFUSION_ID = /^infuse_([a-z]+)_(primary|secondary|dash)$/;
+  const INFUSION_ID = /^infuse_([a-z]+)_(primary|secondary|dash|ultimate)$/;
   bus.on('state:roster', () => {
-    view.setRoster(state.roster.map((p) => ({ slot: p.slot, cls: p.cls, name: p.name, look: p.look })));
+    view.setRoster(state.roster.map((p) => ({ slot: p.slot, cls: p.cls, name: p.name, look: p.look, art: p.art })));
     for (const p of state.roster) {
-      const infusions: Record<AbilitySlot, ElementId | null> = { primary: null, secondary: null, dash: null };
+      const infusions: Record<AbilitySlot, ElementId | null> = { primary: null, secondary: null, dash: null, ultimate: null };
       for (const boon of p.boons) {
         const match = INFUSION_ID.exec(boon.id);
         if (match && (ELEMENT_IDS as readonly string[]).includes(match[1])) infusions[match[2] as AbilitySlot] = match[1] as ElementId;
       }
       view.setInfusions(p.slot, infusions);
+      if (p.slot === state.conn.slot) cursor.patch({ cls: p.cls, element: infusions.primary });
     }
   });
 
@@ -136,31 +142,21 @@ async function boot(): Promise<void> {
       state.bossHp = null;
       bus.emit('state:hud');
     }
+    view.setDepth(run.depth);
     syncRoom();
     view.setMarker(run.tutorial?.marker ?? null);
     const over = run.phase === 'victory' || run.phase === 'defeat';
     // Only count a run whose ending this client witnessed (not one found already over after a reload).
     const ended = over && previousPhase !== run.phase && previousPhase !== null;
     if (ended) {
-      const won = run.phase === 'victory';
-      const profile = state.profile;
-      if (run.tutorial) {
-        if (won) saveProfile({ tutorialDone: true });
-      } else {
-        saveProfile({
-          runs: profile.runs + 1,
-          wins: profile.wins + (won ? 1 : 0),
-          bestChamber: Math.max(profile.bestChamber, run.chamber + 1),
-          oathUnlocked: won ? Math.max(profile.oathUnlocked, Math.min(MAX_OATH, run.oath + 1)) : profile.oathUnlocked,
-        });
-      }
+      endedClass = state.roster.find((p) => p.slot === state.conn.slot)?.cls ?? state.profile.cls;
+      bookRunEnd(run, endedClass);
       rewardPending = true;
     }
     if (!over) rewardPending = false;
-    const reward = over && rewardPending ? run.rewards.find((r) => r.slot === state.conn.slot) : undefined;
-    if (reward) {
+    if (over && rewardPending && run.rewards.some((r) => r.slot === state.conn.slot)) {
       rewardPending = false;
-      saveProfile({ glimmer: state.profile.glimmer + reward.glimmer, glimmerEarned: state.profile.glimmerEarned + reward.glimmer });
+      bookRewards(run, endedClass);
     }
   });
 
@@ -177,9 +173,9 @@ async function boot(): Promise<void> {
     if (piloted) Object.assign(sample, { moveX: piloted.moveX, moveZ: piloted.moveZ, aim: piloted.aim, aimDist: piloted.aimDist, buttons: piloted.buttons });
     const cmd: InputCmd = { seq: ++seq, moveX: sample.moveX, moveZ: sample.moveZ, aim: sample.aim, aimDist: sample.aimDist, buttons: sample.buttons };
     net.sendInput(cmd);
-    const action = prediction.step(cmd, room, me, own?.cls ?? 'knight');
+    const action = prediction.step(cmd, room, me, own?.cls ?? 'knight', own?.art ?? 0);
     if (action) {
-      bus.emit('game:localAction', { action });
+      bus.emit('game:localAction', action === 'denied' ? { action, slot: prediction.deniedSlot } : { action });
       if (action !== 'denied') view.localAction(action);
     }
   };

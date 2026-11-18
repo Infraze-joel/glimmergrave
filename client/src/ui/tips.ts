@@ -7,13 +7,15 @@ import { BOON_TUNING } from '@shared/data/boons.ts';
 import { ENEMY_TUNING } from '@shared/data/enemies.ts';
 import { RUN, WORLD } from '@shared/constants.ts';
 import { HAZARD_TIMING } from '@shared/sim/hazards.ts';
-import type { ElementId, GameEvent } from '@shared/types.ts';
+import { SETS } from '@shared/data/boons.ts';
+import type { AffixId, ElementId, GameEvent } from '@shared/types.ts';
 import { selfRoster, state } from '../core/GameState.ts';
 import { h, icon, key } from './dom.ts';
 import { bossLabel, distinctElements, enemyName, infusionsOf, resonanceParams, statusParams } from './elements.ts';
 import type { IconName } from './icons.ts';
-import { t } from './i18n.ts';
-import { nameOf } from './model.ts';
+import { roman, t } from './i18n.ts';
+import { ABILITY_ICON, nameOf } from './model.ts';
+import { affixBody, affixName, setName, setTierText } from './text.ts';
 import { markTipSeen, tipSeen, tipsEnabled } from './prefs.ts';
 import { mark, rich } from './rich.ts';
 import { UI_CONFIG } from './store.ts';
@@ -27,6 +29,8 @@ const pctMore = (mul: number): number => Math.round((mul - 1) * PERCENT);
 
 export const TIP_IDS = [
   'status.ember', 'status.rime', 'status.storm', 'resonance', 'ally', 'hazard', 'cursed', 'downed', 'elite', 'boss',
+  // update 3
+  'status.umbra', 'ultimate', 'descend', 'affix', 'set',
 ] as const;
 export type TipId = (typeof TIP_IDS)[number];
 
@@ -52,11 +56,21 @@ export interface TipsView extends View {
 }
 
 /** Builds the text of a tip from the live state (exported for the dev harness and the codex of tips). */
-export function tipContent(id: TipId, detail: { name?: string; a?: ElementId; b?: ElementId } = {}): TipContent {
+export interface TipDetail {
+  name?: string;
+  a?: ElementId;
+  b?: ElementId;
+  affix?: AffixId;
+  set?: string;
+  tier?: number;
+}
+
+export function tipContent(id: TipId, detail: TipDetail = {}): TipContent {
   switch (id) {
     case 'status.ember':
     case 'status.rime':
-    case 'status.storm': {
+    case 'status.storm':
+    case 'status.umbra': {
       const el = id.slice('status.'.length) as ElementId;
       return { id, icon: el, tone: el, title: t(`tip.status.${el}.title`), body: t(`tip.status.${el}.body`, statusParams(el)) };
     }
@@ -99,6 +113,24 @@ export function tipContent(id: TipId, detail: { name?: string; a?: ElementId; b?
       const run = state.run;
       const name = detail.name ?? (run ? bossLabel(run).name : enemyName('regent'));
       return { id, icon: 'boss', tone: 'danger', title: t('tip.boss.title', { name }), body: t('tip.boss.body') };
+    }
+    case 'ultimate': {
+      const cls = selfRoster()?.cls ?? state.profile.cls;
+      return { id, icon: ABILITY_ICON[cls].ultimate, tone: 'ultimate', title: t('tip.ultimate.title'), body: t('tip.ultimate.body', { name: t(`class.${cls}.ultimate.name`) }) };
+    }
+    case 'descend':
+      return { id, icon: 'descend', tone: 'res', title: t('tip.descend.title'), body: t('tip.descend.body', { n: RUN.CHAMBERS.length }) };
+    case 'affix': {
+      const affix = detail.affix ?? 'swift';
+      return { id, icon: 'affix', tone: 'danger', title: t('tip.affix.title', { name: affixName(affix) }), body: t('tip.affix.body', { body: affixBody(affix) }) };
+    }
+    case 'set': {
+      const def = SETS.find((set) => set.id === detail.set) ?? SETS[0];
+      const tier = detail.tier ?? 1;
+      return {
+        id, icon: def.element ?? def.category ?? 'boon', tone: 'res', title: t('tip.set.title'),
+        body: t('tip.set.body', { name: `${setName(def)} ${roman(tier)}`, effect: setTierText(def, tier) }),
+      };
     }
   }
 }
@@ -156,7 +188,7 @@ export function createTips(): TipsView {
     };
   };
 
-  const offer = (id: TipId, detail?: { name?: string; a?: ElementId; b?: ElementId }, urgent = false): void => {
+  const offer = (id: TipId, detail?: TipDetail, urgent = false): void => {
     if (!tipsEnabled() || tipSeen(id) || state.run?.tutorial) return;
     if (current?.content.id === id || queue.some((q) => q.id === id)) return;
     const content = tipContent(id, detail);
@@ -197,6 +229,9 @@ export function createTips(): TipsView {
       }
       case 'resonance': offer('resonance'); break;
       case 'down': if (ev.slot === own) offer('downed', undefined, true); break;
+      case 'ultReady': if (ev.slot === own) offer('ultimate'); break;
+      case 'spawn': if (ev.affix) offer('affix', { affix: ev.affix }); break;
+      case 'set': if (ev.slot === own) offer('set', { set: ev.id, tier: ev.tier }); break;
       case 'telegraph': {
         const bossId = state.run?.bossId ?? -1;
         if (bossId >= 0 && ev.src === bossId) bossBusyUntil = Math.max(bossBusyUntil, performance.now() + ev.dur * MS);
@@ -216,6 +251,7 @@ export function createTips(): TipsView {
       if ((run.room?.hazards.length ?? 0) > 0) offer('hazard');
     }
     if (run.phase === 'doors' && run.doors.some((d) => d.type === 'cursed')) offer('cursed');
+    if (run.phase === 'doors' && run.doors.some((d) => d.type === 'descend')) offer('descend', undefined, true);
     pump();
   };
 

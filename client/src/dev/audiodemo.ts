@@ -12,17 +12,19 @@
  *
  * window.__audiodemo exposes the same actions for scripted checks.
  */
-import { CLASSES } from '@shared/data/classes.ts';
+import { BOONS } from '@shared/data/boons.ts';
+import { ABILITY_BY_ID, BUFFS, CLASSES } from '@shared/data/classes.ts';
 import {
-  BIOME_IDS, BOSS_KINDS, CLASS_IDS, ELEMENT_IDS,
+  AFFIX_IDS, BIOME_IDS, BOSS_KINDS, CLASS_IDS, ELEMENT_IDS,
   type BiomeId, type BossKind, type ClassId, type GameEvent, type RosterEntry, type RunPhase, type RunState,
 } from '@shared/types.ts';
 import { audioDebug, audioInternals, initAudio, type AudioDebug } from '../audio/index.ts';
 import { SAMPLES } from '../audio/manifest.ts';
 import {
   BOSS_CUE_IDS, loadOfflineBank, renderAmbience, renderMusic, renderSfx, renderStinger, renderStress, renderStressTimed,
-  SFX_CASES, STRESS, stressEvents, type RenderStats,
+  renderUltimateStress, SFX_CASES, STRESS, stressEvents, ultimateStressEvents, type RenderStats,
 } from '../audio/offline.ts';
+import { abilitySoundTable, unmappedAbilities } from '../audio/sfx-abilities.ts';
 import { bus } from '../core/EventBus.ts';
 import { state, type Screen } from '../core/GameState.ts';
 import { settings, updateSettings } from '../core/Settings.ts';
@@ -40,6 +42,9 @@ const DEMO = {
   CHAIN_GAP_MS: 350,
   STRESS_LISTEN_MS: 4000,
   DRAFT_SECONDS: 6,
+  ZONE_ID: 100,
+  MAX_DEPTH: 6,
+  DEFAULT_RENDER_S: 3,
 } as const;
 
 const CSS = `
@@ -70,12 +75,17 @@ const CSS = `
 let chamber = 0;
 let biome: BiomeId = 'crypt';
 let ownClass: ClassId = 'knight';
+let ownArt = 0;
+let depth = 0;
+let cleared = 0;
+let zoneId: number = DEMO.ZONE_ID;
+const LEGENDARY_ID = BOONS.find((b) => b.rarity === 'legendary')?.id ?? 'keen_edge';
 
 function roster(): RosterEntry[] {
   const look = { color: 0, head: true, cape: true, style: 0 };
   return CLASS_IDS.map((cls, i) => ({
     slot: i, name: i === DEMO.OWN_SLOT ? 'You' : `Ally ${i}`, cls: i === DEMO.OWN_SLOT ? ownClass : cls, look,
-    ready: true, connected: true, host: i === DEMO.OWN_SLOT, boons: [],
+    mastery: 1, art: i === DEMO.OWN_SLOT ? ownArt : 0, ready: true, connected: true, host: i === DEMO.OWN_SLOT, boons: [],
   }));
 }
 
@@ -85,7 +95,7 @@ function fakeRun(phase: RunPhase, chamberKind: RunState['chamberKind'], boss: Bo
     room: { seed: 1, biome, w: 30, d: 30, obstacles: [], hazards: [], spawns: [] },
     doors: [], doorProgress: [], bossId: chamberKind === 'combat' ? -1 : DEMO.BOSS_ID, draftPending: [], draftTime: 0, elapsed: 0,
     stats: [], secondWinds: 0, bossKind: chamberKind === 'boss' ? boss : chamberKind === 'elite' ? 'champion' : null,
-    finalBoss: boss, rewards: [], tutorial: null,
+    finalBoss: boss, rewards: [], depth, cleared, chambersCleared: 0, tutorial: null,
   };
 }
 
@@ -129,6 +139,16 @@ function setBiome(next: BiomeId): void {
   biome = next;
   if (state.run?.room) {
     state.run.room = { ...state.run.room, biome };
+    bus.emit('state:run', { previousPhase: state.run.phase });
+  }
+  paintActive();
+}
+
+/** Sets RunState.depth like a `descend` door does (the score follows at its next bar). */
+function setDepth(next: number): void {
+  depth = Math.max(0, Math.min(DEMO.MAX_DEPTH, next));
+  if (state.run) {
+    state.run.depth = depth;
     bus.emit('state:run', { previousPhase: state.run.phase });
   }
   paintActive();
@@ -196,6 +216,35 @@ const GAME_EVENTS: [string, () => void][] = [
   ['down (ally)', () => fire({ e: 'down', slot: ally })],
   ['revived', () => fire({ e: 'revived', slot: own, by: ally })],
   ['tutorial step', () => fire({ e: 'tutorialStep', step: 'attack' })],
+  // ---- update 3
+  ...CLASS_IDS.flatMap((cls): [string, () => void][] => [
+    ...CLASSES[cls].arts.map((a): [string, () => void] => [`ally ${cls} art ${a.id}`, () => fire({ e: 'cast', who: { t: 'p', id: ally }, ability: a.id, ...at, rot: 0 })]),
+    [`ally ${cls} ultimate`, () => fire({ e: 'cast', who: { t: 'p', id: ally }, ability: CLASSES[cls].ultimate.id, ...at, rot: 0 })],
+  ]),
+  ['own ultimate (local action)', () => bus.emit('game:localAction', { action: 'ultimate' })],
+  ['ultimate ready (own)', () => fire({ e: 'ultReady', slot: own })],
+  ['ultimate ready (ally)', () => fire({ e: 'ultReady', slot: ally })],
+  ...(['templar_consecrate', 'templar_sanctuary', 'shade_smoke', 'rogue_volley', 'rogue_trap'] as const).map((kind): [string, () => void] =>
+    [`zone ${kind}`, () => fire({ e: 'zone', id: ++zoneId, kind, ...at, r: 3.6, dur: ABILITY_BY_ID.get(kind)?.duration ?? 5, el: null, by: own })]),
+  ['zone (ally, umbra)', () => fire({ e: 'zone', id: ++zoneId, kind: 'templar_consecrate', ...at, r: 3.6, dur: 5, el: 'umbra', by: ally })],
+  ['zone end (last zone, early)', () => fire({ e: 'zoneEnd', id: zoneId, ...at, sprung: false })],
+  ['trap sprung (last zone)', () => fire({ e: 'zoneEnd', id: zoneId, ...at, sprung: true })],
+  ...(Object.keys(BUFFS) as (keyof typeof BUFFS)[]).map((id): [string, () => void] => [`buff ${id} (own)`, () => fire({ e: 'buff', slot: own, id, dur: 6 })]),
+  ['buff bulwark (ally, then own)', () => { fire({ e: 'buff', slot: ally, id: 'bulwark', dur: 6 }); fire({ e: 'buff', slot: own, id: 'bulwark', dur: 6 }); }],
+  ['mark ×4', () => { for (let i = 0; i < 4; i++) window.setTimeout(() => fire({ e: 'mark', id: DEMO.ENEMY_ID + i, dur: 8 }), i * 60); }],
+  ...AFFIX_IDS.map((affix): [string, () => void] => [`spawn elite (${affix})`, () => fire({ e: 'spawn', id: DEMO.SHIELD_ID, kind: 'warrior', ...at, elite: true, affix })]),
+  ['set bonus tier 1 (own)', () => fire({ e: 'set', slot: own, id: 'set_offense', tier: 1 })],
+  ['set bonus tier 2 umbra (own)', () => fire({ e: 'set', slot: own, id: 'set_umbra', tier: 2 })],
+  ['set bonus (ally)', () => fire({ e: 'set', slot: ally, id: 'set_ember', tier: 1 })],
+  ['legendary boon offered (state:draft)', () => { state.draft = [{ id: 'keen_edge', level: 1 }, { id: LEGENDARY_ID, level: 1 }]; bus.emit('state:draft'); }],
+  ['legendary boon picked (own)', () => fire({ e: 'boon', slot: own, id: LEGENDARY_ID, level: 1 })],
+  ['legendary boon picked (ally)', () => fire({ e: 'boon', slot: ally, id: LEGENDARY_ID, level: 1 })],
+  ['door descend', () => fire({ e: 'doorChosen', type: 'descend' })],
+  ['door ascend', () => fire({ e: 'doorChosen', type: 'ascend' })],
+  ['descend (one deeper)', () => { setDepth(depth + 1); fire({ e: 'descend', depth }); }],
+  ['progress: xp only', () => bus.emit('game:progress', { cls: ownClass, xp: 120, levelsGained: 0, level: 3, relics: [], featsReady: 0 })],
+  ['progress: level up', () => bus.emit('game:progress', { cls: ownClass, xp: 480, levelsGained: 1, level: 4, relics: [], featsReady: 0 })],
+  ['progress: 3 levels, relic rank-up, feat', () => bus.emit('game:progress', { cls: ownClass, xp: 2600, levelsGained: 3, level: 7, relics: [{ id: 'r', rank: 1, rankUp: false }, { id: 'r2', rank: 2, rankUp: true }], featsReady: 2 })],
   ['draft pick (ui:pick)', () => bus.emit('ui:pick', { index: 0 })],
   ['ready on', () => bus.emit('ui:lobby', { ready: true })],
   ['ready off', () => bus.emit('ui:lobby', { ready: false })],
@@ -244,11 +293,38 @@ function stress(): Promise<StressResult> {
   });
 }
 
-async function renderAll(withSamples = true): Promise<RenderStats[]> {
+/** Renders the SFX cases whose name contains `filter` (all when empty). */
+async function renderCases(filter = '', withSamples = true): Promise<RenderStats[]> {
   const o = { samples: withSamples };
   if (withSamples) await loadOfflineBank();
   const out: RenderStats[] = [];
-  for (const [name, play] of SFX_CASES) out.push(await renderSfx(name, play, 3, o));
+  for (const [name, play, seconds] of SFX_CASES) {
+    if (name.includes(filter)) out.push(await renderSfx(name, play, seconds ?? DEMO.DEFAULT_RENDER_S, o));
+  }
+  return out;
+}
+
+/** Update 3 additions to the measurement run: the score per depth, stinger variants, the ultimate stress. */
+async function renderDepths(withSamples = true): Promise<RenderStats[]> {
+  const o = { samples: withSamples };
+  if (withSamples) await loadOfflineBank();
+  const out: RenderStats[] = [];
+  for (const d of [0, 1, 3, 5]) {
+    out.push(await renderMusic('combat', 12, 1, { ...o, depth: d }));
+    out.push(await renderMusic('boss', 12, 3, { ...o, depth: d }));
+  }
+  out.push(await renderMusic('calm', 12, 1, { ...o, depth: 5 }), await renderMusic('elite', 12, 1, { ...o, depth: 5 }));
+  for (const boss of ['matron', 'stalker'] as const) out.push(await renderMusic('boss', 12, 3, { ...o, boss, depth: 5 }));
+  out.push(await renderStinger('victory', { ...o, cleared: 3 }), await renderStinger('defeat', { ...o, cleared: 1 }));
+  out.push(await renderUltimateStress(7, o));
+  return out;
+}
+
+async function renderAll(withSamples = true): Promise<RenderStats[]> {
+  const o = { samples: withSamples };
+  if (withSamples) await loadOfflineBank();
+  const out: RenderStats[] = await renderCases('', withSamples);
+  out.push(...await renderDepths(withSamples));
   for (const name of ['menu', 'calm', 'combat', 'elite'] as const) out.push(await renderMusic(name, 12, 1, o));
   for (const boss of BOSS_KINDS) for (const phase of [1, 2, 3]) out.push(await renderMusic('boss', 10, phase, { ...o, boss }));
   for (const b of BIOME_IDS) out.push(await renderMusic('combat', 10, 1, { ...o, biome: b }));
@@ -259,9 +335,9 @@ async function renderAll(withSamples = true): Promise<RenderStats[]> {
 }
 
 function formatStats(stats: RenderStats[]): string {
-  const head = `${'sound'.padEnd(40)} ${'peak dBFS'.padStart(9)} ${'loud dB'.padStart(8)} ${'rms dB'.padStart(8)} ${'DC'.padStart(9)}`;
+  const head = `${'sound'.padEnd(40)} ${'peak dBFS'.padStart(9)} ${'loud dB'.padStart(8)} ${'rms dB'.padStart(8)} ${'DC'.padStart(9)} ${'centroid'.padStart(9)}`;
   return [head, ...stats.map((s) =>
-    `${s.name.padEnd(40)} ${s.peakDb.toFixed(1).padStart(9)} ${s.loudDb.toFixed(1).padStart(8)} ${s.rmsDb.toFixed(1).padStart(8)} ${s.dc.toExponential(1).padStart(9)}`)].join('\n');
+    `${s.name.padEnd(40)} ${s.peakDb.toFixed(1).padStart(9)} ${s.loudDb.toFixed(1).padStart(8)} ${s.rmsDb.toFixed(1).padStart(8)} ${s.dc.toExponential(1).padStart(9)} ${`${s.centroidHz.toFixed(0)} Hz`.padStart(9)}`)].join('\n');
 }
 
 // ------------------------------------------------------------------ page
@@ -269,7 +345,9 @@ function formatStats(stats: RenderStats[]): string {
 const active = new Map<string, HTMLButtonElement>();
 
 function paintActive(): void {
-  for (const [key, btn] of active) btn.classList.toggle('on', key === `scene:${sceneName}` || key === `biome:${biome}` || key === `class:${ownClass}`);
+  for (const [key, btn] of active) {
+    btn.classList.toggle('on', key === `scene:${sceneName}` || key === `biome:${biome}` || key === `class:${ownClass}` || key === `depth:${depth}` || key === `art:${ownArt}` || key === `cleared:${cleared}`);
+  }
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, text = '', cls = ''): HTMLElementTagNameMap[K] {
@@ -388,8 +466,25 @@ function boot(): void {
   const phases = section(root, 'Boss phase (music escalates, roar plays)', 'Pick a boss scene first.');
   for (const phase of [2, 3]) phases.append(button(`phase ${phase}`, () => fire({ e: 'bossPhase', phase })));
   phases.append(button('back to phase 1', () => { audioInternals()?.music.setBossPhase(1); }));
+  const depths = section(root, 'Depth of the descent (score: lower, denser, more dissonant per depth)', 'Pick a combat / elite / boss scene first; the running piece changes at its next bar line. "cleared" feeds the stinger variants.');
+  for (let d = 0; d <= DEMO.MAX_DEPTH; d++) depths.append(button(`depth ${d}`, () => setDepth(d), `depth:${d}`));
+  for (const n of [0, 1, 3]) depths.append(button(`cleared ${n}`, () => { cleared = n; if (state.run) state.run.cleared = n; paintActive(); }, `cleared:${n}`));
   const cls = section(root, 'Own hero class (for local actions and weapon layers on hits)');
   for (const c of CLASS_IDS) cls.append(button(c, () => { ownClass = c; state.roster = roster(); paintActive(); }, `class:${c}`));
+  for (const a of [0, 1]) cls.append(button(a === 0 ? 'secondary: standard' : 'secondary: art', () => { ownArt = a; state.roster = roster(); paintActive(); }, `art:${a}`));
+
+  const map = section(root, 'Ability → sound map (every id of ABILITY_BY_ID)', 'Unmapped ids must be none. Click an id to hear it as the own hero.');
+  const missing = unmappedAbilities();
+  const check = el('p', missing.length === 0 ? `All ${abilitySoundTable().length} ability ids are mapped.` : `UNMAPPED: ${missing.join(', ')}`);
+  check.id = 'audiodemo-unmapped';
+  if (missing.length > 0) check.style.color = '#ff7b6b';
+  map.before(check);
+  for (const line of abilitySoundTable()) {
+    const id = line.split(' ')[0];
+    const btn = button(id, () => audioInternals()?.sfx.ability(id, true));
+    btn.title = line;
+    map.append(btn);
+  }
 
   // ---------------------------------------------------------------- sounds
   root.append(el('h2', 'Every sound (direct)'));
@@ -415,7 +510,7 @@ function boot(): void {
 
   const uiRow = section(root, 'Interface sounds via data-sfx (hover and click these)',
     'Real buttons carrying data-sfx; the delegated listener in audio/index.ts picks the sound. The last one has no attribute and gets the default hover / click.');
-  for (const kind of ['click', 'confirm', 'back', 'error', 'buy', 'equip', 'tab', 'toggle']) {
+  for (const kind of ['click', 'confirm', 'back', 'error', 'buy', 'equip', 'tab', 'toggle', 'ascend', 'talent', 'relic', 'claim', 'art']) {
     const btn = el('button', `data-sfx="${kind}"`);
     btn.type = 'button';
     btn.setAttribute('data-sfx', kind);
@@ -464,6 +559,15 @@ function boot(): void {
     forceSynth: (on) => { audioInternals()?.sfx.setForceSynth(on); },
     stress,
     renderAll,
+    renderCases,
+    renderDepths,
+    setDepth,
+    unmapped: unmappedAbilities,
+    abilityTable: abilitySoundTable,
+    ultimateStress: () => {
+      const engine = audioInternals();
+      if (engine) for (const [when, play] of ultimateStressEvents()) window.setTimeout(() => play(engine.sfx), when * 1000);
+    },
     loadOfflineBank,
   };
 }
@@ -484,6 +588,12 @@ declare global {
       forceSynth(on: boolean): void;
       stress(): Promise<StressResult>;
       renderAll(withSamples?: boolean): Promise<RenderStats[]>;
+      renderCases(filter?: string, withSamples?: boolean): Promise<RenderStats[]>;
+      renderDepths(withSamples?: boolean): Promise<RenderStats[]>;
+      setDepth(depth: number): void;
+      unmapped(): string[];
+      abilityTable(): string[];
+      ultimateStress(): void;
       loadOfflineBank: typeof loadOfflineBank;
     };
   }

@@ -8,6 +8,7 @@ import { bus } from '../core/EventBus.ts';
 import { selfRoster, state } from '../core/GameState.ts';
 
 const PICK_DELAY_MS = 700;
+const BRAIN_SEED = 7;
 
 export interface Autopilot {
   think(snap: Snapshot): InputCmd | null;
@@ -16,6 +17,8 @@ export interface Autopilot {
 export function createAutopilot(): Autopilot {
   let brain: BotBrain | null = null;
   let tick = 0;
+  // `?autopilot&descend=N`: take the descend door until depth N (default: ascend at once).
+  const descendTo = Math.max(0, Number(new URLSearchParams(window.location.search).get('descend')) || 0);
   bus.on('game:event', (event) => brain?.observe([event], tick));
   bus.on('state:draft', () => {
     if (state.draft.length === 0 || !brain) return;
@@ -27,7 +30,7 @@ export function createAutopilot(): Autopilot {
       const me = selfRoster();
       const run = state.run;
       if (!me || !run) return null;
-      if (!brain || brain.slot !== me.slot) brain = new BotBrain(me.slot, me.cls, 7);
+      if (!brain || brain.slot !== me.slot) brain = new BotBrain(me.slot, me.cls, BRAIN_SEED, { descendTo });
       brain.cls = me.cls;
       tick = snap.tick;
       return brain.think({ tick: snap.tick, slot: me.slot, cls: me.cls, players: snap.players, enemies: snap.enemies, projectiles: snap.projectiles, run });

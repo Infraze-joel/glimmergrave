@@ -3,6 +3,7 @@
  * is a contract type (SnapshotBody, SelfState, RunState, GameEvent, BoonOffer, BoonStack).
  */
 import { NET, RUN } from '../constants.ts';
+import { ULTIMATE } from '../data/classes.ts';
 import type { SnapshotBody } from '../protocol.ts';
 import {
   EF, PF,
@@ -18,12 +19,14 @@ import {
 import { spawnEnemy, stepEnemy, type SpawnOpts } from './enemies.ts';
 import { stepHazards } from './hazardFx.ts';
 import { noMetaLevels } from './meta.ts';
+import { META } from './tuning.ts';
+import { sanctuaryHolds, stepBlasts, stepZones } from './zones.ts';
 import { startTutorial, type TutorialRun } from './tutorial.ts';
 import { CLASSES } from '../data/classes.ts';
 import { createHero, placeHero, queueInput, resetHero, stepHero, stepHeroInteractions } from './players.ts';
 import { stepProjectiles } from './projectiles.ts';
 import { Rng } from './rng.ts';
-import type { Enemy, Hero, Projectile } from './state.ts';
+import type { Enemy, Hero, HeroBuild, PendingBlast, Projectile, Zone } from './state.ts';
 import { DIRECTOR, SIM } from './tuning.ts';
 
 const LOBBY_ROOM_W = 30;
@@ -39,8 +42,11 @@ const freshRun = (): RunCore => ({
   phase: 'lobby', oath: 0, chamber: 0, chamberKind: 'combat', entered: 'boon', wave: 0, waveCount: 0, doors: [],
   doorProgress: [], bossId: -1, draftPending: [], draftTime: 0, elapsed: 0, secondWinds: 0,
   // `finalBoss` only means something once a run has started (it is drawn from the run seed).
-  bossKind: null, finalBoss: 'regent', rewards: [], tutorial: null,
+  bossKind: null, finalBoss: 'regent', rewards: [], depth: 0, cleared: 0, chambersCleared: 0, tutorial: null,
 });
+
+/** Mixed into the run seed for the generator that only rolls relic shards. */
+const LOOT_SEED_SALT = 0x9e3779b9;
 
 export class World {
   tick = 0;
@@ -49,6 +55,11 @@ export class World {
   heroes: Hero[] = [];
   enemies: Enemy[] = [];
   projectiles: Projectile[] = [];
+  /** Lasting ground effects of hero abilities, and delayed hostile explosions (volatile affix). */
+  zones: Zone[] = [];
+  blasts: PendingBlast[] = [];
+  /** Relic shard rolls have their own seeded stream, so loot never changes how a fight plays out. */
+  lootRng = new Rng(1);
   room: RoomLayout = lobbyRoom();
   run: RunCore = freshRun();
   director: DirectorState = createDirector();
@@ -70,6 +81,10 @@ export class World {
   fragileCount = 0;
   nextEnemyId = 1;
   nextProjectileId = 1;
+  nextZoneId = 1;
+  /** Elites and champions of this chamber carry an affix; number of affixed enemies spawned in it so far. */
+  affixed = false;
+  affixes = 0;
   /** Enemy scaling of the current chamber. */
   hpMul = 1;
   damageMul = 1;
@@ -89,23 +104,36 @@ export class World {
 
   /**
    * Adds a hero. Only possible in the lobby; returns false for an invalid or taken slot or during a run.
-   * `meta` are the hero's permanent upgrade levels (Loadout.meta); they are clamped to valid levels here.
+   * `loadout` is the hero's permanent build: a (partial) Loadout or just the upgrade levels (Loadout.meta).
+   * Everything in it is clamped here again (art and talents by mastery, relics by slots, ranks by maximum).
    */
-  addPlayer(slot: number, cls: ClassId, name: string, meta?: readonly number[]): boolean {
+  addPlayer(slot: number, cls: ClassId, name: string, loadout?: unknown): boolean {
     if (this.run.phase !== 'lobby' || !Number.isInteger(slot) || slot < 0 || slot >= NET.MAX_PLAYERS) return false;
     if (this.hero(slot) || !(cls in CLASSES)) return false;
-    this.heroes.push(createHero(slot, cls, name, meta));
+    this.heroes.push(createHero(slot, cls, name, loadout));
     this.heroes.sort((a, b) => a.slot - b.slot);
     return true;
   }
 
-  /** Replaces a hero's permanent upgrade levels (lobby only). */
+  private replaceHero(h: Hero, cls: ClassId, loadout: unknown): void {
+    const fresh = createHero(h.slot, cls, h.name, loadout);
+    fresh.connected = h.connected;
+    this.heroes[this.heroes.indexOf(h)] = fresh;
+  }
+
+  /** Replaces a hero's permanent upgrade levels and keeps the rest of the build (lobby only). */
   setMeta(slot: number, meta: readonly number[]): boolean {
     const h = this.hero(slot);
     if (!h || this.run.phase !== 'lobby') return false;
-    const fresh = createHero(slot, h.cls, h.name, meta);
-    fresh.connected = h.connected;
-    this.heroes[this.heroes.indexOf(h)] = fresh;
+    this.replaceHero(h, h.cls, { ...h.build, meta });
+    return true;
+  }
+
+  /** Replaces a hero's whole build (lobby only). */
+  setLoadout(slot: number, loadout: unknown): boolean {
+    const h = this.hero(slot);
+    if (!h || this.run.phase !== 'lobby') return false;
+    this.replaceHero(h, h.cls, loadout);
     return true;
   }
 
@@ -114,13 +142,20 @@ export class World {
     return h ? [...h.metaLevels] : noMetaLevels();
   }
 
-  /** Changes a hero's class (lobby only). */
-  setClass(slot: number, cls: ClassId): boolean {
+  /** The hero's sanitised build (what the simulation actually applies), or null. */
+  getBuild(slot: number): HeroBuild | null {
+    const h = this.hero(slot);
+    return h ? { ...h.build, meta: [...h.build.meta], paragon: [...h.build.paragon], talents: [...h.build.talents], relics: h.build.relics.map((r) => ({ ...r })) } : null;
+  }
+
+  /**
+   * Changes a hero's class (lobby only). Mastery, art and talents belong to a class: without a `loadout` for the
+   * new class they fall back to level 1 / none, while upgrades, Ascension ranks and relics are kept.
+   */
+  setClass(slot: number, cls: ClassId, loadout?: unknown): boolean {
     const h = this.hero(slot);
     if (!h || this.run.phase !== 'lobby' || !(cls in CLASSES)) return false;
-    const fresh = createHero(slot, cls, h.name, h.metaLevels);
-    fresh.connected = h.connected;
-    this.heroes[this.heroes.indexOf(h)] = fresh;
+    this.replaceHero(h, cls, loadout ?? (cls === h.cls ? h.build : { meta: h.build.meta, paragon: h.build.paragon, relics: h.build.relics }));
     return true;
   }
 
@@ -183,6 +218,7 @@ export class World {
   startTutorial(seed: number): boolean {
     if (this.run.phase !== 'lobby' || this.heroes.length !== 1) return false;
     const h = this.heroes[0] as Hero;
+    // Training heroes are plain: no upgrades, Ascension, mastery, talents or relics.
     const plain = createHero(h.slot, h.cls, h.name);
     plain.connected = h.connected;
     this.heroes[0] = plain;
@@ -214,8 +250,10 @@ export class World {
     this.rng = new Rng(seed);
     this.tick = 0;
     this.run = freshRun();
-    this.run.oath = Math.max(0, Math.min(RUN.OATH.length - 1, Math.floor(Number.isFinite(oath) ? oath : 0)));
-    this.run.secondWinds = this.heroes.length === 1 ? RUN.SOLO_SECOND_WINDS : 0;
+    this.lootRng = new Rng((seed ^ LOOT_SEED_SALT) >>> 0);
+    this.run.oath = Math.max(0, Math.min(RUN.OATH_MAX, Math.floor(Number.isFinite(oath) ? oath : 0)));
+    const solo = this.heroes.length === 1 ? this.heroes[0] : undefined;
+    this.run.secondWinds = solo ? RUN.SOLO_SECOND_WINDS + (solo.meta.tenacity ? META.TENACITY_SECOND_WINDS : 0) : 0;
     this.director = createDirector();
     this.tutorial = null;
     for (const h of this.heroes) resetHero(h);
@@ -238,9 +276,14 @@ export class World {
   private clearEntities(): void {
     this.enemies.length = 0;
     this.projectiles.length = 0;
+    this.zones.length = 0;
+    this.blasts.length = 0;
     this.events.length = 0;
     this.nextEnemyId = 1;
     this.nextProjectileId = 1;
+    this.nextZoneId = 1;
+    this.affixed = false;
+    this.affixes = 0;
     this.hpMul = 1;
     this.damageMul = 1;
     this.speedMul = 1;
@@ -276,6 +319,8 @@ export class World {
       const n = this.enemies.length;
       for (let i = 0; i < n; i++) stepEnemy(this, this.enemies[i] as Enemy);
       stepProjectiles(this);
+      stepZones(this);
+      if (this.blasts.length > 0) stepBlasts(this);
     }
     stepDirector(this);
     if (this.run.phase === 'combat') this.checkDefeat();
@@ -289,6 +334,8 @@ export class World {
       if (!h.connected) continue;
       connected++;
       if (h.state === 'alive' || h.secondWindTimer > 0) return;
+      // A fallen hero inside a sanctuary is about to be raised.
+      if (this.zones.length > 0 && sanctuaryHolds(this, h)) return;
     }
     // With nobody connected the world is merely paused; the run is lost only when every present hero is down.
     if (connected === 0 && this.heroes.length > 0) return;
@@ -364,7 +411,7 @@ export class World {
       doors: run.doors.map((d) => ({ ...d })),
       doorProgress: [...run.doorProgress],
       draftPending: [...run.draftPending],
-      rewards: run.rewards.map((r) => ({ ...r })),
+      rewards: run.rewards.map((r) => ({ ...r, relics: [...r.relics] })),
       tutorial: run.tutorial ? { ...run.tutorial, marker: run.tutorial.marker ? { ...run.tutorial.marker } : null } : null,
       room: run.phase === 'lobby' ? null : this.room,
       stats: this.heroes.map((h) => ({ ...h.run, damage: Math.round(h.run.damage) })),
@@ -393,7 +440,7 @@ export class World {
         shield: h.barrier + h.tempShield, state: h.state, anim: h.anim, animSeq: h.animSeq & 0xff,
         cdSecondary: h.secondaryCdMax > 0 ? Math.min(1, h.secondaryCd / h.secondaryCdMax) : 0,
         cdDash: h.dashCharges >= maxCharges ? 0 : Math.min(1, h.dashRecharge / dashRechargeSeconds(h)),
-        dashCharges: h.dashCharges, revive: Math.min(1, h.revive), flags,
+        ult: Math.min(1, h.ult / ULTIMATE.MAX), dashCharges: h.dashCharges, revive: Math.min(1, h.revive), flags,
       });
     }
     const enemies: EnemySnap[] = [];
@@ -403,6 +450,7 @@ export class World {
       if (e.status === 'ember') flags |= EF.BURN;
       else if (e.status === 'rime') flags |= EF.CHILL;
       else if (e.status === 'storm') flags |= EF.SHOCK;
+      else if (e.status === 'umbra') flags |= EF.WITHER;
       if (e.stunTime > 0) flags |= EF.STUNNED;
       if (e.shieldHp > 0) flags |= EF.SHIELDED;
       if (e.boss && e.boss.phase >= 3) flags |= EF.ENRAGED;

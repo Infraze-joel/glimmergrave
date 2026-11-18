@@ -2,34 +2,44 @@
  * Codex: the rules of the game in one place, reachable from the main menu and the pause menu.
  * Every number is read from the shared balance tables at render time, never copied.
  */
-import { RUN, WORLD } from '@shared/constants.ts';
-import { BOONS, type BoonCategory } from '@shared/data/boons.ts';
-import { DASH } from '@shared/data/classes.ts';
+import { RUN, WORLD, depthScale } from '@shared/constants.ts';
+import { BOONS, SETS, type BoonCategory } from '@shared/data/boons.ts';
+import { CLASSES, DASH, ULTIMATE } from '@shared/data/classes.ts';
+import { FEATS } from '@shared/data/feats.ts';
+import { MASTERY, XP_REWARDS } from '@shared/data/mastery.ts';
+import { PARAGON, PARAGON_TUNING } from '@shared/data/meta.ts';
+import { REACTIONS } from '@shared/data/reactions.ts';
+import { RELICS, RELIC_TUNING } from '@shared/data/relics.ts';
 import * as enemyData from '@shared/data/enemies.ts';
 import { ENEMY_TUNING } from '@shared/data/enemies.ts';
 import { REWARDS } from '@shared/data/meta.ts';
 import { HAZARD_TIMING } from '@shared/sim/hazards.ts';
-import { BOSS_KINDS, DOOR_TYPES, ELEMENT_IDS, type EnemyKind, type Hazard } from '@shared/types.ts';
+import { AFFIX_IDS, BOSS_KINDS, CLASS_IDS, DOOR_TYPES, ELEMENT_IDS, type EnemyKind, type Hazard } from '@shared/types.ts';
 import { h, icon } from './dom.ts';
-import { ELEMENT_PAIRS, enemyHealth, enemyName, highlight, pairName, phaseThresholds, resonanceParams, statusParams } from './elements.ts';
+import { enemyHealth, enemyName, highlight, phaseThresholds, resonanceParams, statusParams } from './elements.ts';
+import { setIcon, setTint } from './hud3.ts';
 import { BOSS_ICON } from './hud.ts';
 import type { IconName } from './icons.ts';
-import { DOOR_TEXT_PARAMS, formatBoon, formatInt, roman, t, type I18nKey, type Params } from './i18n.ts';
-import { MAX_OATH, oathDescription, oathName } from './model.ts';
+import { DOOR_TEXT_PARAMS, formatBoon, formatInt, formatNum, roman, t, type I18nKey, type Params } from './i18n.ts';
+import { ABILITY_ICON, ART_ICON, CLASS_DIFFICULTY, HERO_SLOTS, MAX_OATH, abilityDesc, abilityName, artDesc, artName, oathDescription, oathName } from './model.ts';
+import { affixBody, affixName, modText, paragonName, reactionBody, reactionName, setCounts, setName, setTierText } from './text.ts';
+import { boonIcon, boonTint } from './model.ts';
 import { pageHead } from './pages.ts';
 import { richEl } from './rich.ts';
 import { ui, type CodexTab } from './store.ts';
 import type { View } from './view.ts';
 
 const PERCENT = 100;
-const TABS: readonly CodexTab[] = ['elements', 'combat', 'hazards', 'enemies', 'doors', 'boons'];
+const TABS: readonly CodexTab[] = ['elements', 'classes', 'combat', 'hazards', 'enemies', 'doors', 'boons', 'progress'];
 const TAB_ICON: Record<CodexTab, IconName> = {
-  elements: 'element', combat: 'combat', hazards: 'spikes', enemies: 'elite', doors: 'door', boons: 'boon',
+  elements: 'element', classes: 'users', combat: 'combat', hazards: 'spikes', enemies: 'elite', doors: 'door', boons: 'boon', progress: 'ascension',
 };
 const HAZARD_KINDS: readonly Hazard['kind'][] = ['spikes', 'vent', 'frost'];
 const FOES: readonly EnemyKind[] = ['minion', 'warrior', 'archer', 'mage'];
 const ENEMY_ICON: Partial<Record<EnemyKind, IconName>> = { minion: 'skull', warrior: 'defense', archer: 'crossbow', mage: 'nova', ...BOSS_ICON };
-const CATEGORIES: readonly BoonCategory[] = ['infusion', 'offense', 'defense', 'mobility', 'element', 'resonance', 'kinship'];
+const CATEGORIES: readonly BoonCategory[] = ['infusion', 'offense', 'defense', 'mobility', 'element', 'resonance', 'kinship', 'ultimate', 'class', 'duo'];
+/** Oath levels listed one by one; the endless ones above follow a rule that one sentence explains. */
+const NAMED_OATHS = RUN.OATH.length - 1;
 const pctMore = (mul: number): number => Math.round((mul - 1) * PERCENT);
 
 interface HazardNumbers {
@@ -159,15 +169,22 @@ function elementsTab(): HTMLElement[] {
     step(2, 'step2', h('div', { class: 'gg-res-scene' }, h('span', { class: 'gg-res-shot is-b' }, icon('rime'), 'B'), icon('arrow', 'gg-res-arrow'), foe('has-a', 'A'))),
     step(3, 'step3', h('div', { class: 'gg-res-scene is-burst' }, foe('has-b is-small', 'B'), foe('is-core', null), foe('has-b is-small', 'B')), resonanceParams()),
   );
-  const pairs = h('ul', { class: 'gg-codex-pairs' });
-  for (const [a, b] of ELEMENT_PAIRS) {
-    pairs.append(h('li', { class: 'gg-cut' },
-      h('span', { class: `gg-el-${a}` }, icon(a), t(`element.${a}.name`)),
-      icon('plus', 'gg-pair-plus'),
-      h('span', { class: `gg-el-${b}` }, icon(b), t(`element.${b}.name`)),
-      icon('arrow', 'gg-pair-plus'),
-      h('b', null, pairName(a, b)),
-    ));
+  const pairs = h('ul', { class: 'gg-codex-pairs gg-codex-reactions' });
+  for (const reaction of REACTIONS) {
+    const [a, b] = reaction.pair;
+    const row = h('li', { class: 'gg-cut', 'data-reaction': reaction.id },
+      h('span', { class: 'gg-reaction-pair' },
+        h('span', { class: `gg-el-${a}` }, icon(a), t(`element.${a}.name`)),
+        icon('plus', 'gg-pair-plus'),
+        h('span', { class: `gg-el-${b}` }, icon(b), t(`element.${b}.name`)),
+      ),
+      h('b', null, reactionName(reaction)),
+      h('span', { class: 'gg-reaction-body' }, reactionBody(reaction)),
+      h('em', { class: 'gg-num' }, t('codex.reactions.burst', { dmg: formatNum(reaction.damageMul), r: formatNum(reaction.radiusMul) })),
+    );
+    row.style.setProperty('--el-a', `var(--gg-${a})`);
+    row.style.setProperty('--el-b', `var(--gg-${b})`);
+    pairs.append(row);
   }
   return [
     richEl('p', 'gg-codex-intro', t('codex.elements.intro')),
@@ -176,7 +193,8 @@ function elementsTab(): HTMLElement[] {
     richEl('p', 'gg-codex-lead', t('codex.res.lead')),
     diagram,
     richEl('p', 'gg-codex-note', t('codex.res.rule')),
-    h('div', { class: 'gg-label' }, t('codex.res.pairs')),
+    heading(t('codex.res.pairs6'), 'duo'),
+    richEl('p', 'gg-codex-lead', t('codex.reactions.intro')),
     pairs,
   ];
 }
@@ -290,11 +308,12 @@ function enemiesTab(): HTMLElement[] {
 function doorsTab(): HTMLElement[] {
   const doors = h('div', { class: 'gg-codex-grid' });
   for (const type of DOOR_TYPES) {
-    const desc = type === 'boss' ? t('codex.doors.boss') : t(`door.${type}.desc`, DOOR_TEXT_PARAMS);
+    const desc = type === 'boss' ? t('codex.doors.boss')
+      : type === 'descend' ? t('codex.doors.descend') : type === 'ascend' ? t('codex.doors.ascend') : t(`door.${type}.desc`, DOOR_TEXT_PARAMS);
     doors.append(card(type, t(`door.${type}.name`), desc, `gg-door--${type}`));
   }
   const oaths = h('ol', { class: 'gg-codex-oaths' });
-  for (let level = 0; level <= MAX_OATH; level++) {
+  for (let level = 0; level <= NAMED_OATHS; level++) {
     oaths.append(h('li', { class: 'gg-cut' },
       h('b', { class: 'gg-oath-num' }, roman(level)),
       h('div', null, h('strong', null, oathName(level)), h('span', null, oathDescription(level))),
@@ -307,6 +326,9 @@ function doorsTab(): HTMLElement[] {
     heading(t('codex.oath.title'), 'bell'),
     h('p', { class: 'gg-codex-lead' }, t('codex.oath.intro', { n: Math.round(REWARDS.OATH_BONUS * PERCENT) })),
     oaths,
+    h('p', { class: 'gg-codex-note' }, t('codex.oath.more', {
+      max: roman(MAX_OATH), n: roman(NAMED_OATHS), hp: Math.round(RUN.OATH_HP_STEP * PERCENT), dmg: Math.round(RUN.OATH_DAMAGE_STEP * PERCENT),
+    })),
     heading(t('codex.glimmer.title'), 'glimmer'),
     h('p', { class: 'gg-codex-lead' }, t('codex.glimmer.intro')),
     h('p', { class: 'gg-codex-note' }, t('armory.earnHint', {
@@ -344,8 +366,7 @@ function boonsTab(): HTMLElement[] {
       for (const def of BOONS) {
         if (def.category !== category) continue;
         const text = formatBoon(def.id, 1);
-        const tint = def.element ? `var(--gg-${def.element})` : category === 'resonance' ? 'var(--gg-glimmer)' : category === 'kinship' ? 'var(--gg-gold)' : 'var(--gg-text)';
-        list.append(boonRow((def.element ?? category) as IconName, tint, def.rarity, text.name, text.desc, def.values.length));
+        list.append(boonRow(boonIcon(def), boonTint(def), def.rarity, text.name, text.desc, def.values.length));
       }
     }
     out.push(
@@ -355,11 +376,92 @@ function boonsTab(): HTMLElement[] {
       ),
     );
   }
+  out.push(...setsSection());
   return out;
 }
 
+function setsSection(): HTMLElement[] {
+  const list = h('ul', { class: 'gg-codex-sets' });
+  for (const def of SETS) {
+    const row = h('li', { class: 'gg-cut', 'data-set': def.id },
+      h('span', { class: 'gg-codex-set-icon' }, icon(setIcon(def))),
+      h('div', { class: 'gg-codex-set-id' }, h('b', null, setName(def)), h('span', null, setCounts(def))),
+      h('div', { class: 'gg-codex-set-tier' }, h('em', { class: 'gg-num' }, `${roman(1)} · ${t('codex.sets.need', { n: def.need[0] })}`), h('span', null, setTierText(def, 1))),
+      h('div', { class: 'gg-codex-set-tier' }, h('em', { class: 'gg-num' }, `${roman(2)} · ${t('codex.sets.need', { n: def.need[1] })}`), h('span', null, setTierText(def, 2))),
+    );
+    row.style.setProperty('--tint', setTint(def));
+    list.append(row);
+  }
+  return [
+    h('section', { class: 'gg-codex-cat', 'data-category': 'sets' },
+      h('header', null, heading(t('codex.sets.title'), 'gem'), richEl('p', '', t('codex.sets.intro'))),
+      list,
+    ),
+    h('section', { class: 'gg-codex-cat', 'data-category': 'duo-note' },
+      h('header', null, heading(t('codex.duo.title'), 'duo'), h('p', null, t('codex.duo.body')))),
+  ];
+}
+
+function classesTab(): HTMLElement[] {
+  const list = h('div', { class: 'gg-codex-classes' });
+  for (const cls of CLASS_IDS) {
+    const def = CLASSES[cls];
+    const rows = h('ul', { class: 'gg-class-abilities' });
+    const line = (slotLabel: string, iconName: IconName, name: string, desc: string, cssClass = ''): HTMLElement =>
+      h('li', { class: cssClass }, h('em', { class: 'gg-codex-slot' }, slotLabel), icon(iconName, 'gg-class-ability-icon'),
+        h('span', { class: 'gg-class-ability-text' }, h('b', null, name), ' ', h('span', null, desc)));
+    for (const slot of HERO_SLOTS) {
+      rows.append(line(t(`slot.${slot}`), ABILITY_ICON[cls][slot], abilityName(cls, slot), abilityDesc(cls, slot), `is-${slot}`));
+      if (slot === 'secondary' && def.arts.length > 0) rows.append(line(t('slot.art'), ART_ICON[cls], artName(cls), artDesc(cls), 'is-art'));
+    }
+    list.append(h('article', { class: `gg-codex-class gg-cut gg-cls-${cls}`, 'data-cls': cls },
+      h('header', null,
+        h('span', { class: 'gg-class-emblem' }, icon(cls)),
+        h('div', null,
+          h('h4', null, t(`class.${cls}.name`)),
+          h('p', null, t(`class.${cls}.role`), ' · ', t(`difficulty.${CLASS_DIFFICULTY[cls]}`)),
+        ),
+        h('span', { class: 'gg-codex-class-stats gg-num' }, t('codex.classes.stats', { hp: def.maxHp, speed: formatNum(def.moveSpeed), dash: def.dashCharges })),
+      ),
+      rows,
+    ));
+  }
+  return [
+    richEl('p', 'gg-codex-intro', t('codex.classes.intro', { n: MASTERY.ART_LEVEL })),
+    list,
+    heading(t('codex.ult.title'), 'ultimate'),
+    richEl('p', 'gg-codex-lead', t('codex.ult.body', { max: ULTIMATE.MAX })),
+  ];
+}
+
+function progressTab(): HTMLElement[] {
+  const deep = depthScale(1);
+  const affixes = h('div', { class: 'gg-codex-grid' });
+  for (const id of AFFIX_IDS) affixes.append(card('affix', affixName(id), affixBody(id), 'gg-codex-affix'));
+  const [t1, t2, t3] = MASTERY.TALENT_LEVELS;
+  return [
+    heading(t('codex.descent.title'), 'descend'),
+    richEl('p', 'gg-codex-lead', t('codex.descent.body', { heal: Math.round(RUN.DEPTH.HEAL_FRACTION * PERCENT), n: RUN.CHAMBERS.length })),
+    h('p', { class: 'gg-codex-note' }, t('codex.descent.scale', {
+      hp: pctMore(deep.hp), dmg: pctMore(deep.damage), reward: Math.round(XP_REWARDS.DEPTH_BONUS * PERCENT),
+    })),
+    heading(t('codex.affix.title'), 'affix'),
+    h('p', { class: 'gg-codex-lead' }, t('codex.affix.intro', { d: roman(RUN.DEPTH.AFFIX_FROM_DEPTH + 1), o: roman(RUN.DEPTH.AFFIX_FROM_OATH) })),
+    affixes,
+    h('div', { class: 'gg-codex-grid gg-codex-grid--wide' },
+      card('mastery', t('codex.mastery.title'), `${t('codex.mastery.body', { art: MASTERY.ART_LEVEL, t1, t2, t3 })} ${t('mastery.perLevel', { bonus: modText(MASTERY.PER_LEVEL) })}`),
+      card('relic', t('codex.relics.title'), t('codex.relics.body', {
+        n: RELICS.length, max: RELIC_TUNING.MAX_RANK, step: Math.round(RELIC_TUNING.RANK_STEP * PERCENT), a: RELIC_TUNING.BASE_SLOTS, b: RELIC_TUNING.MAX_SLOTS,
+      })),
+      card('ascension', t('codex.ascension.title'), `${t('codex.ascension.body', { n: PARAGON_TUNING.SOFT_RANK })} ${PARAGON.map(paragonName).join(' · ')}.`),
+      card('chronicle', t('codex.chronicle.title'), t('codex.chronicle.body', { n: FEATS.length })),
+    ),
+  ];
+}
+
 const BUILDERS: Record<CodexTab, () => HTMLElement[]> = {
-  elements: elementsTab, combat: combatTab, hazards: hazardsTab, enemies: enemiesTab, doors: doorsTab, boons: boonsTab,
+  elements: elementsTab, classes: classesTab, combat: combatTab, hazards: hazardsTab, enemies: enemiesTab, doors: doorsTab, boons: boonsTab,
+  progress: progressTab,
 };
 
 export function createCodex(close: () => void): View {

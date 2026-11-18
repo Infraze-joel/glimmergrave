@@ -59,7 +59,7 @@ export class NetClient {
     bus.on('ui:lobby', (patch) => this.send({ t: 'lobby', ...patch, ...(patch.cls ? { loadout: loadoutFor(patch.cls) } : {}) }));
     bus.on('ui:loadout', () => {
       const me = selfRoster();
-      if (me && state.run?.phase === 'lobby') this.send({ t: 'lobby', loadout: loadoutFor(me.cls) });
+      if (me && state.run?.phase === 'lobby') this.send({ t: 'lobby', cls: me.cls, loadout: loadoutFor(me.cls) });
     });
     bus.on('ui:reroll', () => this.send({ t: 'reroll' }));
     bus.on('ui:start', () => this.send({ t: 'start' }));

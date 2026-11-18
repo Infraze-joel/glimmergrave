@@ -15,14 +15,15 @@ import './styles/hud.css';
 import './styles/overlays.css';
 import './styles/update2.css';
 import './styles/pages.css';
+import './styles/update3.css';
 
 import { bus } from '../core/EventBus.ts';
 import { state } from '../core/GameState.ts';
 import { settings } from '../core/Settings.ts';
-import { createArmory } from './armory.ts';
 import { createCodex } from './codex.ts';
 import { blurActive } from './dom.ts';
 import { createDraft, type DraftView } from './draft.ts';
+import { createHub } from './hub.ts';
 import { createHud, type HudView } from './hud.ts';
 import { getLang, setLang, t } from './i18n.ts';
 import { createLoading } from './loading.ts';
@@ -50,8 +51,8 @@ interface Views {
   codex: View;
 }
 
-const DIGIT_CODES = ['Digit1', 'Digit2', 'Digit3', 'Digit4'];
-const NUMPAD_CODES = ['Numpad1', 'Numpad2', 'Numpad3', 'Numpad4'];
+const DIGIT_CODES = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'];
+const NUMPAD_CODES = ['Numpad1', 'Numpad2', 'Numpad3', 'Numpad4', 'Numpad5'];
 const INTERACTIVE_TAGS = new Set(['BUTTON', 'INPUT', 'TEXTAREA', 'SELECT', 'A']);
 const REROLL_CODE = 'KeyR';
 /** screenX is sent with this many decimals (sub-pixel changes must not re-emit 'ui:showcase'). */
@@ -171,7 +172,7 @@ function build(): void {
     tab: createScoreboard(),
     overlays: createOverlays({ closeModal, setPause, openCodex: () => openPage('codex') }),
     toasts: createToasts(),
-    armory: createArmory(closePage),
+    armory: createHub(closePage),
     wardrobe: createWardrobe(closePage, refresh),
     codex: createCodex(closePage),
   };
@@ -229,6 +230,8 @@ function trackBiomes(): void {
 
 function trackOathBaseline(): void {
   const phase = state.run?.phase;
+  // The booked rewards belong to the summary of one run: forget them once another run (or the lobby) is on.
+  if (phase !== 'victory' && phase !== 'defeat') ui.progress = null;
   if (phase === 'combat' || phase === 'draft' || phase === 'doors') ui.oathBaseline = state.profile.oathUnlocked;
   else if (!phase || phase === 'lobby') ui.oathBaseline = null;
 }
@@ -276,9 +279,16 @@ export function initUI(root: HTMLElement): void {
     refresh();
   });
 
+  // Rewards of the finished run were booked into the profile: the summary shows what changed.
+  bus.on('game:progress', (progress) => { ui.progress = progress; refresh(); });
+
   // ---- gameplay feedback
   bus.on('game:event', (ev) => { if (views?.hud.el.isConnected) views.hud.onEvent(ev); });
-  bus.on('game:localAction', ({ action }) => { if (views?.hud.el.isConnected) views.hud.onLocalAction(action); });
+  bus.on('game:localAction', (payload) => {
+    // `slot` is not part of the contract yet (see the UI report): read it when the game sends it.
+    const slot = (payload as { slot?: unknown }).slot;
+    if (views?.hud.el.isConnected) views.hud.onLocalAction(payload.action, typeof slot === 'string' ? slot : undefined);
+  });
 
   // ---- settings (language switches rebuild the whole UI in place)
   bus.on('settings:changed', (next) => {

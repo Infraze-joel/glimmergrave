@@ -1,12 +1,16 @@
 /** Run director: run plan (bosses, biomes), room generation, wave composition, drafts, doors, rewards and the chamber flow. */
-import { NET, RUN, TICK_DT, WORLD } from '../constants.ts';
+import { depthScale, NET, oathScale, RUN, TICK_DT, WORLD } from '../constants.ts';
 import { BOON_TUNING } from '../data/boons.ts';
+import { ULTIMATE } from '../data/classes.ts';
+import { RELIC_TUNING } from '../data/relics.ts';
 import { ENEMIES, type EnemyDef } from '../data/enemies.ts';
 import { BOSS_KINDS, type BiomeId, type BossKind, type Door, type DoorType, type EnemyKind, type Hazard, type Obstacle, type RoomLayout } from '../types.ts';
 import { applyBoon, generateDraft } from './boons.ts';
-import { healHero, killEnemy, reviveHero } from './combat.ts';
+import { grantShield, healHero, killEnemy, reviveHero } from './combat.ts';
 import { livingEnemies, spawnEnemy } from './enemies.ts';
-import { baseReward, heroReward } from './meta.ts';
+import { earn, emptyEarnings, glimmerReward, xpReward, type Earnings } from './meta.ts';
+import { rollShards } from './loot.ts';
+import { clearZones } from './zones.ts';
 import { placeHero } from './players.ts';
 import type { Rng } from './rng.ts';
 import type { DraftOptions, Hero } from './state.ts';
@@ -34,15 +38,18 @@ export interface DirectorState {
   herald: BossKind;
   /** The current draft is the attunement draft at run start: combat follows instead of doors. */
   preDraft: boolean;
-  /** Reward tally. */
+  /** Reward tally (whole run, all depths). `bossSlain`: at least one final boss fell. */
   chambersCleared: number;
   elitesSlain: number;
   bossSlain: boolean;
+  /** What the party has earned so far (depth bonus already applied to every payment). */
+  earnings: Earnings;
 }
 
 export const createDirector = (): DirectorState => ({
   manual: false, queue: [], spawnTimer: 0, waveTimer: 0, waveDelay: 0, clearTimer: 0,
   biomes: ['crypt', 'flooded', 'forge'], herald: 'matron', preDraft: false, chambersCleared: 0, elitesSlain: 0, bossSlain: false,
+  earnings: emptyEarnings(),
 });
 
 /** Test / tooling overrides of the seeded run plan. */
@@ -62,6 +69,17 @@ export function planRun(w: World, o: RunOverrides = {}): void {
   const others = BOSS_KINDS.filter((k) => k !== w.run.finalBoss);
   w.director.herald = o.herald !== undefined && o.herald !== w.run.finalBoss ? o.herald : (others[Math.floor(heraldRoll * others.length)] as BossKind);
   w.director.biomes = ['crypt', ...(o.biomes ?? (flip ? ['flooded', 'forge'] as const : ['forge', 'flooded'] as const))];
+}
+
+/**
+ * The plan of the next depth: a final boss other than the one just slain, a herald that is neither, and a fresh
+ * biome order — all from the run's seeded generator.
+ */
+export function planDescent(w: World): void {
+  const others = BOSS_KINDS.filter((k) => k !== w.run.finalBoss);
+  w.run.finalBoss = w.rng.pick(others);
+  w.director.herald = w.rng.pick(BOSS_KINDS.filter((k) => k !== w.run.finalBoss));
+  w.director.biomes = ['crypt', ...(w.rng.chance(0.5) ? ['flooded', 'forge'] as const : ['forge', 'flooded'] as const)];
 }
 
 /** Biome of a chamber: act 1 (crypt), act 2 or act 3 of this run's plan. */
@@ -388,11 +406,13 @@ export function findSpawnPoint(w: World, radius: number): { x: number; z: number
 }
 
 function setScaling(w: World): void {
-  const oath = RUN.OATH[w.run.oath] ?? RUN.OATH[0];
+  const oath = oathScale(w.run.oath);
+  const depth = depthScale(w.run.depth);
   const chamber = w.run.chamber;
-  w.hpMul = (1 + RUN.HP_GROWTH_PER_CHAMBER * chamber) * (1 + RUN.HP_PER_EXTRA_PLAYER * (w.partySize - 1)) * oath.hp;
-  w.damageMul = (1 + RUN.DAMAGE_GROWTH_PER_CHAMBER * chamber) * (1 + DIRECTOR.DAMAGE_PER_EXTRA_PLAYER * (w.partySize - 1)) * oath.damage;
-  w.speedMul = oath.speed;
+  w.hpMul = (1 + RUN.HP_GROWTH_PER_CHAMBER * chamber) * (1 + RUN.HP_PER_EXTRA_PLAYER * (w.partySize - 1)) * oath.hp * depth.hp;
+  w.damageMul = (1 + RUN.DAMAGE_GROWTH_PER_CHAMBER * chamber) * (1 + DIRECTOR.DAMAGE_PER_EXTRA_PLAYER * (w.partySize - 1)) * oath.damage * depth.damage;
+  w.speedMul = oath.speed * depth.speed;
+  w.affixed = w.run.depth >= RUN.DEPTH.AFFIX_FROM_DEPTH || w.run.oath >= RUN.DEPTH.AFFIX_FROM_OATH;
 }
 
 export function enterChamber(w: World, index: number, entered: DoorType): void {
@@ -415,6 +435,8 @@ export function enterChamber(w: World, index: number, entered: DoorType): void {
   w.room = generateRoom(w.rng, kind, biomeOfChamber(w.director.biomes, index), index);
   w.enemies.length = 0;
   w.projectiles.length = 0;
+  clearZones(w);
+  w.affixes = 0;
   w.partySize = Math.max(1, w.heroes.filter((h) => h.connected).length);
   setScaling(w);
   for (const h of w.heroes) {
@@ -425,6 +447,10 @@ export function enterChamber(w: World, index: number, entered: DoorType): void {
     h.draftOpts = null;
     h.burnTime = 0;
     h.chillTime = 0;
+    // Every chamber begins with the hero's start shield and at least the opening_act charge.
+    if (h.mods.startShield > 0) grantShield(h, h.mods.startShield, SIM.START_SHIELD_SECONDS);
+    const opening = ULTIMATE.MAX * h.stats.openingAct;
+    if (h.ult < opening) h.ult = opening;
   }
   const dir = w.director;
   dir.preDraft = false;
@@ -443,7 +469,7 @@ function startWave(w: World): void {
   dir.waveTimer = 0;
   dir.waveDelay = DIRECTOR.WAVE_DELAY;
   const room = Math.max(0, WORLD.MAX_ENEMIES - livingEnemies(w));
-  const budget = waveBudget(run.chamber, w.partySize);
+  const budget = waveBudget(run.chamber, w.partySize) * depthScale(run.depth).count;
   const biome = w.room.biome;
   if (run.chamberKind === 'boss') {
     dir.queue.push({ kind: run.finalBoss, elite: false });
@@ -487,18 +513,25 @@ function offer(w: World, h: Hero, opts: DraftOptions): void {
   if (h.draft.length > 0) w.run.draftPending.push(h.slot);
 }
 
+/** Draft timer: the hourglass relic of any hero in the party makes every draft longer. */
+function draftSeconds(w: World): number {
+  let best = 0;
+  for (const h of w.heroes) if (h.relic.hourglass > best) best = h.relic.hourglass;
+  return RUN.DRAFT_TIMEOUT_SECONDS + RELIC_TUNING.HOURGLASS_SECONDS * best;
+}
+
 function openDraft(w: World): void {
   const run = w.run;
   const cursed = run.entered === 'cursed';
   run.draftPending = [];
   for (const h of w.heroes) {
     offer(w, h, {
-      choices: cursed ? BOON_TUNING.CURSED_DRAFT_CHOICES : RUN.DRAFT_CHOICES,
+      choices: (cursed ? BOON_TUNING.CURSED_DRAFT_CHOICES : RUN.DRAFT_CHOICES) + h.meta.foresight,
       guaranteeRare: cursed,
-      guaranteeInfusion: run.chamber === 0,
+      guaranteeInfusion: run.chamber === 0 && run.depth === 0,
     });
   }
-  run.draftTime = RUN.DRAFT_TIMEOUT_SECONDS;
+  run.draftTime = draftSeconds(w);
   run.phase = 'draft';
   w.runVersion++;
 }
@@ -512,10 +545,10 @@ export function openAttunementDraft(w: World): boolean {
   const run = w.run;
   run.draftPending = [];
   for (const h of w.heroes) {
-    if (h.meta.attunement) offer(w, h, { choices: META.ATTUNEMENT_CHOICES, guaranteeRare: false, guaranteeInfusion: false, infusionsOnly: true });
+    if (h.meta.attunement) offer(w, h, { choices: META.ATTUNEMENT_CHOICES + h.meta.foresight, guaranteeRare: false, guaranteeInfusion: false, infusionsOnly: true });
   }
   if (run.draftPending.length === 0) return false;
-  run.draftTime = RUN.DRAFT_TIMEOUT_SECONDS;
+  run.draftTime = draftSeconds(w);
   run.phase = 'draft';
   w.director.preDraft = true;
   w.runVersion++;
@@ -537,26 +570,44 @@ export function rerollDraft(w: World, h: Hero): boolean {
   return true;
 }
 
-/** Ends the run and pays every hero still on the roster (see REWARDS in data/meta.ts). */
+/**
+ * Ends the run and pays every hero still on the roster: Glimmer (REWARDS), mastery experience (XP_REWARDS) and the
+ * relic shards found on the way. A defeat pays everything earned so far, however deep the party fell.
+ */
 export function finishRun(w: World, phase: 'victory' | 'defeat'): void {
   const run = w.run;
-  const dir = w.director;
+  const e = w.director.earnings;
   run.phase = phase;
-  const base = baseReward({ chambersCleared: dir.chambersCleared, elitesSlain: dir.elitesSlain, bossSlain: dir.bossSlain, oath: run.oath });
-  run.rewards = w.heroes.map((h) => ({ slot: h.slot, glimmer: heroReward(base, h.meta.fortune) }));
+  run.rewards = w.heroes.map((h) => {
+    const compass = RELIC_TUNING.COMPASS_BONUS * h.relic.compass;
+    return {
+      slot: h.slot,
+      glimmer: glimmerReward(e, run.oath, compass, h.mods.glimmer),
+      xp: xpReward(e, run.oath, compass, h.mods.xp),
+      relics: [...h.shards],
+    };
+  });
   run.draftPending = [];
+  run.doors = [];
+  run.doorProgress = [];
   w.projectiles.length = 0;
+  clearZones(w);
   w.runVersion++;
 }
 
 function chamberCleared(w: World): void {
   const run = w.run;
-  w.director.chambersCleared++;
+  const dir = w.director;
+  dir.chambersCleared++;
+  run.chambersCleared = dir.chambersCleared;
+  earn(dir.earnings, 'chamber', run.depth, w.cursed);
   w.projectiles.length = 0;
+  clearZones(w);
   w.emit({ e: 'chamberClear' });
   for (const h of w.heroes) {
     if (h.state === 'downed') reviveHero(w, h, -1, WORLD.REVIVE_HP_FRACTION, SIM.REVIVE_IFRAMES);
     if (run.entered === 'blessing') healHero(w, h, h.maxHp * BOON_TUNING.BLESSING_HEAL_FRACTION);
+    if (h.stats.mending > 0) healHero(w, h, h.maxHp * h.stats.mending);
   }
   openDraft(w);
 }
@@ -566,7 +617,7 @@ export function pickBoon(w: World, h: Hero, index: number): boolean {
   if (w.run.phase !== 'draft') return false;
   const offer = h.draft[index];
   if (!offer) return false;
-  const level = applyBoon(h, offer.id);
+  const level = applyBoon(h, offer.id, (id, tier) => w.emit({ e: 'set', slot: h.slot, id, tier }));
   h.draft = [];
   h.draftOpts = null;
   const at = w.run.draftPending.indexOf(h.slot);
@@ -583,7 +634,10 @@ function openDoors(w: World): void {
   const run = w.run;
   const next = RUN.CHAMBERS[run.chamber + 1];
   let types: DoorType[];
-  if (next === 'boss') {
+  if (run.chamberKind === 'boss') {
+    // A final boss is dead: go deeper or bank the run.
+    types = ['descend', 'ascend'];
+  } else if (next === 'boss') {
     types = ['boss'];
   } else {
     const pool: DoorType[] = ['boon', 'blessing', 'cursed'];
@@ -650,7 +704,22 @@ function stepDoors(w: World): void {
   const door = stepDoorZones(w);
   if (!door) return;
   w.emit({ e: 'doorChosen', type: door.type });
-  enterChamber(w, w.run.chamber + 1, door.type);
+  if (door.type === 'ascend') finishRun(w, 'victory');
+  else if (door.type === 'descend') descend(w);
+  else enterChamber(w, w.run.chamber + 1, door.type);
+}
+
+/** One depth deeper: everyone stands up and is healed, the chamber sequence starts over with a new plan. */
+function descend(w: World): void {
+  const run = w.run;
+  run.depth++;
+  planDescent(w);
+  for (const h of w.heroes) {
+    if (h.state === 'downed') reviveHero(w, h, -1, RUN.DEPTH.HEAL_FRACTION, SIM.REVIVE_IFRAMES);
+    healHero(w, h, h.maxHp * RUN.DEPTH.HEAL_FRACTION);
+  }
+  w.emit({ e: 'descend', depth: run.depth });
+  enterChamber(w, 0, 'descend');
 }
 
 function stepCombat(w: World): void {
@@ -664,11 +733,12 @@ function stepCombat(w: World): void {
     if (!boss || boss.dead) {
       // The final boss is dead: its host crumbles with it.
       for (const e of w.enemies) if (!e.dead) killEnemy(w, e, -1);
-      for (const h of w.heroes) if (h.state === 'downed') reviveHero(w, h, -1, WORLD.REVIVE_HP_FRACTION, SIM.REVIVE_IFRAMES);
-      w.emit({ e: 'chamberClear' });
-      dir.chambersCleared++;
+      // The run goes on: a draft, then the doors to go deeper or to ascend.
       dir.bossSlain = true;
-      finishRun(w, 'victory');
+      run.cleared++;
+      earn(dir.earnings, 'boss', run.depth, w.cursed);
+      rollShards(w, 'boss');
+      chamberCleared(w);
       return;
     }
   }

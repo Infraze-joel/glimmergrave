@@ -4,7 +4,7 @@
  */
 import { TICK_DT, WORLD } from '../constants.ts';
 import { BOON_BY_ID } from '../data/boons.ts';
-import { CLASSES } from '../data/classes.ts';
+import { CLASSES, secondaryOf, type AbilityDef } from '../data/classes.ts';
 import { ENEMIES, ENEMY_TUNING } from '../data/enemies.ts';
 import {
   BTN, EF, PF,
@@ -24,6 +24,8 @@ export interface BotView {
   enemies: EnemySnap[];
   projectiles: ProjectileSnap[];
   run: RunState;
+  /** Secondary variant the hero has equipped (RosterEntry.art); 0 / missing = the standard one. */
+  art?: number;
 }
 
 export interface BotOptions {
@@ -31,6 +33,8 @@ export interface BotOptions {
   reaction?: number;
   /** Chance (0..1) to overlook a telegraph. */
   missChance?: number;
+  /** After a final boss: take the `descend` door while the depth is below this (default 0 = always ascend). */
+  descendTo?: number;
 }
 
 const BOT = {
@@ -57,6 +61,10 @@ const BOT = {
   /** Soul wisps: ranged bots shoot them inside this range; everyone strikes them when they are in reach. */
   WISP_SHOOT_RANGE: 8, WISP_PRIORITY_RANGE: 4.5,
   /** Tutorial script. */
+  /** Ultimates: a full bar counts from here (the wire value is quantised), group sizes worth spending it on. */
+  ULT_READY: 0.995, ULT_PACK: 3, ULT_SELF_RANGE: 0.6, ULT_LOW_HP: 0.5, RAGE_RANGE: 4.5, BANNER_BOSS_RANGE: 8,
+  /** Secondaries by shape: fractions of the ability's reach at which the bot uses it. */
+  LUNGE_REACH: 0.8, FAN_REACH: 0.7, SHOT_REACH: 0.8, LEAP_MIN: 2.5, ZONE_REACH: 0.95, ZONE_HEAL_HP: 0.7, TRAP_MIN: 2,
   TUTORIAL_DASH_LEAD_SECONDS: 0.2, TUTORIAL_STAND: { x: 0, z: 1.5 }, TUTORIAL_HAZARD_STANDOFF: 1.8, TUTORIAL_STORM_DASH_RANGE: 3.6, TUTORIAL_CLOSE_RANGE: 3,
 } as const;
 
@@ -85,7 +93,14 @@ const BOON_SCORE: Record<string, number> = {
   keen_edge: 7, swift_strikes: 7, iron_heart: 6.5, heavy_hand: 5, deadeye: 6.5, executioner: 5, barrier: 6.5, leech: 5,
   last_stand: 7, fleet_foot: 4.5, quick_step: 4, spare_step: 5, quick_wits: 5, wildfire: 5.5, deep_frost: 5, overcharge: 6,
   amplifier: 6.5, wide_resonance: 5, aftershock: 5, echo: 6, kindred_flame: 6, shared_vigor: 4.5, lifeline: 2, oathbond: 4,
+  // update 3
+  momentum: 6, giant_slayer: 5.5, overkill: 4.5, first_blood: 4, brutality: 4, thorns: 4, mending: 5.5, stoneskin: 6.5,
+  crystal_ward: 4.5, slipstream: 3, afterimage: 3.5, catalyst: 3.5, chain_reaction: 4, zealot: 5.5, crescendo: 5, encore: 5.5,
+  opening_act: 4.5, covenant: 4, rally: 5, creeping_dark: 5,
 };
+const CLASS_BOON_SCORE = 6;
+const DUO_BOON_SCORE = 8;
+const NEEDS_COMBO: ReadonlySet<string> = new Set(['shared_vigor', 'crystal_ward', 'covenant']);
 
 function insideTele(t: Tele, x: number, z: number, margin: number): boolean {
   if (t.shape === 'circle') return Math.hypot(x - t.x, z - t.z) <= t.r + margin;
@@ -111,6 +126,8 @@ export class BotBrain {
   private prevTick = -1;
   private hazardScratch: HazardState = { phase: 'idle', t: 0 };
   private hazardTele: Tele = { shape: 'circle', x: 0, z: 0, rot: 0, r: 0, w: 0, seen: -1e9, lands: 0, until: 0, src: -1 };
+  private art = 0;
+  private descendTo: number;
 
   constructor(slot: number, cls: ClassId, seed = 1, opts: BotOptions = {}) {
     this.slot = slot;
@@ -118,6 +135,7 @@ export class BotBrain {
     this.rng = new Rng(seed * 7919 + slot * 104729 + 13);
     this.reactionTicks = Math.round((opts.reaction ?? BOT.REACTION_SECONDS) / TICK_DT);
     this.missChance = opts.missChance ?? BOT.MISS_CHANCE;
+    this.descendTo = opts.descendTo ?? 0;
     this.strafeDir = this.rng.chance(0.5) ? 1 : -1;
   }
 
@@ -153,7 +171,7 @@ export class BotBrain {
       if (def && def.category === 'infusion' && def.element && def.slot) {
         const current = slotElement.get(def.slot);
         if (current === undefined) {
-          score = def.slot === 'primary' ? 9 : def.slot === 'secondary' ? 8 : 5;
+          score = def.slot === 'primary' ? 9 : def.slot === 'secondary' ? 8 : def.slot === 'dash' ? 5 : 4;
           if (elements.size >= 1) score += elements.has(def.element) ? -5 : 3;
         } else if (current === def.element) {
           score = 4;
@@ -161,8 +179,8 @@ export class BotBrain {
           score = elements.size === 1 && slotElement.size > 1 ? 6 : 1;
         }
       } else if (def) {
-        score = BOON_SCORE[def.id] ?? 3;
-        const needsCombo = def.category === 'resonance' || def.id === 'shared_vigor';
+        score = def.category === 'class' ? CLASS_BOON_SCORE : def.category === 'duo' ? DUO_BOON_SCORE : BOON_SCORE[def.id] ?? 3;
+        const needsCombo = def.category === 'resonance' || NEEDS_COMBO.has(def.id);
         if (needsCombo && elements.size < 2) score *= 0.5;
       }
       if (score > bestScore) { bestScore = score; best = i; }
@@ -174,6 +192,12 @@ export class BotBrain {
   private chooseDoor(view: BotView): number {
     const doors = view.run.doors;
     if (doors.length <= 1) return 0;
+    // After a final boss: deeper while the bot was told to, otherwise bank the run.
+    const down = doors.findIndex((d) => d.type === 'descend');
+    if (down >= 0) {
+      const up = doors.findIndex((d) => d.type === 'ascend');
+      return view.run.depth < this.descendTo || up < 0 ? down : up;
+    }
     let leader: PlayerSnap | null = null;
     for (const p of view.players) {
       if (p.state !== 'alive' || (p.flags & PF.CONNECTED) === 0 || (p.flags & PF.IN_DOOR_ZONE) === 0) continue;
@@ -208,6 +232,7 @@ export class BotBrain {
     const cmd: InputCmd = { seq: ++this.seq, moveX: 0, moveZ: 0, aim: this.aim, aimDist: 6, buttons: 0 };
     const me = view.players.find((p) => p.slot === this.slot);
     const room = view.run.room;
+    this.art = view.art ?? 0;
     if (!me || !room || me.state !== 'alive') {
       this.lastButtons = 0;
       return cmd;
@@ -385,6 +410,8 @@ export class BotBrain {
     const ranged = RANGED.has(this.cls);
     const primary = def.primary[0];
     const range = primary ? primary.range : 2.5;
+    const sec = secondaryOf(def, this.art);
+    const ult = def.ultimate;
 
     // Target: nearest enemy that can be hit.
     let target: EnemySnap | null = null;
@@ -406,6 +433,7 @@ export class BotBrain {
     let wantPrimary = false;
     let wantSecondary = false;
     let wantDash = false;
+    let wantUlt = false;
 
     if (target) {
       const er = ENEMIES[target.kind].radius;
@@ -436,8 +464,7 @@ export class BotBrain {
           mx = -dirZ * this.strafeDir;
           mz = dirX * this.strafeDir;
         }
-        if (this.cls === 'mage') wantSecondary = targetD <= def.secondary.range && me.cdSecondary <= 0;
-        else wantSecondary = targetD <= def.secondary.range * 0.7 && me.cdSecondary <= 0;
+        wantSecondary = me.cdSecondary <= 0 && this.secondaryFits(sec, me, target, targetD, close, clear);
         if (close >= 3 && targetD < 2.5 && me.dashCharges >= 1) wantDash = true;
       } else {
         const hitRange = range + er;
@@ -450,9 +477,11 @@ export class BotBrain {
           mx = -dirX;
           mz = -dirZ;
         }
-        if (this.cls === 'knight') wantSecondary = targetD <= def.secondary.range * 0.8 && me.cdSecondary <= 0;
-        else wantSecondary = targetD <= def.secondary.radius && me.cdSecondary <= 0 && (close >= 2 || ENEMIES[target.kind].cost === 0 || target.hp > 0.5);
+        wantSecondary = me.cdSecondary <= 0 && this.secondaryFits(sec, me, target, targetD, close, true);
       }
+      if (me.ult >= BOT.ULT_READY) wantUlt = this.ultimateFits(ult, view, me, target, targetD, close);
+    } else if (me.ult >= BOT.ULT_READY && ult.special === 'revive') {
+      wantUlt = this.allyDownWithin(view, me, ult.radius);
     }
 
     // Soul wisps home in on heroes but pop when struck: strike one that is in reach, shoot one that is near.
@@ -471,6 +500,7 @@ export class BotBrain {
         cmd.aimDist = wispD;
         wantPrimary = true;
         wantSecondary = false;
+        wantUlt = false;
       }
     }
 
@@ -535,7 +565,7 @@ export class BotBrain {
       const walk = out.dist / BOT.WALK_SPEED;
       mx = out.x;
       mz = out.z;
-      if (left < walk * 2 + 0.25) { wantPrimary = false; wantSecondary = false; }
+      if (left < walk * 2 + 0.25) { wantPrimary = false; wantSecondary = false; wantUlt = false; }
       if (left >= 0 && left < walk + 0.1 && me.dashCharges >= 1) wantDash = true;
     } else {
       const shot = this.projectileThreat(view, me);
@@ -574,8 +604,55 @@ export class BotBrain {
     }
     if (wantPrimary) cmd.buttons |= BTN.PRIMARY;
     // SECONDARY and DASH trigger on a rising edge: pulse them.
-    if (wantSecondary && (this.lastButtons & BTN.SECONDARY) === 0) cmd.buttons |= BTN.SECONDARY;
+    if (wantUlt && (this.lastButtons & BTN.ULTIMATE) === 0) cmd.buttons |= BTN.ULTIMATE;
+    else if (wantSecondary && (this.lastButtons & BTN.SECONDARY) === 0) cmd.buttons |= BTN.SECONDARY;
     if (wantDash && (this.lastButtons & BTN.DASH) === 0) cmd.buttons |= BTN.DASH;
+  }
+
+  /** Is this the moment for the equipped secondary? Decided by the ability's shape, so every variant is covered. */
+  private secondaryFits(sec: AbilityDef, me: PlayerSnap, target: EnemySnap, targetD: number, close: number, clear: boolean): boolean {
+    const bossy = ENEMIES[target.kind].cost === 0;
+    switch (sec.shape) {
+      case 'lunge': return targetD <= sec.range * BOT.LUNGE_REACH;
+      case 'spin': return targetD <= sec.radius && (close >= 2 || bossy || target.hp > 0.5);
+      case 'circle': return targetD <= sec.range;
+      case 'projectile': return sec.count > 1 ? targetD <= sec.range * BOT.FAN_REACH : targetD <= sec.range * BOT.SHOT_REACH && clear;
+      case 'beam': return targetD <= sec.range * BOT.SHOT_REACH;
+      case 'leap': return targetD <= sec.range && targetD >= BOT.LEAP_MIN;
+      case 'trap': return targetD <= sec.range && targetD >= BOT.TRAP_MIN;
+      case 'zone':
+        if (sec.range > 0) return targetD <= sec.range;
+        return targetD <= sec.radius * BOT.ZONE_REACH && (close >= 2 || bossy || (sec.heal > 0 && me.hp < me.maxHp * BOT.ZONE_HEAL_HP));
+      default: return false;
+    }
+  }
+
+  private allyDownWithin(view: BotView, me: PlayerSnap, radius: number): boolean {
+    for (const p of view.players) {
+      if (p.slot !== this.slot && p.state === 'downed' && Math.hypot(p.x - me.x, p.z - me.z) <= radius) return true;
+    }
+    return false;
+  }
+
+  /** Is the full ultimate worth spending now? Area ultimates wait for a pack or a boss, buffs for pressure. */
+  private ultimateFits(ult: AbilityDef, view: BotView, me: PlayerSnap, target: EnemySnap, targetD: number, close: number): boolean {
+    const bossy = ENEMIES[target.kind].cost === 0;
+    const low = me.hp < me.maxHp * BOT.ULT_LOW_HP;
+    if (ult.shape === 'buff') {
+      if (ult.radius > 0) return close >= BOT.ULT_PACK || (bossy && targetD <= BOT.BANNER_BOSS_RANGE) || (low && close >= 1);
+      return targetD <= BOT.RAGE_RANGE && (close >= 2 || bossy);
+    }
+    if (ult.range <= 0) {
+      // Centred on the hero (sanctuary, overload).
+      if (ult.special === 'revive' && (this.allyDownWithin(view, me, ult.radius) || (low && close >= 1))) return true;
+      return targetD <= ult.radius * BOT.ULT_SELF_RANGE && (close >= BOT.ULT_PACK || bossy);
+    }
+    if (targetD > ult.range) return false;
+    let pack = 0;
+    for (const e of view.enemies) {
+      if (e.hp > 0 && e.anim !== 'death' && Math.hypot(e.x - target.x, e.z - target.z) <= ult.radius) pack++;
+    }
+    return bossy || pack >= BOT.ULT_PACK;
   }
   // ------------------------------------------------------------------ tutorial
 
@@ -666,5 +743,8 @@ export class BotBrain {
 export function viewFromWorld(world: World, slot: number, shared?: Pick<BotView, 'players' | 'enemies' | 'projectiles' | 'run'>): BotView {
   const body = shared ?? { ...world.getSnapshotBody(), run: world.getRunState() };
   const hero = world.hero(slot);
-  return { tick: world.tick, slot, cls: hero ? hero.cls : 'knight', players: body.players, enemies: body.enemies, projectiles: body.projectiles, run: body.run };
+  return {
+    tick: world.tick, slot, cls: hero ? hero.cls : 'knight', players: body.players, enemies: body.enemies, projectiles: body.projectiles, run: body.run,
+    art: hero ? hero.build.art : 0,
+  };
 }

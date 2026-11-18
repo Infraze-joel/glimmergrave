@@ -26,7 +26,9 @@ const HERO_CLIPS = ['Idle', 'Running_A', 'Running_B', 'Running_Strafe_Left', 'Ru
   '1H_Melee_Attack_Stab', '2H_Melee_Attack_Chop', '2H_Melee_Attack_Slice', '2H_Melee_Attack_Spin', '2H_Melee_Attack_Spinning',
   '2H_Melee_Idle', 'Block', 'Block_Attack', 'Spellcast_Shoot', 'Spellcast_Long', 'Spellcast_Raise', 'Spellcasting',
   '1H_Ranged_Shoot', '2H_Ranged_Shoot', '2H_Ranged_Aiming', 'Throw', 'Hit_A', 'Hit_B', 'Death_A', 'Death_A_Pose',
-  'Lie_Idle', 'Lie_StandUp', 'Cheer', 'Interact', 'Use_Item'];
+  'Lie_Idle', 'Lie_StandUp', 'Cheer', 'Interact', 'Use_Item',
+  // update 3: twin-dagger chain (shade) and the crouch used to set a snare (rogue art)
+  'Dualwield_Melee_Attack_Stab', 'Dualwield_Melee_Attack_Slice', 'Dualwield_Melee_Attack_Chop', 'PickUp'];
 const SKEL_CLIPS = ['Idle', 'Idle_Combat', 'Running_A', 'Running_C', 'Walking_D_Skeletons', '1H_Melee_Attack_Chop',
   '1H_Melee_Attack_Slice_Diagonal', '1H_Melee_Attack_Slice_Horizontal', '1H_Melee_Attack_Jump_Chop', '2H_Melee_Attack_Chop',
   '2H_Melee_Attack_Slice', '2H_Melee_Attack_Spin', '2H_Melee_Attack_Spinning', '2H_Ranged_Shoot', '2H_Ranged_Aiming',
@@ -58,6 +60,9 @@ const PROPS = [
   [join(SKE, 'Assets/gltf/Skeleton_Shield_Large_A.gltf'), 'skel_shield'], [join(SKE, 'Assets/gltf/Skeleton_Arrow.gltf'), 'skel_arrow'],
   [join(ADV, 'Assets/gltf/arrow.gltf'), 'arrow'], [join(ADV, 'Assets/gltf/dagger.gltf'), 'dagger'],
   [join(SKE, 'Assets/gltf/Skeleton_Quiver.gltf'), 'skel_quiver'], [join(SKE, 'Assets/gltf/Skeleton_Shield_Small_B.gltf'), 'skel_buckler'],
+  // update 3: gear of the new classes that their body files do not carry, and the knight's thrown shield
+  [join(ADV, 'Assets/gltf/sword_1handed.gltf'), 'sword_1handed'], [join(ADV, 'Assets/gltf/sword_2handed_color.gltf'), 'sword_2handed_color'],
+  [join(ADV, 'Assets/gltf/shield_round_color.gltf'), 'shield_round'], [join(ADV, 'Assets/gltf/quiver.gltf'), 'quiver'],
 ];
 
 const report = [];

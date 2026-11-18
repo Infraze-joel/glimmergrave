@@ -1,10 +1,12 @@
 /** Shared helpers for simulation tests and balance soaks. */
-import { TICK_DT, WORLD } from '@shared/constants.ts';
+import { RUN, TICK_DT, WORLD } from '@shared/constants.ts';
 import { killEnemy } from '@shared/sim/combat.ts';
 import { BotBrain, viewFromWorld, World, type RunOverrides } from '@shared/sim/index.ts';
 import type { BossKind, ClassId, EnemyKind, GameEvent, InputCmd, RunPhase } from '@shared/types.ts';
 
 export interface RunResult {
+  /** The party's classes joined with '+'. */
+  label: string;
   phase: RunPhase;
   ticks: number;
   /** Game minutes (run.elapsed). */
@@ -27,6 +29,15 @@ export interface RunResult {
   maxProjectiles: number;
   nan: boolean;
   events: number;
+  /** Update 3: deepest depth reached, final bosses slain, chambers cleared, ultimates used, first hero's rewards. */
+  depth: number;
+  cleared: number;
+  chambersCleared: number;
+  ultimates: number;
+  xp: number;
+  relics: string[];
+  /** Game minutes when the first final boss fell (0 if none did). */
+  minutesAtFirstClear: number;
 }
 
 export interface RunOptions {
@@ -36,6 +47,10 @@ export interface RunOptions {
   maxTicks?: number;
   /** Permanent upgrade levels for every hero (default: none). */
   meta?: number[];
+  /** Full builds per hero (Loadout-shaped); wins over `meta`. */
+  loadouts?: unknown[];
+  /** Bots take the descend door while the depth is below this (default 0: ascend after the first boss). */
+  descendTo?: number;
   overrides?: RunOverrides;
   startChamber?: number;
   onTick?: (world: World, events: GameEvent[]) => void;
@@ -53,19 +68,21 @@ const hasNaN = (world: World): boolean => {
 /** Plays one whole run with bots in the pure simulation. */
 export function runBots(opts: RunOptions): RunResult {
   const world = new World();
-  opts.classes.forEach((cls, slot) => world.addPlayer(slot, cls, `Bot${slot}`, opts.meta));
+  opts.classes.forEach((cls, slot) => world.addPlayer(slot, cls, `Bot${slot}`, opts.loadouts ? opts.loadouts[slot] : opts.meta));
   world.start(opts.oath ?? 0, opts.seed, opts.startChamber ?? 0, opts.overrides);
-  const bots = opts.classes.map((cls, slot) => new BotBrain(slot, cls, opts.seed));
+  const bots = opts.classes.map((cls, slot) => new BotBrain(slot, cls, opts.seed, { descendTo: opts.descendTo }));
   const maxTicks = opts.maxTicks ?? 30 * 60 * 30;
   const result: RunResult = {
-    phase: 'combat', ticks: 0, minutes: 0, chamber: 0, damageTaken: 0, damageDealt: 0, downs: 0, resonances: 0,
+    label: opts.classes.join('+'), phase: 'combat', ticks: 0, minutes: 0, chamber: 0, damageTaken: 0, damageDealt: 0, downs: 0, resonances: 0,
     chamberSeconds: [], bossSeconds: 0, heraldSeconds: 0, finalBoss: world.run.finalBoss, herald: null, glimmer: 0,
     hazardHitsHeroes: 0, hazardHitsEnemies: 0, maxEnemies: 0, maxProjectiles: 0, nan: false, events: 0,
+    depth: 0, cleared: 0, chambersCleared: 0, ultimates: 0, xp: 0, relics: [], minutesAtFirstClear: 0,
   };
   const heraldChamber = 6;
   let chamber = 0;
   let chamberStart = 0;
   let combatTicks = 0;
+  let bossTicks = 0;
   while (world.tick < maxTicks) {
     const phase = world.run.phase;
     if (phase === 'victory' || phase === 'defeat') break;
@@ -86,9 +103,13 @@ export function runBots(opts: RunOptions): RunResult {
     }
     for (const bot of bots) bot.observe(events, world.tick);
     if (opts.onTick) opts.onTick(world, events);
+    if (world.run.cleared > 0 && result.minutesAtFirstClear === 0) {
+      result.minutesAtFirstClear = world.run.elapsed / 60;
+      bossTicks = combatTicks;
+    }
     if (world.run.phase === 'combat') {
       combatTicks++;
-      if (world.run.chamber === heraldChamber) { result.heraldSeconds += TICK_DT; result.herald = world.run.bossKind; }
+      if (world.run.chamber === heraldChamber && world.run.depth === 0) { result.heraldSeconds += TICK_DT; result.herald = world.run.bossKind; }
     }
     if (world.run.chamber !== chamber) {
       result.chamberSeconds.push((world.tick - chamberStart) * TICK_DT);
@@ -104,7 +125,14 @@ export function runBots(opts: RunOptions): RunResult {
     if (world.tick % 15 === 0 && hasNaN(world)) { result.nan = true; break; }
   }
   result.chamberSeconds.push((world.tick - chamberStart) * TICK_DT);
-  if (world.run.chamberKind === 'boss') result.bossSeconds = combatTicks * TICK_DT;
+  // Length of the first final-boss fight (the run may have gone on below it).
+  if (bossTicks > 0) result.bossSeconds = bossTicks * TICK_DT;
+  else if (world.run.chamberKind === 'boss') result.bossSeconds = combatTicks * TICK_DT;
+  result.depth = world.run.depth;
+  result.cleared = world.run.cleared;
+  result.chambersCleared = world.run.chambersCleared;
+  result.xp = world.run.rewards[0]?.xp ?? 0;
+  result.relics = world.run.rewards[0]?.relics ?? [];
   result.phase = world.run.phase;
   result.ticks = world.tick;
   result.minutes = world.run.elapsed / 60;
@@ -115,6 +143,7 @@ export function runBots(opts: RunOptions): RunResult {
     result.damageDealt += h.run.damage;
     result.downs += h.run.downs;
     result.resonances += h.run.resonances;
+    result.ultimates += h.run.ultimates;
   }
   result.nan = result.nan || hasNaN(world);
   return result;
@@ -136,19 +165,22 @@ export interface BalanceRow {
   meanResonances: number;
 }
 
+const RUN_LENGTH = RUN.CHAMBERS.length;
+
 export function summarize(label: string, results: RunResult[]): BalanceRow {
-  const wins = results.filter((r) => r.phase === 'victory');
+  // A run counts as won once a final boss fell (it may have ended in defeat further down).
+  const wins = results.filter((r) => r.cleared > 0);
   const mean = (xs: number[]): number => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
   return {
     label, runs: results.length, winRate: wins.length / Math.max(1, results.length),
-    meanWinMinutes: mean(wins.map((r) => r.minutes)),
-    meanChamber: mean(results.map((r) => r.chamber + (r.phase === 'victory' ? 1 : 0))),
+    meanWinMinutes: mean(wins.map((r) => r.minutesAtFirstClear)),
+    meanChamber: mean(results.map((r) => (r.cleared > 0 ? RUN_LENGTH : r.chamber))),
     meanDamageTaken: mean(results.map((r) => r.damageTaken)),
     maxChamberSeconds: Math.max(0, ...results.flatMap((r) => r.chamberSeconds)),
     meanBossSeconds: mean(wins.map((r) => r.bossSeconds)),
     minBossSeconds: wins.length ? Math.min(...wins.map((r) => r.bossSeconds)) : 0,
     maxBossSeconds: Math.max(0, ...wins.map((r) => r.bossSeconds)),
-    meanHeraldSeconds: mean(results.filter((r) => r.chamber > 6).map((r) => r.heraldSeconds)),
+    meanHeraldSeconds: mean(results.filter((r) => r.chamber > 6 || r.cleared > 0).map((r) => r.heraldSeconds)),
     meanDowns: mean(results.map((r) => r.downs)),
     meanResonances: mean(results.map((r) => r.resonances)),
   };

@@ -7,38 +7,16 @@
  * Burst control, in three stages: a per-family window limiter with stack ducking (below), per-pool voice
  * limits with priority stealing (samples.ts) and the burst compressor on the combat buses (engine.ts).
  */
-import { BOSS_KINDS, type ClassId, type DoorType, type ElementId, type EnemyKind, type Hazard } from '@shared/types.ts';
+import { BOSS_KINDS, type AffixId, type ClassId, type DoorType, type ElementId, type EnemyKind, type Hazard } from '@shared/types.ts';
 import { CLASSES } from '@shared/data/classes.ts';
+import { reactionOf, REACTION_TUNING, type ReactionId } from '@shared/data/reactions.ts';
 import { midiToHz, noise as engineNoise, semitones, tone as engineTone, type AudioGraph, type BusName, type NoiseOpts, type ToneOpts } from './engine.ts';
 import type { SampleGroup } from './manifest.ts';
-import { createPlayer, VOICES, type Bank, type VoiceOpts } from './samples.ts';
+import { createPlayer, VOICES, type Bank } from './samples.ts';
+import { createAbilitySfx, isLegacyClass, type LegacyClass } from './sfx-abilities.ts';
+import { LIMITS, NOTE, rnd, TUNED, type Family, type Layer, type Mix, type SfxKit } from './sfx-kit.ts';
+import { createProgressSfx } from './sfx-progress.ts';
 import { createSynthSfx } from './sfx-synth.ts';
-
-/** [max sounds, window seconds] per sound family. */
-const LIMITS = {
-  hit: [4, 0.05],
-  tick: [2, 0.08],
-  element: [3, 0.06],
-  crit: [2, 0.08],
-  kill: [3, 0.08],
-  spawn: [3, 0.12],
-  telegraph: [1, 0.12],
-  aoe: [2, 0.1],
-  resonance: [2, 0.12],
-  cast: [4, 0.07],
-  enemyCast: [2, 0.12],
-  cue: [1, 0.3],
-  hurt: [2, 0.1],
-  heal: [1, 0.2],
-  shield: [2, 0.12],
-  status: [2, 0.1],
-  hazard: [2, 0.12],
-  ui: [3, 0.04],
-  hover: [1, 0.045],
-  big: [1, 0.25],
-} as const;
-
-type Family = keyof typeof LIMITS;
 
 const TUNE = {
   /** Each extra sound inside a limiter window is this much quieter. */
@@ -89,41 +67,31 @@ const ELEMENT_LEVEL: Record<ElementId, [number, number, number]> = {
   ember: [0.9, 0.6, 1],
   rime: [1.1, 1.5, 1],
   storm: [1.35, 1.5, 1],
+  // low material reads louder on a meter than it sounds, so umbra may sit 2-3 dB above the bright elements
+  umbra: [0.64, 0.72, 0.72],
 };
 
-/** D minor colours shared with the music so effects sit in the same key. */
-const NOTE = { D2: 38, A2: 45, D3: 50, F3: 53, A3: 57, D4: 62, F4: 65, Fs4: 66, A4: 69, D5: 74, F5: 77, Fs5: 78, A5: 81, D6: 86, F6: 89, A6: 93 } as const;
-const PAIR_ROOT: Record<string, number> = { 'ember+rime': NOTE.D4, 'ember+storm': NOTE.F4, 'rime+storm': NOTE.A4 };
+const PAIR_ROOT: Record<string, number> = {
+  'ember+rime': NOTE.D4, 'ember+storm': NOTE.F4, 'rime+storm': NOTE.A4,
+  // umbra pairs sit lower and darker: soulfire warm on G, entomb on the low tonic, void arc on the flat second
+  'ember+umbra': NOTE.G4, 'rime+umbra': NOTE.D4 - 5, 'storm+umbra': NOTE.D4 + 1,
+};
+/** Level of the named reaction's stinger relative to the Resonance burst it rides on. */
+const REACTION_LEVEL: Record<ReactionId, number> = { shatter: 1, conflagration: 0.6, superconduct: 1, soulfire: 0.75, entomb: 0.62, voidarc: 0.8 };
 /** Semitones the Resonance bloom climbs per chain step (D natural minor). */
 const CHAIN_STEPS = [0, 2, 3, 5, 7, 8, 10];
 const BLOOM_CHORD = [0, 7, 12, 19];
 
-/** Playback rates that land tuned samples on D. bell.1 hums at 380 Hz, bell.2 at 240 Hz (measured). */
-const TUNED = {
-  BELL1_D4: 293.66 / 380,
-  BELL2_D3: 146.83 / 240,
-  /** jingle.rise ends on G: a fourth down resolves it to D. */
-  RISE_TO_D: semitones(-5),
-  /** jingle.fifth is Eb-Bb: a semitone down makes it D-A. */
-  FIFTH_TO_D: semitones(-1),
-  /** jingle.magic climbs a whole-tone scale from C: start it on D. */
-  MAGIC_TO_D: semitones(2),
-  /** jingle.fall ends on D; an octave down turns it into a slow, dark descent. */
-  FALL_DARK: 0.5,
-  /** ping.2 rings at 1976 Hz (B6); this lands it on D7, a glitter above the boon jingle. */
-  PING_TO_D7: 2349.3 / 1976,
-} as const;
-
 const CLATTER: SampleGroup[] = ['bone.tick', 'hit.bone', 'bone.tap', 'bone.tick'];
 
 /** Samples a class's attack stack is built on; without them the synthesised attack plays. */
-const PRIMARY_NEEDS: Record<ClassId, SampleGroup[]> = {
+const PRIMARY_NEEDS: Record<LegacyClass, SampleGroup[]> = {
   knight: ['swing.blade', 'swing.cloth', 'swing.draw'],
   barbarian: ['swing.blade', 'swing.cloth', 'swing.draw'],
   mage: ['laser.small'],
   rogue: ['foley.latch', 'hit.bone', 'swing.blade'],
 };
-const SECONDARY_NEEDS: Record<ClassId, SampleGroup[]> = {
+const SECONDARY_NEEDS: Record<LegacyClass, SampleGroup[]> = {
   knight: ['hit.plate', 'hit.clang', 'hit.heavy'],
   barbarian: ['swing.blade', 'swing.cloth', 'swing.draw'],
   mage: ['boom', 'boom.sub', 'field'],
@@ -148,7 +116,6 @@ const TINT: Record<string, { rate: number; send: number }> = {
 
 const isBoss = (kind: EnemyKind | null | undefined): boolean => kind !== null && kind !== undefined && (BOSS_KINDS as readonly string[]).includes(kind);
 const isBig = (kind: EnemyKind | null | undefined): boolean => kind === 'champion' || isBoss(kind);
-const rnd = (a: number, b: number): number => a + Math.random() * (b - a);
 
 export interface HitOpts {
   dmg: number;
@@ -201,8 +168,6 @@ export function createSfx(g: AudioGraph, bank: Bank) {
     if (!forceSynth && player.has(...needs)) { designed++; stack(); } else { fallbacks++; fallback(); }
   };
 
-  type Layer = (group: SampleGroup, t: number, gain: number, o?: Omit<VoiceOpts, 'gain'>) => void;
-  interface Mix { V: Layer; out: GainNode }
   /** Reverb send that belongs to an event's mix node. */
   const sends = new WeakMap<AudioNode, AudioNode>();
   /** Mix nodes in creation order, waiting to be unplugged once their sound is certainly over. */
@@ -237,9 +202,15 @@ export function createSfx(g: AudioGraph, bank: Bank) {
       }
     }
     const V: Layer = (group, t, gain, o) => {
-      player.play(group, t, { ...o, gain, dest: out, reverb: send, pool: bus, pri, send: send ? o?.send : 0 });
+      player.play(group, t, { ...o, gain, dest: out, reverb: send, pool: o?.pool ?? bus, pri, send: send ? o?.send : 0 });
     };
-    return { V, out };
+    const fade = (t: number, tc: number): void => {
+      for (const node of send ? [out, send] : [out]) {
+        node.gain.cancelScheduledValues(t);
+        node.gain.setTargetAtTime(0, t, tc);
+      }
+    };
+    return { V, out, fade };
   };
   const tone = (out: AudioNode, t: number, o: ToneOpts): void => engineTone(g, out, t, o, sends.get(out) ?? g.reverbIn);
   const noise = (out: AudioNode, t: number, o: NoiseOpts): void => engineNoise(g, out, t, o, sends.get(out) ?? g.reverbIn);
@@ -289,7 +260,7 @@ export function createSfx(g: AudioGraph, bank: Bank) {
         V('shimmer', t, 0.22, { rate: 0.82, attack: 0.03, send: 0.6, jitter: 0.02 });
         for (let i = 0; i < 3; i++) V('glass.light', t, 0.4 - i * 0.1, { at: 0.05 + i * rnd(0.04, 0.07), rate: 1.5 + i * 0.25, send: 0.5 });
       }
-    } else {
+    } else if (el === 'storm') {
       // zap and crackle: a falling saw, a rough low buzz and a scatter of tiny digital sparks
       tone(out, t, { type: 'sawtooth', freq: 2200 * jitter(0.1), freqEnd: 180, dur: 0.09, gain: 0.4, lpf: 5000 });
       tone(out, t + 0.03, { type: 'square', freq: 96, dur: burst ? 0.22 : 0.09, gain: 0.35, lpf: 1400, am: 0.8, amHz: 55 });
@@ -303,6 +274,118 @@ export function createSfx(g: AudioGraph, bank: Bank) {
         V('zap.long', t, 0.35, { rate: 0.9, lpf: 6000, send: 0.4 });
         noise(out, t + 0.04, { dur: 0.6, gain: 0.3, filter: 'lowpass', freq: 320, freqEnd: 70, send: 0.4 });
       }
+    } else {
+      // umbra / Wither: dark, breathy and low — an exhale of air around a beating low tone, nothing bright at all
+      const long = burst ? 0.85 : size === 1 ? 0.42 : 0.26;
+      noise(out, t, { dur: long, gain: 0.55, filter: 'bandpass', freq: 300, freqEnd: 130, q: 0.9, attack: long * 0.22, send: 0.45 });
+      noise(out, t + 0.02, { dur: long * 0.8, gain: 0.12, filter: 'bandpass', freq: 950, freqEnd: 420, q: 2.2, attack: long * 0.3, send: 0.5 });
+      // two low sines a minor second apart: they beat against each other like something breathing
+      tone(out, t, { freq: midiToHz(NOTE.D2) * jitter(0.02), freqEnd: midiToHz(NOTE.D2) * 0.78, dur: long, gain: 0.5, attack: 0.02 });
+      tone(out, t, { freq: midiToHz(NOTE.D2 + 1), freqEnd: midiToHz(NOTE.D2 + 1) * 0.8, dur: long * 0.9, gain: 0.3, attack: 0.03 });
+      tone(out, t, { type: 'triangle', freq: midiToHz(NOTE.D3), freqEnd: midiToHz(NOTE.D3) * 0.84, dur: long * 0.7, gain: 0.16, lpf: 420, attack: 0.03, send: 0.4 });
+      V('tex.void', t, 1.5, { offset: -1, dur: long * 0.7, attack: long * 0.25, release: long * 0.5, rate: 0.9, lpf: 700, send: 0.4 });
+      if (size >= 1) V('slime', t, 0.16, { rate: 0.42, lpf: 900, attack: 0.03, send: 0.5 });
+      if (burst) {
+        V('glass.mid', t, 0.22, { reverse: true, rate: 0.4, lpf: 800, send: 0.6 });
+        V('boom.sub', t, 0.5, { rate: 0.8 });
+        noise(out, t + 0.1, { dur: 0.9, gain: 0.2, filter: 'lowpass', freq: 240, freqEnd: 60, attack: 0.2, send: 0.5 });
+      }
+    }
+  };
+
+  /**
+   * The named reaction's own stinger on top of the Resonance burst (data/reactions.ts): six clearly different
+   * shapes, so the pair can be recognised without looking.
+   */
+  const reaction = (id: ReactionId, t: number, level: number, pri: number, rate: number): void => {
+    const { V, out } = mix('element', pri, level * REACTION_LEVEL[id]);
+    switch (id) {
+      case 'shatter': {
+        // glassy crack: one hard break, then shards skittering away
+        noise(out, t, { dur: 0.012, gain: 0.7, filter: 'highpass', freq: 6500 });
+        V('glass.heavy', t, 1, { rate: 1.3 * rate, send: 0.35 });
+        V('glass.mid', t, 0.8, { rate: 1.55 * rate, send: 0.35 });
+        V('hit.clang', t, 0.2, { rate: 1.5, dur: 0.08, hpf: 1800 });
+        for (const f of [3136, 4699, 6272]) tone(out, t, { freq: f * jitter(0.03), dur: 0.16, gain: 0.07, send: 0.5 });
+        for (let i = 0; i < 5; i++) V('glass.light', t, 0.5 - i * 0.07, { at: 0.06 + i * rnd(0.035, 0.07), rate: 1.5 + i * 0.22, send: 0.55 });
+        break;
+      }
+      case 'conflagration': {
+        // whoosh-roar: air rushes in, then a wide wall of fire rolls outwards
+        const long = 0.9;
+        noise(out, t, { dur: long, gain: 0.5, filter: 'bandpass', freq: 260, freqEnd: 2600, q: 0.8, attack: 0.16, hold: 0.12, send: 0.4 });
+        noise(out, t + 0.2, { dur: long, gain: 0.4, filter: 'lowpass', freq: 3200, freqEnd: 300, attack: 0.08, send: 0.4 });
+        for (const [freq, detune] of [[82, 0], [123, 14]] as const) {
+          tone(out, t, { type: 'sawtooth', freq, freqEnd: freq * 0.62, detune, dur: long, gain: 0.26, lpf: 320, lpfEnd: 1500, attack: 0.1, am: 0.6, amHz: 23, send: 0.4 });
+        }
+        V('tex.fire', t, 2.6, { offset: -1, dur: 0.6, attack: 0.12, release: 0.4, lpf: 1200, lpfEnd: 7000, rate: 0.9, send: 0.4 });
+        V('tex.fireLow', t, 2, { offset: -1, dur: 0.7, attack: 0.1, release: 0.4, send: 0.3 });
+        V('boom', t, 0.5, { variant: 2, rate: 0.75, at: 0.12, send: 0.4 });
+        break;
+      }
+      case 'superconduct': {
+        // electric freeze: a harsh arc that is cut off mid-buzz by ice locking shut
+        const cut = 0.2;
+        tone(out, t, { type: 'square', freq: 1760, freqEnd: 2100, dur: cut, gain: 0.16, lpf: 6500, hold: cut * 0.9, am: 0.9, amHz: 86 });
+        tone(out, t, { type: 'sawtooth', freq: 123, dur: cut, gain: 0.2, lpf: 1600, hold: cut * 0.9, am: 0.9, amHz: 61 });
+        V('zap.down', t, 0.7, { rate: 1.4 * rate, dur: cut, release: 0.01 });
+        for (let i = 0; i < 4; i++) V('spark', t, 0.6, { at: i * 0.045, rate: rnd(1.1, 1.8), jitter: 0 });
+        // the freeze: everything stops on a cold, pure ping that falls
+        V('glass.light', t, 0.9, { at: cut, rate: 1.9, send: 0.6 });
+        V('ping', t, 0.5, { at: cut, variant: 3, rate: 1.2, send: 0.7, jitter: 0.01 });
+        V('snow', t, 0.6, { at: cut, rate: 1.3, hpf: 900 });
+        tone(out, t + cut, { freq: 5274, freqEnd: 2637, dur: 0.5, gain: 0.09, send: 0.7 });
+        tone(out, t + cut, { freq: 3520, freqEnd: 2093, dur: 0.4, gain: 0.06, send: 0.7 });
+        break;
+      }
+      case 'soulfire': {
+        // choir-like breath and a warm heal: voices exhale a major chord over a slow glow
+        const long = 1.2;
+        for (const [freq, q, gain] of [[640, 7, 0.4], [1080, 9, 0.24], [2450, 10, 0.06]] as const) {
+          noise(out, t, { dur: long, gain, filter: 'bandpass', freq, q, attack: 0.16, hold: 0.3, send: 0.7 });
+        }
+        for (const n of [NOTE.G4 - 12, NOTE.B4 - 12, NOTE.D4, NOTE.G4, NOTE.B4]) {
+          for (const detune of [-9, 8]) {
+            tone(out, t, { type: 'sawtooth', freq: midiToHz(n), detune, dur: long, gain: 0.035, lpf: 1100, lpfEnd: 700, q: 1.5, attack: 0.14, hold: 0.3, vib: 14, vibHz: 5.3, send: 0.7 });
+          }
+        }
+        [NOTE.G4, NOTE.B4, NOTE.D5, NOTE.G4 + 12].forEach((n, i) => {
+          tone(out, t + 0.12 + i * 0.09, { type: 'triangle', freq: midiToHz(n), dur: 0.9, gain: 0.07, attack: 0.03, send: 0.6 });
+        });
+        tone(out, t, { freq: midiToHz(NOTE.G4 - 24), dur: long, gain: 0.2, attack: 0.1, hold: 0.3 });
+        V('tex.fire', t, 0.9, { offset: -1, dur: 0.5, attack: 0.15, release: 0.4, lpf: 1500, rate: 0.7, send: 0.5 });
+        V('ping', t, 0.2, { at: 0.4, variant: 1, rate: 0.8, send: 0.8 });
+        break;
+      }
+      case 'entomb': {
+        // deep ice thud: a block of ice dropping shut, a groan, no sparkle
+        V('boom.sub', t, 1.1, { rate: 0.72 });
+        V('hit.sub', t, 0.9, { rate: 0.75 });
+        V('hit.iron', t, 0.5, { rate: 0.6, lpf: 700 });
+        V('glass.heavy', t, 0.6, { rate: 0.5, lpf: 1500, send: 0.4 });
+        V('snow', t, 0.8, { rate: 0.6, lpf: 2200 });
+        V('creak', t, 0.3, { at: 0.12, rate: 0.45, lpf: 1300, send: 0.6 });
+        tone(out, t, { freq: 74, freqEnd: 30, dur: 1, gain: 0.6, attack: 0.006 });
+        tone(out, t, { type: 'triangle', freq: 147, freqEnd: 62, dur: 0.5, gain: 0.2, lpf: 500 });
+        noise(out, t, { dur: 0.5, gain: 0.3, filter: 'lowpass', freq: 600, freqEnd: 90, send: 0.5 });
+        break;
+      }
+      case 'voidarc': {
+        // chained zaps: the arc leaps from enemy to enemy, each jump lower and further away
+        const jumps = REACTION_TUNING.VOIDARC_JUMPS + 1;
+        const gap = 0.095;
+        for (let i = 0; i < jumps; i++) {
+          const at = i * gap;
+          const down = 1 - i * 0.17;
+          V('zap.jump', t, 0.7 - i * 0.08, { at, rate: 1.5 * down * rate, send: 0.3 + i * 0.15, jitter: 0.02 });
+          V('spark', t, 0.7, { at, rate: 1.4 * down, jitter: 0 });
+          tone(out, t + at, { type: 'sawtooth', freq: 2400 * down, freqEnd: 300 * down, dur: 0.07, gain: 0.26 - i * 0.03, lpf: 6000, send: 0.2 + i * 0.15 });
+          tone(out, t + at, { type: 'square', freq: 92 * down, dur: 0.08, gain: 0.2, lpf: 900, am: 0.9, amHz: 70 });
+        }
+        V('zap.chain', t, 0.35, { rate: 0.8, lpf: 3500, send: 0.5, jitter: 0 });
+        noise(out, t, { dur: jumps * gap + 0.4, gain: 0.22, filter: 'bandpass', freq: 260, freqEnd: 120, q: 1, attack: 0.1, send: 0.5 });
+        break;
+      }
     }
   };
 
@@ -315,8 +398,14 @@ export function createSfx(g: AudioGraph, bank: Bank) {
     }
   };
 
-  // ---------------------------------------------------------------- hero abilities
-  const primary = (cls: ClassId, step: number, own: boolean, stackLevel: number, t: number): void => {
+  const kit: SfxKit = {
+    g, player, now, take, duck, jitter, mix, uiMix, bigMix, worldMix, who, tone, noise, whoosh, thump, element, clatter,
+  };
+  const abilities = createAbilitySfx(kit);
+  const progress = createProgressSfx(kit);
+
+  // ---------------------------------------------------------------- hero abilities (the four first classes)
+  const primary = (cls: LegacyClass, step: number, own: boolean, stackLevel: number, t: number): void => {
     const finisher = step >= 2;
     switch (cls) {
       case 'knight': {
@@ -368,7 +457,7 @@ export function createSfx(g: AudioGraph, bank: Bank) {
     }
   };
 
-  const secondary = (cls: ClassId, own: boolean, stackLevel: number, t: number): void => {
+  const secondary = (cls: LegacyClass, own: boolean, stackLevel: number, t: number): void => {
     const def = CLASSES[cls].secondary;
     switch (cls) {
       case 'knight': {
@@ -593,16 +682,35 @@ export function createSfx(g: AudioGraph, bank: Bank) {
 
     // ------------------------------------------------------------ hero actions
     primary(cls: ClassId, step: number, own: boolean): void {
+      if (!isLegacyClass(cls)) {
+        const chain = CLASSES[cls].primary;
+        api.ability(chain[Math.min(step, chain.length - 1)].id, own);
+        return;
+      }
       const t = now();
       const stack = take('cast', t);
       if (stack < 0) return;
       use(PRIMARY_NEEDS[cls], () => primary(cls, step, own, duck(stack), t), () => synth.primary(cls, step, own));
     },
     secondary(cls: ClassId, own: boolean): void {
+      if (!isLegacyClass(cls)) { api.ability(CLASSES[cls].secondary.id, own); return; }
       const t = now();
       const stack = take('cast', t);
       if (stack < 0) return;
       use(SECONDARY_NEEDS[cls], () => secondary(cls, own, duck(stack), t), () => synth.secondary(cls, own));
+    },
+    /**
+     * Any hero ability by its id (`cast` events, local actions): primary chains, secondaries, arts and ultimates of
+     * all seven classes. Unknown ids get a generic sound for their shape, so a new ability is never silent.
+     */
+    ability(id: string, own: boolean): void {
+      const legacy = abilities.legacyOf(id);
+      if (legacy) {
+        if (legacy.slot === 'primary') api.primary(legacy.cls, legacy.step, own);
+        else api.secondary(legacy.cls, own);
+        return;
+      }
+      abilities.play(id, own);
     },
     dash(own: boolean): void {
       const t = now();
@@ -680,6 +788,12 @@ export function createSfx(g: AudioGraph, bank: Bank) {
             case 'barbarian': V('swing.chop', t, 0.4, { rate: 0.8 }); break;
             case 'rogue': V('bone.tick', t, 0.3, { rate: 1.4 }); break;
             case 'mage': V('spark', t, 0.25, { rate: 1.2 }); break;
+            // weighty: iron and plate under the blow
+            case 'templar': V('hit.iron', t, 0.5, { rate: 0.9 - weight * 0.15 }); V('hit.plate', t, 0.22, { rate: 0.75, send: 0.3 }); break;
+            // bright edge with an arcane glint
+            case 'spellblade': V('swing.blade', t, 0.14, { rate: 1.45, dur: 0.08, hpf: 1800 }); V('ping', t, 0.1, { rate: 1.3, send: 0.4 }); break;
+            // a quick, light stab
+            case 'shade': V('bone.tick', t, 0.24, { rate: 1.7 }); V('swing.blade', t, 0.1, { rate: 1.9, dur: 0.05, hpf: 2600 }); break;
             default: break;
           }
         }, () => synth.hit({ dmg: o.dmg, crit: false, el: null, own: o.own }));
@@ -738,6 +852,8 @@ export function createSfx(g: AudioGraph, bank: Bank) {
       tone(out, t2, { freq: midiToHz(root - 12), dur: 0.9, gain: 0.12, attack: 0.03, send: 0.4 });
       V('ping', t2, 0.2, { at: 0.03, rate: lift * 0.75, jitter: 0.01, send: 0.7 });
       V('shimmer', t2, 0.1, { rate: lift * 0.5, attack: 0.04, send: 0.8, jitter: 0.01 });
+      const named = reactionOf(a, b);
+      if (named) reaction(named.id, t2 + 0.02, level, pri, rate);
       g.duckMusic(0.5, 0.3, 0.6);
     },
     kill(kind: EnemyKind, own: boolean): void {
@@ -771,8 +887,9 @@ export function createSfx(g: AudioGraph, bank: Bank) {
         if (own) tone(out, t + 0.04, { freq: midiToHz(NOTE.A6) * jitter(0.01), dur: 0.3, gain: 0.025, send: 0.5 });
       }, () => synth.kill(kind, own));
     },
-    spawn(kind: EnemyKind, elite: boolean): void {
+    spawn(kind: EnemyKind, elite: boolean, affix: AffixId | null = null): void {
       const t = now();
+      if (affix) progress.api.affix(affix);
       if (isBig(kind)) {
         if (take('big', t) < 0) return;
         const tint = TINT[kind] ?? TINT.other;
@@ -1007,7 +1124,7 @@ export function createSfx(g: AudioGraph, bank: Bank) {
     doorChosen(type: DoorType): void {
       const t = now();
       use(['door.open', 'creak', 'foley.latch', 'bell', 'jingle.magic', 'jingle.fall'], () => {
-        const { V, out } = bigMix(type === 'cursed' ? LEVEL.doorCursed : type === 'boss' ? LEVEL.doorBoss : LEVEL.door);
+        const { V, out } = bigMix(type === 'cursed' ? LEVEL.doorCursed : type === 'boss' || type === 'descend' ? LEVEL.doorBoss : LEVEL.door);
         V('foley.latch', t, 0.4, { variant: 1 });
         V('door.open', t, 0.6, { at: 0.05, send: 0.4 });
         V('creak', t, 0.22, { at: 0.1, rate: 0.8, send: 0.5 });
@@ -1026,6 +1143,18 @@ export function createSfx(g: AudioGraph, bank: Bank) {
           V('jingle.fall', c, 0.45, { rate: TUNED.FALL_DARK, jitter: 0, gainJitter: 0, lpf: 1800, send: 0.7 });
           V('bell', c, 0.4, { variant: 2, rate: TUNED.BELL2_D3 / 2, jitter: 0, send: 0.8 });
           for (const n of [NOTE.D3, NOTE.D3 + 6]) tone(out, c, { type: 'sawtooth', freq: midiToHz(n), dur: 1.8, gain: 0.05, lpf: 700, attack: 0.2, hold: 0.6, send: 0.6, am: 0.3, amHz: 7 });
+        } else if (type === 'descend') {
+          // the way down: stone grinding open onto a cold draught (the 'descend' event brings the bell and the drop)
+          V('creak', c, 0.3, { rate: 0.5, lpf: 1600, send: 0.7 });
+          V('earth', c, 0.3, { rate: 0.6, lpf: 1200, send: 0.5 });
+          noise(out, c, { dur: 1.4, gain: 0.12, filter: 'bandpass', freq: 420, freqEnd: 160, q: 1.2, attack: 0.4, send: 0.6 });
+          for (const n of [NOTE.D3, NOTE.D3 - 1]) tone(out, c, { type: 'sawtooth', freq: midiToHz(n), freqEnd: midiToHz(n - 2), dur: 1.5, gain: 0.04, lpf: 600, attack: 0.2, send: 0.6 });
+        } else if (type === 'ascend') {
+          // the way out: daylight — a rising run, an open fifth climbing into a major chord
+          V('jingle.magic', c, 0.35, { rate: TUNED.MAGIC_TO_D, jitter: 0, gainJitter: 0, send: 0.6 });
+          V('bell', c, 0.25, { at: 0.5, variant: 1, rate: TUNED.BELL1_D4 * 2, jitter: 0, send: 0.8 });
+          [NOTE.D4, NOTE.A4, NOTE.D5, NOTE.Fs5, NOTE.A5, NOTE.D6].forEach((n, i) => tone(out, c + 0.15 + i * 0.09, { type: 'triangle', freq: midiToHz(n), dur: 1.5, gain: 0.05, attack: 0.03, lpf: 5000, send: 0.65 }));
+          noise(out, c, { dur: 1.2, gain: 0.05, filter: 'highpass', freq: 2500, freqEnd: 9000, attack: 0.5, send: 0.5 });
         } else {
           V('bell', c, 0.6, { variant: 2, rate: TUNED.BELL2_D3, jitter: 0, send: 0.9 });
           V('boom.sub', c, 0.5);
@@ -1042,6 +1171,10 @@ export function createSfx(g: AudioGraph, bank: Bank) {
         tone(out, t + 0.5, { freq: midiToHz(NOTE.D5), dur: 0.5, gain: 0.04, send: 0.5 });
       }, () => synth.tutorialStep());
     },
+
+    // ------------------------------------------------------------ update 3: zones, buffs, marks, progression, descent
+    ...abilities.api,
+    ...progress.api,
 
     /** Dev workbench: play the synthesised fallbacks even though the samples are there (A/B listening). */
     setForceSynth(on: boolean): void {

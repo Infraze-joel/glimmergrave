@@ -188,6 +188,111 @@ test('Glimmer buys a permanent upgrade that survives a reload', async () => {
   await c.close();
 });
 
+// ---------------------------------------------------------------- update 3
+
+test('a save from before update 3 keeps its Glimmer and upgrades and gains the new progression', async () => {
+  // Exactly what update 2 stored: no xp, relics, talents, counters.
+  const old = {
+    name: 'Veteran', cls: 'rogue', runs: 12, wins: 3, bestChamber: 8, oathUnlocked: 2, glimmer: 345, glimmerEarned: 2100,
+    meta: { vitality: 5, might: 3, insight: 1 }, tutorialDone: true,
+    looks: { knight: { color: 2, head: true, cape: false, style: 1 }, barbarian: { color: 0, head: true, cape: true, style: 0 }, mage: { color: 0, head: true, cape: true, style: 0 }, rogue: { color: 4, head: false, cape: true, style: 2 } },
+  };
+  const c = await newClient(browser, '/', old);
+  assert.equal(await screen(c.page), 'menu');
+  const profile = await c.page.evaluate(() => window.__game.state.profile);
+  assert.equal(profile.glimmer, 345);
+  assert.deepEqual(profile.meta, old.meta);
+  assert.equal(profile.oathUnlocked, 2);
+  assert.deepEqual(profile.looks.rogue, old.looks.rogue);
+  assert.deepEqual(profile.looks.templar, { color: 0, head: true, cape: true, style: 0 });
+  assert.equal(profile.xp.shade, 0);
+  assert.equal(profile.lifetime.runs, 12, 'old record seeds the chronicle');
+  assert.equal(profile.lifetime.wins, 3);
+  await c.page.click(tid('menu-armory'));
+  await c.page.waitForSelector(tid('armory-root'), { timeout: 10000 });
+  assert.equal(await c.page.$eval(tid('armory-wallet'), (el) => el.dataset.glimmer), '345');
+  // Three wins unlock Ascension: a rank can be bought and survives a reload.
+  await c.page.click(tid('hub-tab-ascension'));
+  await c.page.waitForSelector(tid('ascension-buy-asc_might'), { timeout: 10000 });
+  await c.page.click(tid('ascension-buy-asc_might'));
+  await c.page.waitForFunction(() => document.querySelector('[data-testid="armory-wallet"]')?.dataset.glimmer === '195', { timeout: 20000 });
+  await open(c.page, '/');
+  const after = await c.page.evaluate(() => window.__game.state.profile);
+  assert.equal(after.paragon.asc_might, 1);
+  assert.equal(after.meta.vitality, 5);
+  assert.deepEqual(c.problems, []);
+  await c.close();
+});
+
+test('mastery unlocks an art and a talent; the server accepts them for that class only', async () => {
+  // 500 xp = templar level 3 (110 + 280): art and talent tier 1 are open, tier 2 is not.
+  const c = await newClient(browser, '/', { name: 'Tess', cls: 'templar', tutorialDone: true, xp: { templar: 500 } });
+  await c.page.click(tid('menu-armory'));
+  await c.page.waitForSelector(tid('armory-root'), { timeout: 10000 });
+  await c.page.click(tid('hub-tab-mastery'));
+  await c.page.waitForSelector(tid('mastery-root'), { timeout: 10000 });
+  await c.page.click(tid('mastery-class-templar'));
+  await c.page.waitForFunction(() => document.querySelector('[data-testid="mastery-level"]')?.dataset.level === '3', { timeout: 10000 });
+  await c.page.click(tid('mastery-art-1'));
+  await c.page.click(tid('mastery-talent-0-2'));
+  await eventually(async () => {
+    const p = await c.page.evaluate(() => window.__game.state.profile);
+    return p.arts.templar === 1 && p.talents.templar[0] === 2;
+  });
+  // A tampered profile claims a tier-3 talent it has not earned.
+  await c.page.evaluate(() => {
+    const key = 'glimmergrave.profile.v1';
+    const stored = JSON.parse(localStorage.getItem(key));
+    stored.talents.templar = [2, 1, 1];
+    localStorage.setItem(key, JSON.stringify(stored));
+  });
+  await open(c.page, '/');
+  await host(c.page, 'Tess', 'templar');
+  const me = await eventually(async () => (await gameText(c.page)).roster[0]);
+  assert.equal(me.cls, 'templar');
+  assert.equal(me.mastery, 3);
+  assert.equal(me.art, 1, 'the chosen art reaches the session');
+  // Switching to a class without mastery drops the art again.
+  await c.page.click('.gg-lobby-classes .gg-cls-knight');
+  const knight = await eventually(async () => { const p = (await gameText(c.page)).roster[0]; return p.cls === 'knight' ? p : null; });
+  assert.equal(knight.mastery, 1);
+  assert.equal(knight.art, 0);
+  assert.deepEqual(c.problems, []);
+  await c.close();
+});
+
+test('a finished run pays Glimmer and class experience, shows them and books them into the save', async () => {
+  const c = await newClient(browser, '/', { name: 'Sol', cls: 'shade', tutorialDone: true });
+  await host(c.page, 'Sol', 'shade');
+  await c.page.click(tid('lobby-ready'));
+  await eventually(async () => (await gameText(c.page)).roster[0].ready);
+  await c.page.click(tid('lobby-start'));
+  await waitScreen(c.page, 'game');
+  await c.page.evaluate(() => { window.__game.renderEvery = 30; });
+  await c.page.waitForSelector(tid('hud-ultimate'), { timeout: 20000 });
+  // The idle hero is overrun (one Second Wind included); being hit charges the ultimate on the way.
+  let charged = 0;
+  const over = await eventually(async () => {
+    const text = await gameText(c.page);
+    charged = Math.max(charged, selfOf(text)?.ult ?? 0);
+    return text.run.phase === 'defeat' && text.run.rewards.length > 0 ? text : null;
+  }, 240000, 1000);
+  assert.ok(over, 'the run ended and the server announced rewards');
+  assert.ok(charged > 0, 'taking damage charged the ultimate');
+  const reward = over.run.rewards.find((r) => r.slot === over.conn.slot);
+  assert.ok(reward.glimmer >= 10 && reward.xp >= 15, `minimum payout (got ${JSON.stringify(reward)})`);
+  assert.deepEqual(reward.relics, []);
+  await waitScreen(c.page, 'summary');
+  await c.page.waitForSelector(tid('summary-xp'), { timeout: 20000 });
+  const profile = await eventually(async () => { const p = await c.page.evaluate(() => window.__game.state.profile); return p.xp.shade > 0 ? p : null; });
+  assert.equal(profile.xp.shade, reward.xp);
+  assert.equal(profile.glimmer, reward.glimmer);
+  assert.equal(profile.lifetime.runs, 1);
+  assert.equal(profile.wins, 0);
+  assert.deepEqual(c.problems, []);
+  await c.close();
+});
+
 test('two independent clients create and join a session', async () => {
   a = await newClient(browser);
   b = await newClient(browser);

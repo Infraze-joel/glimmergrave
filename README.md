@@ -22,7 +22,7 @@ die Helden dauerhaft stärker. Vollständiges Konzept: [`docs/gameplan.md`](docs
 
 1. Host erstellt eine Sitzung, Mitspieler treten mit einem 5-stelligen Code bei, alle wählen eine Klasse.
 2. Kammer betreten → Wellen von Untoten → bewegen, ausweichen, angreifen, Resonance auslösen.
-3. Kammer geräumt → jeder wählt 1 von 3 Boons (33 Stück, bis zu 3 Stufen); gefallene Helden stehen wieder auf.
+3. Kammer geräumt → jeder wählt 1 von 3 Boons (80 Stück, bis zu 3 Stufen); gefallene Helden stehen wieder auf.
 4. Zwei Ausgänge öffnen sich (Boon / Blessing / Cursed). Die Gruppe entscheidet, indem sie sich gemeinsam in
    einen Durchgang stellt.
 5. Acht Kammern in drei Akten: Kampf ×3, Elite (Crypt Champion), Kampf ×2, Herold (schwächere Form eines
@@ -31,10 +31,29 @@ die Helden dauerhaft stärker. Vollständiges Konzept: [`docs/gameplan.md`](docs
 6. Akt 1 spielt in der Gruft, Akt 2 und 3 in den überfluteten Katakomben und der Glutschmiede (Reihenfolge
    wechselt). Jedes Biom hat eigene Raumformen, Hindernisse und Bodenfallen (Stacheln, Frostnebel,
    Feuerdüsen), die Helden und Gegner treffen.
-7. Sieg oder Niederlage → Auswertung mit verdientem Glimmer → Rüstkammer → nächster Run. Ein Sieg schaltet
-   die nächste Oath-Stufe (Schwierigkeit 0–3) frei.
+7. Nach dem Endboss entscheidet die Gruppe an zwei Türen: **aufsteigen** (Sieg sichern) oder **tiefer
+   hinabsteigen**. Jede Tiefe beginnt die acht Kammern neu, mit deutlich stärkeren Gegnern, Elite-Eigenschaften
+   (flink, gepanzert, explosiv, vampirisch), einem anderen Endboss und höheren Belohnungen. Wer tiefer fällt,
+   behält den Sieg.
+8. Auswertung mit Glimmer, Klassen-Erfahrung und Relikt-Splittern → Fortschritt ausgeben → nächster Run.
+   Ein Sieg schaltet die nächste Oath-Stufe frei (Schwierigkeit 0–20).
 
-**Dauerhafter Fortschritt:** Glimmer gibt es für jeden Run. In der Rüstkammer kauft man neun Upgrades in
+**Update 3 – „The Endless Descent":**
+
+- **Sieben Klassen:** Knight, Barbarian, Mage, Rogue sowie Templar (Zweihänder, heilt die Gruppe), Spellblade
+  (Nahkampf-Kombo mit Fernwelle, blinzelt durch Gegner) und Shade (Doppeldolche, Rückenstiche, markiert Ziele).
+- **Drei Fähigkeiten pro Klasse:** Primärkette, Sekundärfähigkeit (mit freischaltbarer Alternative) und ein
+  Ultimate auf Q, das sich durch Kämpfen auflädt.
+- **Vier Elemente, sechs Reaktionen:** neu ist Umbra (Zustand Wither). Jedes Elementpaar löst eine eigene
+  Reaktion aus: Shatter, Conflagration, Superconduct, Soulfire, Entomb, Void Arc.
+- **Synergien:** Set-Boni für gesammelte Boons einer Art, Klassen-Boons, sechs legendäre Duo-Boons.
+- **Fortschritt ohne Ende** (Menüpunkt „Fortschritt"): Rüstkammer (18 Upgrades), Aufstieg (endlose Ränge mit
+  steigenden Preisen), Meisterschaft (Klassenstufen ohne Obergrenze, 42 Talente), Reliquiar (20 Relikte, Rang
+  1–10 über Splitter von Bossen und Elitegegnern, 1–3 Plätze) und Chronik (16 Taten mit Glimmer-Belohnung).
+- **Zielcursor:** eigenes Fadenkreuz pro Klasse, gefärbt nach dem Element des Primärangriffs, mit
+  Klick-Rückmeldung und Funkenkranz bei bereitem Ultimate (Größe in den Einstellungen).
+
+**Dauerhafter Fortschritt (Stand Update 2, erweitert durch Update 3):** Glimmer gibt es für jeden Run. In der Rüstkammer kauft man Upgrades in
 Stufen (Leben, Schaden, Tempo, Cooldowns, Neuwürfe, Start-Infusion, robustere Wiederbelebung, mehr Glimmer).
 Ohne Upgrades gewinnt ein geübter Solo-Spieler etwa jeden dritten Run, voll ausgebaut etwa vier von fünf
 (mit Bots gemessen).
@@ -55,10 +74,11 @@ Ein Run dauert etwa 10–15 Minuten.
 | Maus | Zielen (der Held schaut immer zum Mauszeiger) |
 | Linke Maustaste (halten) | Primärangriff, Kombo-Kette |
 | Rechte Maustaste / F | Sekundärfähigkeit (Cooldown) |
+| Q / mittlere Maustaste | Ultimate (braucht volle Ladung) |
 | Leertaste / Shift | Dash (kurz unverwundbar) |
 | neben gefallenem Verbündeten stehen (3 s) | Wiederbeleben |
 | Tab (halten) | Übersicht: Statistik und Boons |
-| 1–4 | Boon-Karte wählen |
+| 1–5 | Boon-Karte wählen |
 | R | Boon-Auswahl neu würfeln (mit dem Upgrade „Einsicht") |
 | Esc | Pause-/Einstellungsmenü |
 
@@ -200,9 +220,17 @@ Bibliotheken: MIT (three, ws, vite, …), Cinzel: SIL Open Font License.
 - **Keine echte FPS-Messung.** Die Testumgebung hat keine GPU (Software-Rendering). Gemessen sind
   Rechenzeit pro Frame, Draw Calls, Dreiecke, Speicher und Netzlast, nicht die Bildrate auf echter Hardware.
 - **Nur Chrome getestet** (headless). Firefox und Edge sind ungetestet.
-- **Audio wurde nie angehört**, nur technisch geprüft (alle 146 Dateien dekodierbar, keine Fehler, Pegel per
+- **Audio wurde nie angehört**, nur technisch geprüft (alle 160 Dateien dekodierbar, keine Fehler, Pegel per
   Offline-Rendering). Die Sounds sind nach Dateiname und Messwerten ausgewählt, nicht nach Gehör. Zum Anhören:
   `npm run dev`, dann `http://localhost:5173/?audiodemo` (jeder Sound und jede Musikstimmung auf Knöpfen).
+- **Update 3 ist nur von Bots und Tests gespielt.** Die neuen Klassen, Ultimates, Reaktionen und der Abstieg
+  sind in der Simulation getestet und in Browser-Sitzungen mit Bots gelaufen; kein Mensch hat sie gespielt.
+  Voll ausgebaute Helden gewinnen Tiefe 0 und 1 in den Bot-Läufen immer – ab Tiefe 2 und über Oath 3 ist die
+  Balance ungeprüft (nur auf sauberes Ende getestet). Der Knight ist ohne Upgrades die schwächste Klasse
+  (ca. 21 % Solo-Siege, Schnitt 35 %). Ultimates laden bei voll ausgebauten Gruppen vermutlich zu schnell.
+- **Sichtbarkeit in Update 3:** Umbra und die Rauchwolke heben sich auf dunklem Boden nur schwach ab; die
+  Spellblade ähnelt aus der Spielkamera der Mage (Unterschied vor allem Farbe und Waffe). Die schwebende
+  Beschriftung einer Reaktion in der 3D-Szene lautet immer „RESONANCE"; den Namen der Reaktion zeigt das HUD.
 - **Update 2 ist nur von Bots und Tests gespielt.** Die neuen Bosse, Biome, Fallen, das Training und die
   Upgrade-Balance hat noch kein Mensch gespielt. Aus der Spielkamera sind die neuen Bosse vor allem an
   Kopfschmuck und Waffe zu erkennen.
@@ -223,11 +251,13 @@ Bibliotheken: MIT (three, ws, vite, …), Cinzel: SIL Open Font License.
 | Prüfung | Ergebnis |
 |---|---|
 | Frische Installation (`npm ci` in neuem Klon), Typprüfung, Lint | fehlerfrei |
-| Unit- und Integrationstests (`npm test`) | 315 Tests in 20 Dateien bestanden |
+| Unit- und Integrationstests (`npm test`) | 435 Tests in 25 Dateien bestanden |
 | – Protokoll, Bewegung, Fähigkeiten, Status/Resonance, Boons, Draft, Gegner, Telegraph-Fairness, Director, Determinismus | enthalten |
 | – Server mit echten WebSocket-Clients: Erstellen/Beitreten/Wiederbeitritt, ungültiger Code, voller Raum, falsche Version, kaputte/zu große Nachrichten, Ratenlimit, Host-Wechsel, Abbruch im Run, Ablauf der Frist, Rückkehr zur Lobby | enthalten |
 | – Zwei Bots spielen einen ganzen Run, auch mit 150 ± 50 ms Latenz | bestanden |
-| Browser-Tests gegen den Produktions-Build (`npm run test:e2e`), Seite und WebSocket auf derselben Adresse | 16 Tests bestanden |
+| Browser-Tests gegen den Produktions-Build (`npm run test:e2e`), Seite und WebSocket auf derselben Adresse | 19 Tests bestanden |
+| – Update 3: Spielstand von vor Update 3 behält Glimmer und Upgrades; Meisterschaft schaltet Alternative und Talent frei, der Server begrenzt sie pro Klasse; ein beendeter Run zahlt Glimmer und Erfahrung und verbucht sie | enthalten |
+| – Update 3 im Server: jede Klasse, Alternative und jedes Ultimate, Umbra und alle sechs Reaktionen, neue Boons, Sets, Talente, Relikte, Abstieg, Belohnungen, Elite-Eigenschaften | 110 eigene Tests |
 | – Modelle und Sounds werden nur mit Inhaltsversion (`?v=…`) geladen; ein Browser mit einer älteren Modelldatei im Cache lädt die neue Version trotzdem (Fehler `missing prop skel_quiver` nach dem ersten Deploy von Update 2, lokal nachgestellt) | enthalten |
 | – Update 2: Training startet aus dem Menü und rückt nach dem ersten Schritt vor; Upgrade-Kauf übersteht ein Neuladen; gewähltes Aussehen kommt beim anderen Client an | enthalten |
 | – Update 2 im Server: alle drei Bosse und Herolde mit Bots, Telegraph-Fairness, Biom- und Fallen-Regeln, jedes Upgrade, Belohnungen, Neuwürfe, Tutorial (auch mit passivem Spieler) | in den Unit- und Integrationstests enthalten |

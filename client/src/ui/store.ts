@@ -1,11 +1,16 @@
 /** UI-local view state (not part of the GameState contract). */
 import type { BiomeId, ClassId } from '@shared/types.ts';
-import type { ConnError } from '../core/EventBus.ts';
+import type { ConnError, EventMap } from '../core/EventBus.ts';
 
 export type ModalKind = 'howto' | 'settings' | 'leave';
 /** Full-screen pages that open on top of the menu, lobby, summary or pause menu. */
 export type PageKind = 'armory' | 'wardrobe' | 'codex';
-export type CodexTab = 'elements' | 'combat' | 'hazards' | 'enemies' | 'doors' | 'boons';
+export type CodexTab = 'elements' | 'classes' | 'combat' | 'hazards' | 'enemies' | 'doors' | 'boons' | 'progress';
+/** Tabs of the progression hub (the page that grew out of the Armory; PageKind stays 'armory'). */
+export const HUB_TABS = ['armory', 'ascension', 'mastery', 'reliquary', 'chronicle'] as const;
+export type HubTab = (typeof HUB_TABS)[number];
+/** What the last finished run added to the profile (payload of `game:progress`). */
+export type RunProgress = EventMap['game:progress'];
 
 export const ui = {
   /** Modal opened from a button (menu / lobby). */
@@ -30,6 +35,13 @@ export const ui = {
   codexTab: 'elements' as CodexTab,
   /** Class shown in the wardrobe (the lobby locks it to the own class). */
   wardrobeCls: null as ClassId | null,
+  hubTab: 'armory' as HubTab,
+  /** Class shown on the Mastery tab (null = the profile's class). */
+  hubCls: null as ClassId | null,
+  /** Relic selected in the Reliquary (null = the first equipped / owned one). */
+  hubRelic: null as string | null,
+  /** Rewards booked for the run whose summary is showing; null before they arrive and outside a summary. */
+  progress: null as RunProgress | null,
   /** Biome seen per chamber index in the current run (for the act grouping of the chamber track). */
   biomes: new Map<number, BiomeId>(),
 };
@@ -64,4 +76,11 @@ export const UI_CONFIG = {
   TUTORIAL_DONE_MS: 1500,
   ACT_BANNER_MS: 3600,
   PURCHASE_FLASH_MS: 700,
+  /** Set chips shown on the HUD before the rest collapses into "+n more". */
+  SET_CHIPS_MAX: 4,
+  /** Several elites with the same affix spawning together make one callout. */
+  AFFIX_CALLOUT_GAP_MS: 4000,
+  /** Run summary: the experience bar fills over this long (per level gained it wraps once). */
+  XP_FILL_MS: 1400,
+  XP_FILL_DELAY_MS: 450,
 } as const;

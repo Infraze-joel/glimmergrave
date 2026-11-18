@@ -1,7 +1,7 @@
 /** Purely visual tuning for the render kit. Gameplay numbers live in @shared. */
 import { ENEMIES } from '@shared/data/enemies.ts';
 import type { EnemyDef } from '@shared/data/enemies.ts';
-import type { ClassId, DoorType, ElementId, EnemyKind, Hazard, Look } from '@shared/types.ts';
+import type { AffixId, ClassId, DoorType, ElementId, EnemyKind, Hazard, Look } from '@shared/types.ts';
 import type { Quality } from '../core/Settings.ts';
 
 export const MODEL_BASE = '/assets/models/';
@@ -33,6 +33,21 @@ export const PALETTE = {
   /** Friendly guidance (tutorial marker): never used by hazards or telegraphs. */
   guideTeal: 0x3df2d0,
   guideGold: 0xffd166,
+  /** Umbra: a deep violet-black body with a pale green rim. The rim is what glows; the core is drawn dark. */
+  umbra: 0xc2f59c,
+  umbraCore: 0x1a0b30,
+  umbraDeep: 0x4a1f8a,
+  /** Hallowed things of the templar and the knight's banner. */
+  holy: 0xffe9a8,
+  holyDeep: 0xf2b441,
+  /** Barbarian bloodrage: a hot amber, kept away from the hostile red. */
+  rage: 0xff9a1f,
+  /** Shade smoke and marks. */
+  shadow: 0x4a3f6b,
+  mark: 0xd9b8ff,
+  /** Endless descent: the abyss below and the bell light above. */
+  abyss: 0x8a3dff,
+  bell: 0xfff3c4,
 } as const;
 
 /** Hazard warnings deliberately avoid the hostile red: one colour per kind, shared by fixture, warning and impact. */
@@ -46,6 +61,7 @@ export const ELEMENT_COLOR: Record<ElementId, number> = {
   ember: PALETTE.ember,
   rime: PALETTE.rime,
   storm: PALETTE.storm,
+  umbra: PALETTE.umbra,
 };
 
 /** One colour per player slot (ground ring and name label only). Red is reserved for hostile things. */
@@ -56,6 +72,16 @@ export const DOOR_COLOR: Record<DoorType, number> = {
   blessing: 0x7dffb4,
   cursed: 0xc43bff,
   boss: 0xff3b2e,
+  descend: PALETTE.abyss,
+  ascend: PALETTE.bell,
+};
+
+/** Elite affix auras. Vampiric is the only one near red: it is an enemy trait, never a ground warning. */
+export const AFFIX_COLOR: Record<AffixId, number> = {
+  swift: 0xf4ffb0,
+  armored: 0x9fb4d8,
+  volatile: 0xffb52e,
+  vampiric: 0xd4246e,
 };
 
 export const CAMERA = {
@@ -134,6 +160,22 @@ export const ENEMY_VIS = {
  * The rogue's hood is a different head mesh (hero_rogue_hooded.glb), so it has no `head` attachment.
  */
 export interface HeroOutfit {
+  /** Class whose body (GLB, palette texture, cloth swatches) this class wears. */
+  body: 'knight' | 'barbarian' | 'mage' | 'rogue';
+  /** Cloth colour for Look.color 0 where the class does not keep its body's own palette. */
+  baseCloth?: number;
+  /** Wash over the whole body [hex, amount 0..1] that sets the class apart from the one whose body it wears. */
+  tint?: readonly [number, number];
+  /** Build of the class relative to the others (1 = default). */
+  scale?: number;
+  /** Named sets of extra parts built in assets.ts (props from props.glb and procedural trim), one per gear style. */
+  extras?: readonly (readonly string[])[];
+  /** Extra part sets that only exist while the look shows the head piece (a crest on the helmet). */
+  headExtras?: readonly string[];
+  /** Per style: meshes of `gear` that move from the weapon hand to the off hand. */
+  offhand?: readonly (readonly string[])[];
+  /** Per style: meshes of `gear` that are slung on the back instead of held. */
+  back?: readonly (readonly string[])[];
   head: string | null;
   cape: string;
   gear: readonly (readonly string[])[];
@@ -144,27 +186,52 @@ export interface HeroOutfit {
 
 export const HERO_OUTFIT: Record<ClassId, HeroOutfit> = {
   knight: {
-    head: 'Knight_Helmet', cape: 'Knight_Cape',
+    body: 'knight', head: 'Knight_Helmet', cape: 'Knight_Cape',
     gear: [['1H_Sword', 'Round_Shield'], ['1H_Sword', 'Spike_Shield'], ['1H_Sword', 'Badge_Shield']],
     belt: [[], [], []],
     cloth: { hueMin: 318, hueMax: 9, satMin: 0.5 },
   },
   barbarian: {
-    head: 'Barbarian_Hat', cape: 'Barbarian_Cape',
+    body: 'barbarian', head: 'Barbarian_Hat', cape: 'Barbarian_Cape',
     gear: [['2H_Axe'], ['1H_Axe', 'Barbarian_Round_Shield'], ['1H_Axe', '1H_Axe_Offhand']],
     belt: [[], [], []],
     cloth: { hueMin: 195, hueMax: 232, satMin: 0.22 },
   },
   mage: {
-    head: 'Mage_Hat', cape: 'Mage_Cape',
+    body: 'mage', head: 'Mage_Hat', cape: 'Mage_Cape',
     gear: [['2H_Staff'], ['1H_Wand', 'Spellbook_open'], ['2H_Staff', 'Spellbook']],
     belt: [[], [], []],
     cloth: { hueMin: 236, hueMax: 292, satMin: 0.25 },
   },
   rogue: {
-    head: null, cape: 'Rogue_Cape',
+    body: 'rogue', head: null, cape: 'Rogue_Cape',
     gear: [['2H_Crossbow'], ['1H_Crossbow', 'Knife_Offhand'], ['2H_Crossbow']],
     belt: [[], [], ['Knife']],
+    cloth: { hueMin: 136, hueMax: 178, satMin: 0.35 },
+  },
+  // Update 3. The three new classes wear an existing body with their own weapons, trim and cloth colour.
+  templar: {
+    body: 'knight', baseCloth: 0xe9e4d4, tint: [0xffd27a, 0.24], scale: 1.08, head: 'Knight_Helmet', cape: 'Knight_Cape',
+    gear: [['2H_Sword'], [], ['2H_Sword', 'Rectangle_Shield']],
+    belt: [[], [], []],
+    back: [[], [], ['Rectangle_Shield']],
+    extras: [['templarTrim'], ['templarTrim', 'ornateSword'], ['templarTrim']],
+    headExtras: ['templarCrest'],
+    cloth: { hueMin: 318, hueMax: 9, satMin: 0.5 },
+  },
+  spellblade: {
+    body: 'mage', baseCloth: 0xd9741f, head: 'Mage_Hat', cape: 'Mage_Cape',
+    gear: [['Spellbook_open'], ['Spellbook'], ['1H_Wand']],
+    belt: [[], [], []],
+    offhand: [[], [], ['1H_Wand']],
+    extras: [['spellSword', 'spellTrim'], ['spellSword', 'spellTrim'], ['spellSword', 'spellTrim']],
+    cloth: { hueMin: 236, hueMax: 292, satMin: 0.25 },
+  },
+  shade: {
+    body: 'rogue', baseCloth: 0x3a2d5c, tint: [0x4a3d78, 0.42], scale: 0.96, head: null, cape: 'Rogue_Cape',
+    gear: [['Knife', 'Knife_Offhand'], ['Knife'], ['Knife', 'Knife_Offhand']],
+    belt: [[], ['1H_Crossbow'], []],
+    extras: [['shadeTrim'], ['shadeTrim'], ['shadeTrim', 'backQuiver']],
     cloth: { hueMin: 136, hueMax: 178, satMin: 0.35 },
   },
 };
@@ -220,7 +287,7 @@ export function enemyDef(kind: EnemyKind): EnemyDef {
 }
 
 export const LIMITS = {
-  DECALS: 384,
+  DECALS: 512,
   FX_BILLBOARDS: 1536,
   UI_BILLBOARDS: 640,
   PARTICLES: 1100,

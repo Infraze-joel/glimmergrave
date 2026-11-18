@@ -472,8 +472,10 @@ export function createSynthSfx(g: AudioGraph) {
         blessing: [NOTE.D5, NOTE.Fs5, NOTE.A5],
         cursed: [NOTE.D4, NOTE.D4 + 6],
         boss: [NOTE.D3, NOTE.D3 + 1, NOTE.D3 + 6],
+        descend: [NOTE.D3, NOTE.D3 - 1, NOTE.D3 - 7],
+        ascend: [NOTE.D5, NOTE.A5, NOTE.D6],
       };
-      const dark = type === 'cursed' || type === 'boss';
+      const dark = type === 'cursed' || type === 'boss' || type === 'descend';
       colour[type].forEach((n, i) => tone(g, out, t + 0.12 + i * 0.07, {
         type: dark ? 'sawtooth' : 'triangle', freq: midiToHz(n), dur: dark ? 1.1 : 0.8, gain: dark ? 0.07 : 0.09,
         lpf: dark ? 900 : 4000, send: 0.6,

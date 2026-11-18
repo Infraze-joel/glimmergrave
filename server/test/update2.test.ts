@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { NET } from '@shared/constants.ts';
 import { BOON_BY_ID } from '@shared/data/boons.ts';
 import { CLASSES } from '@shared/data/classes.ts';
+import { XP_REWARDS } from '@shared/data/mastery.ts';
 import { DEFAULT_LOOK, LOOK, META_INDEX, META_UPGRADES, REWARDS } from '@shared/data/meta.ts';
 import { TUTORIAL_STEPS } from '@shared/data/tutorial.ts';
 import { BIOME_IDS, BOSS_KINDS, type GameEvent, type Loadout } from '@shared/types.ts';
@@ -44,16 +45,16 @@ const enter = async (c: Client, msg: Record<string, unknown>): Promise<void> => 
 const lastMaxHp = (c: Client, slot: number): number => c.snapshots[c.snapshots.length - 1]!.players.find((p) => p.slot === slot)!.maxHp;
 
 describe('protocol version', () => {
-  it('a protocol v1 client gets bad_version and is disconnected, on create, join and rejoin', async () => {
+  it('a protocol v1 or v2 client gets bad_version and is disconnected, on create, join and rejoin', async () => {
     const s = await up();
     const host = await open(s.url);
     await host.create();
-    expect(NET.PROTOCOL_VERSION).toBe(2);
-    for (const msg of [
-      { t: 'create', v: 1, name: 'Old', cls: 'knight' },
-      { t: 'join', v: 1, code: host.code, name: 'Old', cls: 'knight' },
-      { t: 'rejoin', v: 1, code: host.code, token: host.token },
-    ]) {
+    expect(NET.PROTOCOL_VERSION).toBe(3);
+    for (const msg of [1, 2].flatMap((v) => [
+      { t: 'create', v, name: 'Old', cls: 'knight' },
+      { t: 'join', v, code: host.code, name: 'Old', cls: 'knight' },
+      { t: 'rejoin', v, code: host.code, token: host.token },
+    ])) {
       const old = await open(s.url);
       old.send(msg);
       expect(await old.next('error')).toEqual({ t: 'error', code: 'bad_version', fatal: true });
@@ -117,24 +118,25 @@ describe('loadouts', () => {
     await enter(guest, { t: 'join', code: host.code, name: 'Guest', cls: 'mage', loadout: defaultLoadout() });
     await host.next('roster', (m) => m.players.length === 2);
     const look = { color: 7, head: true, cape: false, style: 1 };
-    guest.send({ t: 'lobby', loadout: { look, meta: meta({ vitality: 5 }) } });
+    // A loadout always comes with the class it belongs to (here: the unchanged one).
+    guest.send({ t: 'lobby', cls: 'mage', loadout: { look, meta: meta({ vitality: 5 }) } });
     const seen = await host.next('roster', (m) => m.players[1]!.look.color === 7);
     expect(seen.players[1]).toMatchObject({ look, cls: 'mage', ready: false });
     expect(seen.players[0]!.look).toEqual(DEFAULT_LOOK);
     // Class changes keep the loadout; a garbage loadout falls back to the default instead of being an error.
     guest.send({ t: 'lobby', cls: 'rogue', ready: true });
     expect((await host.next('roster', (m) => m.players[1]!.cls === 'rogue')).players[1]!.look).toEqual(look);
-    host.send({ t: 'lobby', loadout: { look: 5, meta: 'max' } });
+    host.send({ t: 'lobby', cls: 'knight', loadout: { look: 5, meta: 'max' } });
     await sleep(60);
     expect(host.all('error')).toHaveLength(0);
     host.send({ t: 'start' });
     await host.next('run', (m) => m.state.phase === 'combat');
     await host.until(() => host.snapshots.length >= 2, 4000, 'snapshots');
-    const top = META_UPGRADES[META_INDEX.get('vitality')!]!.values.at(-1)!;
+    const top = META_UPGRADES[META_INDEX.get('vitality')!]!.values[4]!;
     expect(lastMaxHp(host, 1)).toBe(CLASSES.rogue.maxHp + top);
     // During the run the loadout is frozen.
     const rosters = host.all('roster').length;
-    guest.send({ t: 'lobby', loadout: { look: DEFAULT_LOOK, meta: meta({}) } });
+    guest.send({ t: 'lobby', cls: 'rogue', loadout: { look: DEFAULT_LOOK, meta: meta({}) } });
     await sleep(120);
     expect(host.all('roster').length).toBe(rosters);
     expect(host.last('roster')!.players[1]!.look).toEqual(look);
@@ -162,7 +164,10 @@ describe('run state of update 2', () => {
     // Nobody plays: the heroes are overrun and paid the minimum (the host with a fortune bonus).
     const end = await guest.next('run', (m) => m.state.phase === 'defeat', 25000);
     expect(end.state.finalBoss).toBe(first.state.finalBoss);
-    expect(end.state.rewards).toEqual([{ slot: 0, glimmer: Math.round(REWARDS.MINIMUM * 1.3) }, { slot: 1, glimmer: REWARDS.MINIMUM }]);
+    expect(end.state.rewards).toEqual([
+      { slot: 0, glimmer: Math.round(REWARDS.MINIMUM * 1.3), xp: XP_REWARDS.MINIMUM, relics: [] },
+      { slot: 1, glimmer: REWARDS.MINIMUM, xp: XP_REWARDS.MINIMUM, relics: [] },
+    ]);
     // Back in the lobby the rewards are gone again.
     host.send({ t: 'toLobby' });
     expect((await guest.next('run', (m) => m.state.phase === 'lobby')).state.rewards).toEqual([]);
@@ -245,7 +250,7 @@ describe('tutorial sessions', () => {
     const look = { color: 5, head: true, cape: false, style: 0 };
     await enter(c, { t: 'create', name: 'Rookie', cls: 'rogue', tutorial: true, loadout: { look, meta: maxLoadout().meta } });
     const roster = await c.next('roster');
-    expect(roster.players).toEqual([{ slot: 0, name: 'Rookie', cls: 'rogue', look, ready: false, connected: true, host: true, boons: [] }]);
+    expect(roster.players).toEqual([{ slot: 0, name: 'Rookie', cls: 'rogue', look, mastery: 1, art: 0, ready: false, connected: true, host: true, boons: [] }]);
     const run = (await c.next('run')).state;
     expect(run.phase).toBe('combat');
     expect(run.tutorial).toMatchObject({ step: TUTORIAL_STEPS[0], index: 0, total: TUTORIAL_STEPS.length, progress: 0 });
@@ -312,7 +317,7 @@ describe('tutorial sessions', () => {
     clearInterval(watch);
     process.stdout.write(`tutorial over sockets: ${result.phase} after ${result.elapsed.toFixed(0)} game s, steps seen: ${steps.join(' > ')}\n`);
     expect(result.phase).toBe('victory');
-    expect(result.rewards).toEqual([{ slot: 0, glimmer: REWARDS.TUTORIAL }]);
+    expect(result.rewards).toEqual([{ slot: 0, glimmer: REWARDS.TUTORIAL, xp: XP_REWARDS.TUTORIAL, relics: [] }]);
     expect(result.elapsed).toBeLessThan(180);
     expect(steps[0]).toBe('move');
     expect(steps[steps.length - 1]).toBe('door');
@@ -324,7 +329,7 @@ describe('tutorial sessions', () => {
     bot.send({ t: 'toLobby' });
     await sleep(200);
     expect(bot.run!.phase).toBe('victory');
-    expect(bot.run!.rewards).toEqual([{ slot: 0, glimmer: REWARDS.TUTORIAL }]);
+    expect(bot.run!.rewards).toEqual([{ slot: 0, glimmer: REWARDS.TUTORIAL, xp: XP_REWARDS.TUTORIAL, relics: [] }]);
     expect(bot.runsEnded).toBe(1);
   }, 60000);
 

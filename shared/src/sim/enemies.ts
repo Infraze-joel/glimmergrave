@@ -5,14 +5,15 @@
  */
 import { RUN, TICK_DT, WORLD } from '../constants.ts';
 import { ENEMIES, ENEMY_TUNING, STATUS } from '../data/enemies.ts';
-import type { EnemyAnim, EnemyKind, Hazard } from '../types.ts';
-import { chillSlow, clearStatus, damageHero, enemyDamage, isBoss, rawDamageEnemy } from './combat.ts';
+import { AFFIX_IDS, type AffixId, type EnemyAnim, type EnemyKind, type Hazard } from '../types.ts';
+import { BUFFS } from '../data/classes.ts';
+import { chillSlow, clearStatus, damageHero, enemyDamage, isBoss, moveSlow, rawDamageEnemy } from './combat.ts';
 import { stepBoss, createBossState } from './boss.ts';
 import { angleTo, closestT, DEG, inArc, inLine, sweepHit, TAU } from './geom.ts';
 import { resolveCollisions } from './movement.ts';
 import { spawnProjectile } from './projectiles.ts';
 import type { AttackShape, Enemy, EnemyAttack, Hero } from './state.ts';
-import { AI, SIM } from './tuning.ts';
+import { AFFIX, AI, SIM } from './tuning.ts';
 import type { World } from './world.ts';
 
 /** Spreads perfectly stacked enemies apart in distinct directions. */
@@ -26,6 +27,8 @@ export interface SpawnOpts {
   /** Tutorial: no AI (training dummy) / ignores hazards (chaser). */
   passive?: boolean;
   reckless?: boolean;
+  /** Pins the affix of an elite or champion (tests); otherwise it is drawn when the chamber calls for affixes. */
+  affix?: AffixId;
 }
 
 const BOSS_KINDS_ALL: ReadonlySet<EnemyKind> = new Set<EnemyKind>(['champion', 'regent', 'matron', 'stalker']);
@@ -58,9 +61,13 @@ export function spawnEnemy(w: World, kind: EnemyKind, x: number, z: number, opts
   const party = w.partySize - 1;
   const bossParty = boss ? (1 + ENEMY_TUNING.BOSS_HP_PER_EXTRA_PLAYER * party) / (1 + RUN.HP_PER_EXTRA_PLAYER * party) : 1;
   const maxHp = def.hp * w.hpMul * eliteHp * bossParty * (herald ? ENEMY_TUNING.HERALD.HP_FRACTION : 1);
+  // Elites and champions carry an affix once the run is deep or sworn enough (drawn only then, so shallow runs keep their random stream).
+  let affix: AffixId | null = opts.affix ?? null;
+  if (!affix && w.affixed && (kind === 'champion' || (elite && !boss))) affix = w.rng.pick(AFFIX_IDS);
+  if (affix) w.affixes++;
   const e: Enemy = {
     id: w.nextEnemyId++, kind, def, x, z, rot: 0, hp: maxHp, maxHp, radius: def.radius, elite,
-    damageMul: w.damageMul * eliteDamage, speedMul: w.speedMul, anim: 'spawn', animSeq: 0, dead: false, corpseTime: 0,
+    damageMul: w.damageMul * eliteDamage, speedMul: w.speedMul * (affix === 'swift' ? AFFIX.SWIFT_SPEED : 1), anim: 'spawn', animSeq: 0, dead: false, corpseTime: 0,
     spawnTime: def.spawnTime, stunTime: 0, attackCd: w.rng.range(AI.FIRST_ATTACK_DELAY_MIN, AI.FIRST_ATTACK_DELAY_MAX),
     recover: 0, attack: null, poiseDamage: 0, target: -1, retarget: 0,
     shieldHp: kind === 'warrior' ? ENEMY_TUNING.WARRIOR_SHIELD_HP * w.hpMul * eliteHp : 0,
@@ -68,13 +75,16 @@ export function spawnEnemy(w: World, kind: EnemyKind, x: number, z: number, opts
     kbX: 0, kbZ: 0, blinkCd: ENEMY_TUNING.MAGE_BLINK_COOLDOWN / 2, strafeDir: w.rng.chance(0.5) ? 1 : -1, strafeTime: 0,
     boss: boss ? createBossState(kind, herald) : null, summoned: opts.summoned === true,
     passive: opts.passive === true, reckless: opts.reckless === true,
+    affix, armored: affix === 'armored', markTime: 0, markBy: -1, sunder: 0, sunderTime: 0, rootTime: 0, slow: 0, slowTime: 0,
+    smokeTime: 0, statusPower: 1, statusWeaken: 0, struckBy: 0,
   };
   if (w.nextEnemyId > 0xffff) w.nextEnemyId = 1;
   resolveCollisions(e, e.radius, w.room);
   const nearest = nearestHero(w, e.x, e.z);
   if (nearest) e.rot = angleTo(e.x, e.z, nearest.body.x, nearest.body.z);
   w.enemies.push(e);
-  w.emit({ e: 'spawn', id: e.id, kind, x: e.x, z: e.z, elite });
+  if (affix) w.emit({ e: 'spawn', id: e.id, kind, x: e.x, z: e.z, elite, affix });
+  else w.emit({ e: 'spawn', id: e.id, kind, x: e.x, z: e.z, elite });
   return e;
 }
 
@@ -93,8 +103,24 @@ export function nearestHero(w: World, x: number, z: number): Hero | null {
   return best;
 }
 
+/** A knight whose banner (bulwark ultimate) is up and close enough to force this enemy onto him, if any. */
+export function taunting(w: World, e: Enemy): Hero | null {
+  for (const h of w.heroes) {
+    if (h.taunt <= 0 || !isTargetHero(h)) continue;
+    const dx = h.body.x - e.x;
+    const dz = h.body.z - e.z;
+    if (dx * dx + dz * dz <= BUFFS.bulwark.tauntRadius * BUFFS.bulwark.tauntRadius) return h;
+  }
+  return null;
+}
+
 /** Nearest living hero with stickiness: the current target is kept unless another hero is clearly closer. */
 export function pickTarget(w: World, e: Enemy, dt: number): Hero | null {
+  const taunter = taunting(w, e);
+  if (taunter) {
+    e.target = taunter.slot;
+    return taunter;
+  }
   const current = w.hero(e.target);
   e.retarget -= dt;
   if (current && isTargetHero(current) && e.retarget > 0) return current;
@@ -198,7 +224,8 @@ export function steer(w: World, e: Enemy, tx: number, tz: number, speed: number,
   e.z += vz * scale;
 }
 
-export const enemySpeed = (e: Enemy): number => e.def.speed * e.speedMul * (1 - chillSlow(e));
+/** Current speed: Chill, the bell's slow and smoke slow it; an entombed (rooted) enemy does not move at all. */
+export const enemySpeed = (e: Enemy): number => (e.rootTime > 0 ? 0 : e.def.speed * e.speedMul * (1 - moveSlow(e)));
 
 /** Distance a ray from (x, z) along `rot` travels before it hits a wall or (optionally) an obstacle. */
 export function rayLength(w: World, x: number, z: number, rot: number, max: number, obstacles: boolean): number {
@@ -250,7 +277,7 @@ export function landAttack(w: World, e: Enemy, a: EnemyAttack, shape: AttackShap
     if (shape === 'arc') inside = inArc(a.x, a.z, a.rot, a.r, a.w, hx, hz, 0);
     else if (shape === 'circle') inside = (hx - a.x) * (hx - a.x) + (hz - a.z) * (hz - a.z) <= a.r * a.r;
     else inside = inLine(a.x, a.z, a.rot, a.r, a.w, hx, hz, 0);
-    if (inside) damageHero(w, h, dmg, e.id);
+    if (inside) damageHero(w, h, dmg, e.id, shape === 'arc');
   }
 }
 
@@ -417,13 +444,18 @@ export function stepEnemy(w: World, e: Enemy): void {
       if (e.burnTimer <= SIM.EPS) {
         e.burnTimer += SIM.BURN_TICK_SECONDS;
         const src = w.hero(e.statusBy);
-        rawDamageEnemy(w, e, STATUS.BURN.DPS * e.statusPotency * (1 + e.statusBonus) * (src ? 1 + src.meta.might : 1) * SIM.BURN_TICK_SECONDS, e.statusBy, 'ember');
+        rawDamageEnemy(w, e, STATUS.BURN.DPS * e.statusPotency * e.statusPower * (1 + e.statusBonus) * (src ? 1 + src.mods.damage : 1) * SIM.BURN_TICK_SECONDS, e.statusBy, 'ember');
         if (e.dead) return;
       }
     }
     if (e.statusTime <= SIM.EPS) clearStatus(e);
   }
   if (e.resonanceCd > 0) e.resonanceCd -= dt;
+  if (e.markTime > 0) e.markTime -= dt;
+  if (e.sunderTime > 0) e.sunderTime -= dt;
+  if (e.rootTime > 0) e.rootTime -= dt;
+  if (e.slowTime > 0) e.slowTime -= dt;
+  if (e.smokeTime > 0) e.smokeTime -= dt;
   if (e.spawnTime > 0) {
     e.spawnTime -= dt;
     if (e.spawnTime <= SIM.EPS) {
@@ -464,7 +496,7 @@ export function stepEnemy(w: World, e: Enemy): void {
     e.recover -= dt;
     return;
   }
-  if (e.attackCd > 0) e.attackCd -= dt * (1 - chillSlow(e));
+  if (e.attackCd > 0) e.attackCd -= dt * (1 - chillSlow(e)) * (e.affix === 'swift' ? AFFIX.SWIFT_ATTACK_RATE : 1);
   const target = pickTarget(w, e, dt);
   if (!target) {
     setAnim(e, 'idle');

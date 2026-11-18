@@ -2,14 +2,17 @@
  * In-game HUD. The whole layer is pointer-events:none and never captures keys; it only reads GameState.
  * Static structure is built once, the ~15 Hz `syncHud` only touches text / custom properties that changed.
  */
-import { RUN, WORLD } from '@shared/constants.ts';
+import { RUN, WORLD, depthScale } from '@shared/constants.ts';
+import { SETS } from '@shared/data/boons.ts';
 import { PF, type AbilitySlot, type BiomeId, type DoorType, type EnemyKind, type GameEvent, type PlayerSnap } from '@shared/types.ts';
 import { self, selfRoster, state } from '../core/GameState.ts';
 import { createCoach } from './coach.ts';
 import { h, icon, key, retrigger, setAttr, setText, setVar, show, toggle } from './dom.ts';
 import { actTitle, bossLabel, chamberActs, enemyName, phaseThresholds } from './elements.ts';
+import { createBuffs, createSets, createUltimate } from './hud3.ts';
 import { DOOR_TEXT_PARAMS, formatBoon, roman, t, type I18nKey } from './i18n.ts';
-import { ABILITY_ICON, ABILITY_SLOTS, infusionOf, maxDashCharges, nameOf } from './model.ts';
+import { ABILITY_SLOTS, abilityIcon, depthLabel, infusionOf, maxDashCharges, nameOf } from './model.ts';
+import { affixBody, affixName, setName, setTierText } from './text.ts';
 import { ui, UI_CONFIG } from './store.ts';
 import { createStrip } from './strip.ts';
 import { createTips } from './tips.ts';
@@ -17,19 +20,23 @@ import type { View } from './view.ts';
 import type { IconName } from './icons.ts';
 
 const PERCENT = 100;
-const DOOR_LEGEND: readonly DoorType[] = ['boon', 'blessing', 'cursed', 'boss'];
+const DOOR_LEGEND: readonly DoorType[] = ['boon', 'blessing', 'cursed', 'boss', 'descend', 'ascend'];
+const pctMore = (mul: number): number => Math.round((mul - 1) * PERCENT);
 /** Icon of a boss / champion on the chamber track and the boss bar. */
 export const BOSS_ICON: Partial<Record<EnemyKind, IconName>> = { champion: 'elite', regent: 'boss', matron: 'matron', stalker: 'stalker' };
 
 export interface HudView extends View {
   syncHud(): void;
   onEvent(ev: GameEvent): void;
-  onLocalAction(action: 'primary' | 'secondary' | 'dash' | 'denied'): void;
+  /** `slot` (optional) names the ability a denied press was for. */
+  onLocalAction(action: LocalAction, slot?: string): void;
   /** Enter in game: closes the visible tip. Returns false when there was none. */
   dismissTip(): boolean;
   /** The game screen was left. */
   reset(): void;
 }
+
+export type LocalAction = 'primary' | 'secondary' | 'dash' | 'ultimate' | 'denied';
 
 interface PartyFrame {
   el: HTMLElement;
@@ -37,6 +44,7 @@ interface PartyFrame {
   shield: HTMLElement;
   revive: HTMLElement;
   tag: HTMLElement;
+  ult: HTMLElement;
 }
 
 interface AbilitySlotView {
@@ -82,7 +90,7 @@ export function createHud(): HudView {
 
   let partyKey = '';
   const renderParty = (): void => {
-    const key = JSON.stringify([state.conn.slot, state.roster.map((p) => [p.slot, p.name, p.cls])]);
+    const key = JSON.stringify([state.conn.slot, state.roster.map((p) => [p.slot, p.name, p.cls, p.mastery])]);
     if (key === partyKey) return;
     partyKey = key;
     party.replaceChildren();
@@ -93,14 +101,16 @@ export function createHud(): HudView {
       const shield = h('i', { class: 'gg-party-hp-shield' });
       const revive = h('i', { class: 'gg-party-revive' });
       const tag = h('span', { class: 'gg-party-tag' });
-      const el = h('div', { class: `gg-party-frame gg-cls-${p.cls}` },
-        h('span', { class: 'gg-party-emblem' }, icon(p.cls)),
+      const ult = h('span', { class: 'gg-party-ult', title: t('hud.party.ult') }, icon('ultimate'));
+      const level = Math.max(1, Math.floor(p.mastery ?? 1));
+      const el = h('div', { class: `gg-party-frame gg-cls-${p.cls}`, 'data-slot': String(p.slot), 'data-ult': 'false' },
+        h('span', { class: 'gg-party-emblem', title: t(`class.${p.cls}.name`) }, icon(p.cls), h('b', { class: 'gg-party-level gg-num' }, String(level))),
         h('div', { class: 'gg-party-main' },
-          h('div', { class: 'gg-party-name' }, p.name),
+          h('div', { class: 'gg-party-name' }, h('span', null, p.name), h('em', { class: 'gg-party-class' }, t(`class.${p.cls}.name`)), ult),
           h('div', { class: 'gg-party-row' }, h('div', { class: 'gg-party-hp' }, hp, shield, revive), tag),
         ),
       );
-      frames.set(p.slot, { el, hp, shield, revive, tag });
+      frames.set(p.slot, { el, hp, shield, revive, tag, ult });
       party.append(el);
     }
   };
@@ -120,6 +130,9 @@ export function createHud(): HudView {
       setVar(frame.shield, '--w', pct(snap && snap.maxHp > 0 ? snap.shield / snap.maxHp : 0));
       setVar(frame.revive, '--w', pct(downed ? snap.revive : 0));
       setText(frame.tag, !connected ? t('hud.disconnected') : downed ? t('hud.downed') : dead ? t('hud.dead') : '');
+      const charged = connected && !downed && !dead && (snap?.ult ?? 0) >= 1;
+      toggle(frame.ult, 'is-on', charged);
+      setAttr(frame.el, 'data-ult', String(charged));
     }
   };
 
@@ -166,10 +179,12 @@ export function createHud(): HudView {
     const run = state.run;
     if (!run) return;
     const acts = chamberActs(ui.biomes);
-    const k = `${run.chamber}|${run.oath}|${run.entered}|${run.finalBoss}|${acts.join('')}|${[...ui.biomes.values()].join(',')}`;
+    const depth = Math.max(0, Math.floor(run.depth ?? 0));
+    const k = `${run.chamber}|${run.oath}|${run.entered}|${run.finalBoss}|${depth}|${acts.join('')}|${[...ui.biomes.values()].join(',')}`;
     if (k === trackKey) return;
     trackKey = k;
     setAttr(track, 'data-chamber', String(run.chamber));
+    setAttr(track, 'data-depth', String(depth));
     const finalName = enemyName(run.finalBoss ?? 'regent');
     const list = h('ol', { class: 'gg-track-list', 'aria-label': t('hud.chamber', { n: run.chamber + 1, m: RUN.CHAMBERS.length }) });
     const currentAct = acts[Math.min(run.chamber, acts.length - 1)];
@@ -197,7 +212,11 @@ export function createHud(): HudView {
       ? h('span', { class: 'gg-oath-badge', title: t('oath.badge', { n: roman(run.oath) }) }, icon('bell'), roman(run.oath))
       : null;
     const final = h('span', { class: 'gg-track-final', 'data-boss': run.finalBoss ?? 'regent', title: t('hud.finalBoss', { name: finalName }) }, finalName);
-    track.replaceChildren(...(badge ? [badge, list, final] : [list, final]));
+    // Depth is counted from 1 ("Depth II" = one descent); the first descent needs no label.
+    const depthBadge = depth > 0
+      ? h('span', { class: 'gg-depth-badge', 'data-testid': 'hud-depth', 'data-depth': String(depth) }, icon('depth'), depthLabel(depth))
+      : null;
+    track.replaceChildren(...[badge, depthBadge, list, final].filter((n): n is HTMLElement => n !== null));
   };
 
   /** Announces a new act when the biome changes (or the run begins). Nothing after a reload mid-run. */
@@ -228,6 +247,7 @@ export function createHud(): HudView {
     renderTrack();
     trackAct();
     strip.sync();
+    sets.sync(selfRoster()?.boons ?? []);
     tips.onRun();
     const combat = run.phase === 'combat';
     setText(waveText,
@@ -339,7 +359,9 @@ export function createHud(): HudView {
     if (run?.phase === 'doors') {
       const types = DOOR_LEGEND.filter((type) => run.doors.some((d) => d.type === type));
       const shown = types.length > 0 ? types : DOOR_LEGEND.slice(0, 3);
-      renderPrompt(`doors|${shown.join(',')}|${run.doors.map((d) => d.type).join(',')}|${run.finalBoss}`, () => {
+      const deep = shown.includes('descend') || shown.includes('ascend');
+      const nextDepth = roman(Math.max(0, run.depth ?? 0) + 2);
+      renderPrompt(`doors|${shown.join(',')}|${run.doors.map((d) => d.type).join(',')}|${run.finalBoss}|${nextDepth}`, () => {
         const legend = h('div', { class: 'gg-door-legend' });
         for (const type of shown) {
           const fill = h('i');
@@ -350,12 +372,12 @@ export function createHud(): HudView {
             icon(type),
             h('div', null,
               h('b', null, t(`door.${type}.name`)),
-              h('span', null, t(`door.${type}.desc`, { ...DOOR_TEXT_PARAMS, boss: enemyName(run.finalBoss ?? 'regent') })),
+              h('span', null, t(`door.${type}.desc`, { ...DOOR_TEXT_PARAMS, boss: enemyName(run.finalBoss ?? 'regent'), depth: nextDepth })),
             ),
             h('div', { class: 'gg-door-progress' }, fill),
           ));
         }
-        return [line('door', t('hud.prompt.doors')), legend];
+        return [line(deep ? 'bell' : 'door', deep ? t('hud.prompt.doorsDeep') : t('hud.prompt.doors')), legend];
       });
       for (const fill of doorBars) {
         const index = Number(fill.dataset.door);
@@ -385,6 +407,10 @@ export function createHud(): HudView {
     renderPrompt('', () => []);
   };
 
+  const ultimate = createUltimate();
+  const buffs = createBuffs();
+  const sets = createSets();
+
   const slots = new Map<AbilitySlot, AbilitySlotView>();
   const abilityBar = h('div', { class: 'gg-abilities' });
   for (const slot of ABILITY_SLOTS) {
@@ -402,6 +428,7 @@ export function createHud(): HudView {
     slots.set(slot, { el: slotEl, iconBox, badge, pips, iconName: null, element: '', pipCount: -1, ready: true });
     abilityBar.append(slotEl);
   }
+  abilityBar.append(ultimate.el);
 
   const flash = (slot: AbilitySlot, cls: string, ms: number): void => {
     const view = slots.get(slot);
@@ -417,10 +444,12 @@ export function createHud(): HudView {
     for (const slot of ABILITY_SLOTS) {
       const view = slots.get(slot);
       if (!view) continue;
-      const iconName = ABILITY_ICON[cls][slot];
+      // The secondary shows the equipped art (RosterEntry.art), so the bar never lies about what RMB does.
+      const iconName = abilityIcon(cls, slot, roster?.art ?? 0);
       if (view.iconName !== iconName) {
         view.iconName = iconName;
         view.iconBox.replaceChildren(icon(iconName));
+        view.el.dataset.ability = iconName;
       }
       const element = infusionOf(boons, slot) ?? '';
       if (view.element !== element) {
@@ -429,6 +458,7 @@ export function createHud(): HudView {
         view.badge.replaceChildren(...(element !== '' ? [icon(element as IconName)] : []));
       }
     }
+    ultimate.sync(me, cls, infusionOf(boons, 'ultimate') ?? '');
     const secondary = slots.get('secondary');
     const dash = slots.get('dash');
     if (!secondary || !dash) return;
@@ -469,7 +499,8 @@ export function createHud(): HudView {
     reconnectSlot,
     tips.el,
     h('div', { class: 'gg-hud-bl' }, vitals),
-    h('div', { class: 'gg-hud-bc' }, prompt, h('div', { class: 'gg-ability-row' }, abilityBar, strip.el)),
+    h('div', { class: 'gg-hud-br' }, sets.el),
+    h('div', { class: 'gg-hud-bc' }, prompt, buffs.el, h('div', { class: 'gg-ability-row' }, abilityBar, strip.el)),
   );
   show(prompt, false);
 
@@ -516,6 +547,7 @@ export function createHud(): HudView {
     syncParty();
     syncAbilities(me);
     syncPrompt();
+    buffs.tick();
     tips.pump();
     const hp = state.bossHp;
     if (hp !== null && !boss.isConnected) bossSlot.append(boss);
@@ -529,6 +561,8 @@ export function createHud(): HudView {
     setText(enemiesText, combat && n > 0 ? (n === 1 ? t('hud.enemies.one') : t('hud.enemies.many', { n })) : '');
     show(enemiesText, combat && n > 0);
   };
+
+  const affixSeen = new Map<string, number>();
 
   const sync = (): void => {
     renderParty();
@@ -547,6 +581,47 @@ export function createHud(): HudView {
       case 'tutorialStep':
         coach.celebrate(ev.step);
         break;
+      case 'ultReady':
+        if (ev.slot === own) {
+          ultimate.ready();
+          const cls = selfRoster()?.cls ?? state.profile.cls;
+          pushFeed('ultimate', `${t('toast.ultReady')}: ${t('toast.ultReadySub', { name: t(`class.${cls}.ultimate.name`), key: t('hud.key.ultimate') })}`, 'ult');
+        } else {
+          pushFeed('ultimate', t('toast.ultReadyAlly', { name: nameOf(ev.slot) }), 'ult');
+        }
+        break;
+      case 'buff':
+        if (ev.slot === own) buffs.add(ev.id, ev.dur);
+        break;
+      case 'set': {
+        const def = SETS.find((set) => set.id === ev.id);
+        if (!def) break;
+        const tier = roman(ev.tier);
+        if (ev.slot === own) {
+          sets.sync(selfRoster()?.boons ?? []);
+          sets.flash(ev.id);
+          showBanner(t('toast.set', { name: setName(def), tier }), setTierText(def, ev.tier), 'set');
+        } else {
+          pushFeed(def.element ?? def.category ?? 'boon', t('toast.setAlly', { who: nameOf(ev.slot), name: setName(def), tier }), 'set');
+        }
+        break;
+      }
+      case 'descend': {
+        const scale = depthScale(ev.depth);
+        showBanner(t('toast.descend', { n: roman(ev.depth + 1) }), t('toast.descendSub', { hp: pctMore(scale.hp), dmg: pctMore(scale.damage) }), 'descend',
+          UI_CONFIG.ACT_BANNER_MS);
+        actBannerUntil = performance.now() + UI_CONFIG.ACT_BANNER_MS;
+        break;
+      }
+      case 'spawn': {
+        // Elite affixes: one small line per affix, however many elites spawn with it.
+        if (!ev.affix) break;
+        const now = performance.now();
+        if (now - (affixSeen.get(ev.affix) ?? -Infinity) < UI_CONFIG.AFFIX_CALLOUT_GAP_MS) break;
+        affixSeen.set(ev.affix, now);
+        pushFeed('affix', `${t('toast.affix', { affix: affixName(ev.affix) })} — ${affixBody(ev.affix)}`, 'affix');
+        break;
+      }
       case 'wave': {
         if (state.run?.tutorial || (ev.wave <= 1 && performance.now() < actBannerUntil)) break;
         const final = ev.wave >= ev.waveCount && ev.waveCount > 1;
@@ -587,17 +662,31 @@ export function createHud(): HudView {
     }
   };
 
-  const onLocalAction = (action: 'primary' | 'secondary' | 'dash' | 'denied'): void => {
+  const onLocalAction = (action: LocalAction, slot?: string): void => {
+    if (action === 'ultimate') { ultimate.fired(); return; }
     if (action !== 'denied') { flash(action, 'is-fired', UI_CONFIG.ACTION_FLASH_MS); return; }
     const me = self();
-    if (!me || me.cdSecondary > 0) flash('secondary', 'is-denied', UI_CONFIG.DENIED_FLASH_MS);
-    if (!me || me.dashCharges <= 0) flash('dash', 'is-denied', UI_CONFIG.DENIED_FLASH_MS);
+    const secondaryBlocked = !me || me.cdSecondary > 0;
+    const dashBlocked = !me || me.dashCharges <= 0;
+    const ultBlocked = !me || me.ult < 1;
+    if (slot === 'ultimate' || slot === 'secondary' || slot === 'dash') {
+      if (slot === 'ultimate') ultimate.denied();
+      else flash(slot, 'is-denied', UI_CONFIG.DENIED_FLASH_MS);
+      return;
+    }
+    // The event does not say which button was refused: shake what is not ready. The ultimate only shakes when
+    // nothing else can have been meant, so an empty charge does not flicker on every early right-click.
+    if (secondaryBlocked) flash('secondary', 'is-denied', UI_CONFIG.DENIED_FLASH_MS);
+    if (dashBlocked) flash('dash', 'is-denied', UI_CONFIG.DENIED_FLASH_MS);
+    if (ultBlocked && !secondaryBlocked && !dashBlocked) ultimate.denied();
   };
 
   const reset = (): void => {
     tips.reset();
     strip.reset();
     feed.replaceChildren();
+    buffs.reset();
+    affixSeen.clear();
     banner.classList.remove('is-on');
     lastBiome = null;
     lastChamber = -1;

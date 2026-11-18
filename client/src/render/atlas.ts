@@ -7,6 +7,9 @@ const H = 512;
 const DIGIT = { W: 44, H: 60, Y: 0 } as const;
 const ICON_SIZE = 64;
 const ICON_Y = 64;
+/** Icons beyond the first row continue here (below the word mark). */
+const ICON_Y2 = 400;
+const ICONS_PER_ROW = W / ICON_SIZE;
 const NAME = { W: 384, H: 56, Y: 144, COLS: 2 } as const;
 /** Word mark shown on a Resonance burst; drawn white so the two element colours can tint its halves. */
 const WORD = { TEXT: 'RESONANCE', X: 0, Y: 288, W: 560, H: 96 } as const;
@@ -15,6 +18,8 @@ const FONT_STACK = '"Trebuchet MS", "Segoe UI", system-ui, sans-serif';
 
 export const ICONS = [
   'burn', 'chill', 'shock', 'stun', 'shield', 'enrage', 'boon', 'blessing', 'cursed', 'boss', 'down', 'marker',
+  // update 3
+  'wither', 'mark', 'descend', 'ascend', 'bell', 'swift', 'armored', 'volatile', 'vampiric',
 ] as const;
 export type IconName = (typeof ICONS)[number];
 
@@ -164,6 +169,112 @@ function drawIcon(ctx: CanvasRenderingContext2D, name: IconName, ox: number, oy:
       strokeFill(ctx);
       break;
     }
+    case 'wither': {
+      // a waning crescent: the light eaten away
+      ctx.beginPath();
+      ctx.arc(c, c, 23, Math.PI * 0.25, Math.PI * 1.75, false);
+      ctx.arc(c + 12, c, 17, Math.PI * 1.62, Math.PI * 0.38, true);
+      ctx.closePath();
+      strokeFill(ctx);
+      break;
+    }
+    case 'mark': {
+      // death mark: a reticle with a dagger point
+      ctx.lineCap = 'round';
+      for (const pass of [0, 1]) {
+        ctx.strokeStyle = pass === 0 ? OUTLINE : '#ffffff';
+        ctx.lineWidth = pass === 0 ? 11 : 5;
+        ctx.beginPath(); ctx.arc(c, c, 19, 0, Math.PI * 2); ctx.stroke();
+        for (let i = 0; i < 4; i++) {
+          const a = (i / 4) * Math.PI * 2;
+          ctx.beginPath();
+          ctx.moveTo(c + Math.cos(a) * 13, c + Math.sin(a) * 13);
+          ctx.lineTo(c + Math.cos(a) * 27, c + Math.sin(a) * 27);
+          ctx.stroke();
+        }
+      }
+      ctx.beginPath(); ctx.moveTo(c, c - 8); ctx.lineTo(c + 6, c); ctx.lineTo(c, c + 8); ctx.lineTo(c - 6, c); ctx.closePath();
+      ctx.fillStyle = '#ffffff'; ctx.fill();
+      break;
+    }
+    case 'descend':
+    case 'ascend': {
+      // stacked chevrons pointing down (the stair into the abyss) or up (the way out)
+      const dir = name === 'descend' ? 1 : -1;
+      for (const pass of [0, 1]) {
+        ctx.strokeStyle = pass === 0 ? OUTLINE : '#ffffff';
+        ctx.lineWidth = pass === 0 ? 13 : 7;
+        ctx.lineJoin = 'miter';
+        ctx.lineCap = 'round';
+        for (let i = -1; i <= 1; i++) {
+          const y = c + i * 14 * dir;
+          const w = 20 - (i + 1) * 4;
+          ctx.beginPath();
+          ctx.moveTo(c - w, y - 6 * dir); ctx.lineTo(c, y + 6 * dir); ctx.lineTo(c + w, y - 6 * dir);
+          ctx.stroke();
+        }
+      }
+      break;
+    }
+    case 'bell': {
+      ctx.beginPath();
+      ctx.moveTo(c - 22, 46);
+      ctx.quadraticCurveTo(c - 14, 40, c - 14, 26);
+      ctx.quadraticCurveTo(c - 14, 10, c, 10);
+      ctx.quadraticCurveTo(c + 14, 10, c + 14, 26);
+      ctx.quadraticCurveTo(c + 14, 40, c + 22, 46);
+      ctx.closePath();
+      strokeFill(ctx);
+      ctx.beginPath(); ctx.arc(c, 52, 5.5, 0, Math.PI * 2);
+      strokeFill(ctx);
+      break;
+    }
+    case 'swift': {
+      // double chevron to the right
+      for (const pass of [0, 1]) {
+        ctx.strokeStyle = pass === 0 ? OUTLINE : '#ffffff';
+        ctx.lineWidth = pass === 0 ? 13 : 7;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        for (const ox of [-10, 8]) {
+          ctx.beginPath();
+          ctx.moveTo(c + ox - 8, 14); ctx.lineTo(c + ox + 10, c); ctx.lineTo(c + ox - 8, 50);
+          ctx.stroke();
+        }
+      }
+      break;
+    }
+    case 'armored': {
+      // a plate with rivets
+      ctx.beginPath();
+      ctx.moveTo(c, 6); ctx.lineTo(c + 22, 16); ctx.lineTo(c + 22, 40); ctx.lineTo(c, 58); ctx.lineTo(c - 22, 40); ctx.lineTo(c - 22, 16);
+      ctx.closePath();
+      strokeFill(ctx);
+      ctx.fillStyle = OUTLINE;
+      for (const [dx, dy] of [[-11, 22], [11, 22], [0, 40]]) { ctx.beginPath(); ctx.arc(c + dx, dy, 4, 0, Math.PI * 2); ctx.fill(); }
+      break;
+    }
+    case 'volatile': {
+      // a bomb with a lit fuse
+      ctx.beginPath(); ctx.arc(c - 2, c + 6, 19, 0, Math.PI * 2);
+      strokeFill(ctx);
+      ctx.beginPath(); ctx.moveTo(c + 9, 16); ctx.lineTo(c + 20, 5); ctx.lineTo(c + 24, 14); ctx.closePath();
+      strokeFill(ctx);
+      star(ctx, c + 22, 9, 4, 8, 3);
+      ctx.fillStyle = '#ffffff'; ctx.fill();
+      break;
+    }
+    case 'vampiric': {
+      // a falling drop
+      ctx.beginPath();
+      ctx.moveTo(c, 6);
+      ctx.bezierCurveTo(c + 6, 22, c + 20, 30, c + 20, 42);
+      ctx.bezierCurveTo(c + 20, 62, c - 20, 62, c - 20, 42);
+      ctx.bezierCurveTo(c - 20, 30, c - 6, 22, c, 6);
+      ctx.closePath();
+      strokeFill(ctx);
+      break;
+    }
   }
   ctx.restore();
 }
@@ -211,8 +322,10 @@ export class Atlas {
     this.bang = rect(11 * DIGIT.W + 1, DIGIT.Y, DIGIT.W - 2, DIGIT.H);
 
     ICONS.forEach((name, i) => {
-      drawIcon(ctx, name, i * ICON_SIZE, ICON_Y);
-      this.icons[name] = rect(i * ICON_SIZE, ICON_Y, ICON_SIZE, ICON_SIZE);
+      const x = (i % ICONS_PER_ROW) * ICON_SIZE;
+      const y = i < ICONS_PER_ROW ? ICON_Y : ICON_Y2;
+      drawIcon(ctx, name, x, y);
+      this.icons[name] = rect(x, y, ICON_SIZE, ICON_SIZE);
     });
 
     for (let slot = 0; slot < NET.MAX_PLAYERS; slot++) {

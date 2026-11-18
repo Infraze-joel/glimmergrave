@@ -54,3 +54,16 @@
 
   --gg-shadow-text: 0 0 2px #000, 0 0 2px #000, 0 1px 3px rgba(0, 0, 0, 0.95), 0 0 0.6em rgba(0, 0, 0, 0.85);
 }
+
+/* update 3: umbra, legendary, three more classes */
+:root {
+  /* umbra: deep violet-black with a pale green rim */
+  --gg-umbra: #b9f29a;
+  --gg-umbra-deep: #3b1f66;
+  --gg-legendary: #ff7ab8;
+  --gg-legendary-hi: #ffd0e6;
+  --gg-templar: #f0dc9a;
+  --gg-spellblade: #8f9bff;
+  --gg-shade: #9db0cf;
+  --gg-xp: #9fb4ff;
+}

@@ -8,6 +8,7 @@
  *   boon.<boonId>.name|desc              infusion.<element>.<slot>.name   infusion.desc   infusion.slot.<slot>
  *   door.<type>.name|desc                oath.<0..3>.name    oath.desc    oath.0.desc
  *   rarity.<rarity>   category.<category>   toast.*   error.<ErrorCode | ConnError>
+ * Update 3 keys live in strings3.ts; texts that mirror a data table by id are looked up with `tx()` (strings3data.ts).
  * Update 2 keys (tutorial.* tip.* codex.* armory.* meta.* wardrobe.* look.* biome.* hazard.*) live in strings2.ts.
  * Placeholders use {name}. Boon descriptions use {v} for the value at the offered level.
  */
@@ -15,9 +16,12 @@ import { RUN } from '@shared/constants.ts';
 import { BOON_BY_ID, BOON_TUNING, type BoonDef } from '@shared/data/boons.ts';
 import type { Lang } from '../core/Settings.ts';
 import { DE2, EN2 } from './strings2.ts';
+import { DE3, EN3 } from './strings3.ts';
+import { DE_DATA, EN_DATA } from './strings3data.ts';
 
 const EN = {
   ...EN2,
+  ...EN3,
   'common.title': 'Glimmergrave',
   'common.tagline': 'A co-op descent for 1–4 Wardens',
   'common.ok': 'OK',
@@ -346,7 +350,7 @@ const EN = {
   'howto.title': 'How to play',
   'howto.1': 'Move with WASD and aim with the mouse. Dash with Space — you are invulnerable while dashing.',
   'howto.2': 'Left click chains your primary attack, right click fires your secondary ability on a cooldown.',
-  'howto.3': 'Infusion boons add an element to an ability: Ember burns, Rime chills, Storm shocks.',
+  'howto.3': 'Infusion boons add an element to an ability: Ember burns, Rime chills, Storm shocks, Umbra withers.',
   'howto.4': 'Resonance: hit a marked foe with a different element and it bursts, spreading the new element.',
   'howto.5': 'Stand by a downed ally to revive them. After each chamber: draft a boon, then pick a door together.',
 
@@ -386,6 +390,7 @@ export type I18nKey = keyof typeof EN;
 
 const DE: Record<I18nKey, string> = {
   ...DE2,
+  ...DE3,
   'common.title': 'Glimmergrave',
   'common.tagline': 'Ein Koop-Abstieg für 1–4 Wächter',
   'common.ok': 'OK',
@@ -714,7 +719,7 @@ const DE: Record<I18nKey, string> = {
   'howto.title': 'Spielanleitung',
   'howto.1': 'Beweg dich mit WASD und ziel mit der Maus. Mit der Leertaste machst du einen Dash – dabei bist du unverwundbar.',
   'howto.2': 'Linksklick reiht Primärangriffe zur Kombo, Rechtsklick löst deine Sekundärfähigkeit aus (mit Abklingzeit).',
-  'howto.3': 'Infusions-Boons geben einer Fähigkeit ein Element: Glut verbrennt, Reif unterkühlt, Sturm schockt.',
+  'howto.3': 'Infusions-Boons geben einer Fähigkeit ein Element: Glut verbrennt, Reif unterkühlt, Sturm schockt, Umbra zehrt.',
   'howto.4': 'Resonanz: Triff einen markierten Gegner mit einem anderen Element, und er zerbirst und verteilt das neue Element.',
   'howto.5': 'Stell dich zu gefallenen Verbündeten, um sie wiederzubeleben. Nach jeder Kammer: Boon wählen, dann gemeinsam eine Tür.',
 
@@ -788,6 +793,23 @@ export function hasKey(key: string): key is I18nKey {
   return Object.prototype.hasOwnProperty.call(EN, key);
 }
 
+const DATA: Record<Lang, Readonly<Record<string, string>>> = { en: EN_DATA, de: DE_DATA };
+const own = (table: object, key: string): string | undefined =>
+  (Object.prototype.hasOwnProperty.call(table, key) ? (table as Record<string, string>)[key] : undefined);
+
+/** The text of a key in exactly this language (no fallback to English), or null. Used by the coverage check. */
+export function textIn(lang: Lang, key: string): string | null {
+  return own(TABLES[lang], key) ?? own(DATA[lang], key) ?? null;
+}
+
+/**
+ * Translates a key that is built from a data id (`talent.<id>.name`, `relic.<id>.body`, ...). Falls back to
+ * English, then to `fallback` (or the key itself), so a new table row never breaks the UI.
+ */
+export function tx(key: string, params?: Params, fallback?: string): string {
+  return fill(textIn(current, key) ?? textIn('en', key) ?? fallback ?? key, params);
+}
+
 /** Integer with locale grouping (12,480 / 12.480). */
 export function formatInt(n: number, lang: Lang = current): string {
   return Math.round(n).toLocaleString(LOCALE[lang]);
@@ -855,10 +877,10 @@ export function formatBoon(id: string, level: number, lang: Lang = current): Boo
     };
   }
   const nameKey = `boon.${id}.name`;
-  const descKey = `boon.${id}.desc`;
+  const desc = textIn(lang, `boon.${id}.desc`) ?? textIn('en', `boon.${id}.desc`) ?? def.summary;
   return {
     name: hasKey(nameKey) ? tl(lang, nameKey) : id,
-    desc: hasKey(descKey) ? tl(lang, descKey, { v, ...BOON_TEXT_PARAMS }) : fill(def.summary, { v }),
+    desc: fill(desc, { v, ...BOON_TEXT_PARAMS }),
   };
 }
 
@@ -873,7 +895,28 @@ export const DOOR_TEXT_PARAMS: Params = {
   c: RUN.DRAFT_CHOICES,
 };
 
-const ROMAN = ['0', 'I', 'II', 'III', 'IV'];
+const ROMAN_DIGITS: readonly [number, string][] = [
+  [1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I'],
+];
+const ROMAN_MAX = 3999;
+
+/** Roman numeral for ranks, tiers, depths and Oath levels (0 stays "0", large numbers stay arabic). */
 export function roman(n: number): string {
-  return ROMAN[n] ?? String(n);
+  let rest = Math.floor(n);
+  if (!(rest > 0) || rest > ROMAN_MAX) return String(Number.isFinite(rest) ? rest : 0);
+  let out = '';
+  for (const [value, digit] of ROMAN_DIGITS) while (rest >= value) { out += digit; rest -= value; }
+  return out;
+}
+
+/** 12.4 / 12,4 — at most one decimal, none when it is a whole number. */
+export function formatNum(n: number, lang: Lang = current): string {
+  return n.toLocaleString(LOCALE[lang], { maximumFractionDigits: 1 });
+}
+
+/** 1,234 below ten thousand, then 12.3K / 4.5M (Mio. in German) for the big lifetime counters. */
+export function formatCompact(n: number, lang: Lang = current): string {
+  const COMPACT_FROM = 10000;
+  if (Math.abs(n) < COMPACT_FROM) return formatInt(n, lang);
+  return n.toLocaleString(LOCALE[lang], { notation: 'compact', maximumFractionDigits: 1 });
 }

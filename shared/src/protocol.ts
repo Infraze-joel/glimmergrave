@@ -4,8 +4,11 @@
  *  - Input (client -> server) and snapshots (server -> client) are compact binary frames (high frequency).
  * All multi-byte numbers are little-endian.
  */
-import { NET, WORLD } from './constants.ts';
-import { sanitizeLook, sanitizeMeta } from './data/meta.ts';
+import { NET, RUN, WORLD } from './constants.ts';
+import { CLASSES } from './data/classes.ts';
+import { sanitizeArt, sanitizeMastery, sanitizeTalents } from './data/mastery.ts';
+import { sanitizeLook, sanitizeMeta, sanitizeParagon } from './data/meta.ts';
+import { relicSlots, sanitizeRelics } from './data/relics.ts';
 import {
   CLASS_IDS, ENEMY_ANIMS, ENEMY_KINDS, PLAYER_ANIMS, PLAYER_STATES, PROJECTILE_KINDS,
   type BoonOffer, type ClassId, type EnemySnap, type GameEvent, type InputCmd, type Loadout, type PlayerSnap,
@@ -20,7 +23,10 @@ export type ClientMsg =
   | { t: 'join'; v: number; code: string; name: string; cls: ClassId; loadout: Loadout }
   /** Resume a slot after a disconnect or page reload. */
   | { t: 'rejoin'; v: number; code: string; token: string }
-  /** Lobby changes. `oath` is honoured for the host only. `loadout` replaces look + upgrade levels (lobby only). */
+  /**
+   * Lobby changes. `oath` is honoured for the host only. `loadout` replaces look, upgrades, mastery, art, talents
+   * and relics (lobby only) and is only valid together with `cls` — send the current class if it did not change.
+   */
   | { t: 'lobby'; cls?: ClassId; ready?: boolean; oath?: number; loadout?: Loadout }
   /** Host only; requires every connected player to be ready. */
   | { t: 'start' }
@@ -77,9 +83,19 @@ export function normalizeRoomCode(raw: unknown): string | null {
 }
 
 /** Untrusted loadout -> valid loadout. Never fails: anything malformed falls back to defaults / level 0. */
-export function sanitizeLoadout(raw: unknown): Loadout {
+export function sanitizeLoadout(raw: unknown, cls: ClassId): Loadout {
   const r = isObj(raw) ? raw : {};
-  return { look: sanitizeLook(r.look), meta: sanitizeMeta(r.meta) };
+  const meta = sanitizeMeta(r.meta);
+  const mastery = sanitizeMastery(r.mastery);
+  return {
+    look: sanitizeLook(r.look),
+    meta,
+    paragon: sanitizeParagon(r.paragon),
+    mastery,
+    art: sanitizeArt(r.art, mastery, CLASSES[cls].arts.length),
+    talents: sanitizeTalents(r.talents, mastery),
+    relics: sanitizeRelics(r.relics, relicSlots(meta)),
+  };
 }
 
 /** Strict validation of an untrusted, already JSON-parsed client message. Returns null if invalid. */
@@ -89,13 +105,13 @@ export function parseClientMsg(raw: unknown): ClientMsg | null {
     case 'create': {
       const name = sanitizeName(raw.name);
       if (!isInt(raw.v, 0, 1e6) || !name || !isClass(raw.cls)) return null;
-      return { t: 'create', v: raw.v, name, cls: raw.cls, loadout: sanitizeLoadout(raw.loadout), tutorial: raw.tutorial === true };
+      return { t: 'create', v: raw.v, name, cls: raw.cls, loadout: sanitizeLoadout(raw.loadout, raw.cls), tutorial: raw.tutorial === true };
     }
     case 'join': {
       const name = sanitizeName(raw.name);
       const code = normalizeRoomCode(raw.code);
       if (!isInt(raw.v, 0, 1e6) || !name || !code || !isClass(raw.cls)) return null;
-      return { t: 'join', v: raw.v, code, name, cls: raw.cls, loadout: sanitizeLoadout(raw.loadout) };
+      return { t: 'join', v: raw.v, code, name, cls: raw.cls, loadout: sanitizeLoadout(raw.loadout, raw.cls) };
     }
     case 'rejoin': {
       const code = normalizeRoomCode(raw.code);
@@ -106,8 +122,9 @@ export function parseClientMsg(raw: unknown): ClientMsg | null {
       const msg: ClientMsg = { t: 'lobby' };
       if (raw.cls !== undefined) { if (!isClass(raw.cls)) return null; msg.cls = raw.cls; }
       if (raw.ready !== undefined) { if (typeof raw.ready !== 'boolean') return null; msg.ready = raw.ready; }
-      if (raw.oath !== undefined) { if (!isInt(raw.oath, 0, 3)) return null; msg.oath = raw.oath; }
-      if (raw.loadout !== undefined) msg.loadout = sanitizeLoadout(raw.loadout);
+      if (raw.oath !== undefined) { if (!isInt(raw.oath, 0, RUN.OATH_MAX)) return null; msg.oath = raw.oath; }
+      // A loadout belongs to a class: a class change must bring its loadout along (see the ClientMsg comment).
+      if (raw.loadout !== undefined) { if (msg.cls === undefined) return null; msg.loadout = sanitizeLoadout(raw.loadout, msg.cls); }
       return msg;
     }
     case 'start': return { t: 'start' };
@@ -161,7 +178,7 @@ export function decodeInput(data: ArrayBuffer | Uint8Array): InputCmd | null {
 }
 
 const SELF_BYTES = 19;
-const PLAYER_BYTES = 18;
+const PLAYER_BYTES = 19;
 const ENEMY_BYTES = 12;
 const PROJECTILE_BYTES = 8;
 
@@ -196,6 +213,7 @@ export function encodeSnapshotBody(body: SnapshotBody): Uint8Array {
     dv.setUint8(o + 15, q8(p.cdDash));
     dv.setUint8(o + 16, ((p.dashCharges & 0x0f) << 4) | Math.round(clamp(p.revive, 0, 1) * 15));
     dv.setUint8(o + 17, p.flags & 0xff);
+    dv.setUint8(o + 18, q8(p.ult));
     o += PLAYER_BYTES;
   }
   dv.setUint8(o++, enemies.length);
@@ -214,7 +232,7 @@ export function encodeSnapshotBody(body: SnapshotBody): Uint8Array {
   dv.setUint8(o++, projectiles.length);
   for (const p of projectiles) {
     dv.setUint16(o, p.id & 0xffff, true);
-    dv.setUint8(o + 2, PROJECTILE_KINDS.indexOf(p.kind) | ((p.element & 3) << 4) | (p.hostile ? 0x40 : 0));
+    dv.setUint8(o + 2, PROJECTILE_KINDS.indexOf(p.kind) | ((p.element & 7) << 4) | (p.hostile ? 0x80 : 0));
     dv.setInt16(o + 3, qPos(p.x), true);
     dv.setInt16(o + 5, qPos(p.z), true);
     dv.setUint8(o + 7, Math.round((wrapAngle(p.rot) / TAU) * 255));
@@ -281,6 +299,7 @@ export function decodeSnapshot(data: ArrayBuffer | Uint8Array): Snapshot | null 
       dashCharges: cr >> 4,
       revive: (cr & 0x0f) / 15,
       flags: dv.getUint8(o + 17),
+      ult: dv.getUint8(o + 18) / 255,
     });
   }
   if (o >= end) return null;
@@ -309,8 +328,8 @@ export function decodeSnapshot(data: ArrayBuffer | Uint8Array): Snapshot | null 
     projectiles.push({
       id: dv.getUint16(o, true),
       kind: PROJECTILE_KINDS[ke & 0x0f] ?? 'arcBolt',
-      element: (ke >> 4) & 3,
-      hostile: (ke & 0x40) !== 0,
+      element: (ke >> 4) & 7,
+      hostile: (ke & 0x80) !== 0,
       x: dv.getInt16(o + 3, true) / S,
       z: dv.getInt16(o + 5, true) / S,
       rot: (dv.getUint8(o + 7) / 255) * TAU,

@@ -112,7 +112,7 @@ export const ENEMY_TUNING = {
    * Bosses and the champion gain this much health per additional hero instead of RUN.HP_PER_EXTRA_PLAYER
    * (a party focuses all its damage on them, so they need more than the rank and file to last as long).
    */
-  BOSS_HP_PER_EXTRA_PLAYER: 1.0,
+  BOSS_HP_PER_EXTRA_PLAYER: 1.3,
 } as const;
 
 /**
@@ -138,6 +138,8 @@ export const STATUS = {
   CHILL: { SLOW: 0.35, DURATION: 3 },
   /** Shock: the target takes extra damage from all sources. */
   SHOCK: { VULNERABILITY: 0.2, DURATION: 4 },
+  /** Wither (umbra): the target deals less damage and every hit on it heals the attacker a little. */
+  WITHER: { WEAKEN: 0.2, LEECH: 1, DURATION: 4 },
   /**
    * Resonance: hitting an enemy that carries status A with element B (B != A) consumes A and bursts.
    * The burst damages all enemies within RADIUS and applies B to them.

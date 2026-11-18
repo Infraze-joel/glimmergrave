@@ -25,9 +25,10 @@ import { loadAssets } from './assets.ts';
 import type { Assets } from './assets.ts';
 import { Atlas } from './atlas.ts';
 import { BillboardBatch, DECAL, DecalBatch, SPRITE } from './batches.ts';
-import { Enemies, HeroPreview, Heroes } from './characters.ts';
+import { AbilityFx } from './abilityfx.ts';
+import { Enemies, HeroPreview, Heroes, classColor } from './characters.ts';
 import type { EnemyView, HeroView, Infusions } from './characters.ts';
-import { BLOOM, BOSS_AURA, CAMERA, ELEMENT_COLOR, HERO_VIS, LIMITS, PALETTE, QUALITY, SLOT_COLORS, enemyDef, isBigEnemy } from './config.ts';
+import { AFFIX_COLOR, BLOOM, BOSS_AURA, CAMERA, ELEMENT_COLOR, HERO_VIS, LIMITS, PALETTE, QUALITY, SLOT_COLORS, enemyDef, isBigEnemy } from './config.ts';
 import type { QualityProfile } from './config.ts';
 import { Doors } from './doors.ts';
 import { Hazards } from './hazards.ts';
@@ -40,7 +41,8 @@ export { loadAssets };
 export type { Assets };
 
 export interface RenderStats { drawCalls: number; triangles: number; geometries: number; textures: number }
-export interface RosterView { slot: number; cls: ClassId; name: string; look?: Look }
+/** `art` (RosterEntry.art) selects which secondary the hero's `art` animation belongs to; 0 / missing = the first art. */
+export interface RosterView { slot: number; cls: ClassId; name: string; look?: Look; art?: number }
 /** Hero presented on the wardrobe diorama; `screenX` (0..1 of the canvas width) is where it is centred. */
 export interface ShowcaseView { cls: ClassId; look: Look; screenX: number }
 export interface MarkerView { x: number; z: number; r: number }
@@ -52,6 +54,8 @@ const ABILITIES = new Map<string, AbilityInfo>();
 for (const cls of Object.values(CLASSES)) {
   cls.primary.forEach((def, index) => ABILITIES.set(def.id, { def, cls: cls.id, index }));
   ABILITIES.set(cls.secondary.id, { def: cls.secondary, cls: cls.id, index: 0 });
+  cls.arts.forEach((def, index) => ABILITIES.set(def.id, { def, cls: cls.id, index }));
+  ABILITIES.set(cls.ultimate.id, { def: cls.ultimate, cls: cls.id, index: 0 });
 }
 
 const VIEW = {
@@ -64,7 +68,6 @@ const VIEW = {
   EMBER_RATE: 6,
   SPARKLE_RATE: 4,
   STATUS_RATE: 5,
-  SWING_COLOR: { knight: 0xdce8ff, barbarian: 0xffcf9a, mage: PALETTE.arcane, rogue: 0xe9ffe0 } as Record<ClassId, number>,
   BONE: 0xe8dcc0,
   DUST: 0x4f4a44,
   /** Seconds after a cast during which its hits may still re-colour the swing arc. */
@@ -73,6 +76,9 @@ const VIEW = {
   FORGE_EMBER_RATE: 16,
   HAZE_RATE: 2.2,
   RIPPLE_RATE: 3.2,
+  /** Motes of the abyss per second and depth below the first descent. */
+  ABYSS_RATE: 3,
+  ABYSS_MAX_DEPTH: 5,
 } as const;
 
 /** Wardrobe diorama camera: the hero fills HERO_FRACTION of the screen height. */
@@ -113,6 +119,7 @@ export class WorldView implements FollowSource {
   private readonly preview: HeroPreview;
   private readonly assets: Assets;
   private readonly vfx: Vfx;
+  private readonly ability: AbilityFx;
   private readonly decals: DecalBatch;
   private readonly fx: BillboardBatch;
   private readonly ui: BillboardBatch;
@@ -149,6 +156,9 @@ export class WorldView implements FollowSource {
   private bossKind: EnemyKind = 'regent';
   private mistAcc = 0;
   private hazeAcc = 0;
+  private abyssAcc = 0;
+  private descent = 0;
+  private lastRoom: { room: RoomLayout; kind: ChamberKind; index: number } | null = null;
   private readonly castAt: number[] = [-10, -10, -10, -10];
   private readonly castTinted: boolean[] = [false, false, false, false];
   private readonly stats: RenderStats = { drawCalls: 0, triangles: 0, geometries: 0, textures: 0 };
@@ -220,6 +230,7 @@ export class WorldView implements FollowSource {
     this.hazards = new Hazards(this.scene, assets, this.level.stoneUv);
     this.preview = new HeroPreview(this.scene, assets);
     this.vfx = new Vfx(this.atlas);
+    this.ability = new AbilityFx(this.vfx, this.atlas, this.heroes, this.enemies);
     this.enemies.prewarm();
 
     this.setQuality('high');
@@ -301,6 +312,7 @@ export class WorldView implements FollowSource {
 
   setRoom(room: RoomLayout | null, chamberKind: ChamberKind, chamberIndex: number): void {
     this.hasRoom = room !== null;
+    this.lastRoom = room ? { room, kind: chamberKind, index: chamberIndex } : null;
     if (!room && this.showcase) {
       // menu / lobby with a wardrobe request: the diorama stands in for the chamber
       this.hazards.clear();
@@ -313,9 +325,25 @@ export class WorldView implements FollowSource {
     this.level.applyQuality(this.profile);
     this.updateFog();
     this.vfx.clear();
+    this.ability.clear();
     this.doors.clear();
     this.snapCamera = true;
     this.bossSeen = false;
+  }
+
+  /**
+   * Depth of the endless descent (RunState.depth; 0 = the first descent). Every depth makes the chambers darker and
+   * more saturated and lets more of the abyss drift through them. Call whenever RunState.depth is known or changes,
+   * ideally before setRoom() of that depth's first chamber; a chamber that is already shown is rebuilt in the new mood.
+   * The `descend` event sets it as well, clearSession() resets it to 0.
+   */
+  setDepth(depth: number): void {
+    const d = Number.isFinite(depth) ? Math.max(0, Math.floor(depth)) : 0;
+    if (d === this.descent) return;
+    this.descent = d;
+    this.level.descent = d;
+    const last = this.lastRoom;
+    if (last && this.hasRoom) this.setRoom(last.room, last.kind, last.index);
   }
 
   /**
@@ -406,15 +434,15 @@ export class WorldView implements FollowSource {
   position(slot: number, out: { x: number; z: number; rot: number }): boolean {
     const hero = this.heroes.get(slot);
     if (!hero) return false;
-    out.x = hero.x; out.z = hero.z; out.rot = hero.rot;
+    out.x = hero.x + hero.offX; out.z = hero.z + hero.offZ; out.rot = hero.rot;
     return true;
   }
 
   /** Instant feedback for the own hero's inputs (before the server confirms). */
-  localAction(action: 'primary' | 'secondary' | 'dash'): void {
+  localAction(action: 'primary' | 'secondary' | 'dash' | 'ultimate'): void {
     const hero = this.heroes.get(this.localSlot);
     if (!hero) return;
-    this.heroes.nudge(this.localSlot, action === 'dash' ? -0.16 : action === 'secondary' ? 0.1 : 0.06);
+    this.heroes.nudge(this.localSlot, action === 'dash' ? -0.16 : action === 'ultimate' ? 0.14 : action === 'secondary' ? 0.1 : 0.06);
     if (action === 'dash') this.vfx.puff(hero.x, 0.25, hero.z, VIEW.DUST, 5, 0.5, 0.35);
   }
 
@@ -478,6 +506,14 @@ export class WorldView implements FollowSource {
       case 'kill': {
         const big = isBigEnemy(ev.kind);
         const s = enemyDef(ev.kind).scale;
+        const dead = this.enemies.get(ev.id);
+        if (dead && dead.markLeft > 0) this.ability.markBurst(ev.x, ev.z);
+        if (dead && dead.affix === 'volatile') {
+          // the fuse is lit: the body flares before the (telegraphed) blast
+          vfx.flash(ev.x, s, ev.z, AFFIX_COLOR.volatile, 3.5, 0.5, 2);
+          vfx.stamp(DECAL.CRACKLE, ev.x, ev.z, 1, 4, 0.6, AFFIX_COLOR.volatile, 1.8, 1, 0.4, 1);
+          vfx.sparks(ev.x, s, ev.z, AFFIX_COLOR.volatile, 14, 8);
+        }
         this.enemies.kill(ev.id);
         vfx.sparks(ev.x, s, ev.z, VIEW.BONE, big ? 30 : 9, big ? 11 : 6);
         vfx.motes(ev.x, 0.6 * s, ev.z, PALETTE.glimmer, big ? 40 : 7, 0.5 * s, 2.4, big ? 1.8 : 1);
@@ -518,6 +554,7 @@ export class WorldView implements FollowSource {
         vfx.motes(ev.x, 0.3, ev.z, a, 7, ev.r * 0.7, 2.6, 1);
         vfx.motes(ev.x, 0.3, ev.z, b, 7, ev.r * 0.9, 2, 1.1);
         vfx.word(ev.x, 3.2, ev.z, a, b, ev.by === this.localSlot || this.localSlot < 0 ? 1 : 0.82);
+        this.ability.reaction(ev);
         this.shake(ev.by === this.localSlot ? 0.3 : 0.2);
         break;
       }
@@ -525,7 +562,8 @@ export class WorldView implements FollowSource {
         const v = this.enemies.get(ev.id);
         if (!v) break;
         const hex = ELEMENT_COLOR[ev.el];
-        const icon = ev.el === 'ember' ? this.atlas.icons.burn : ev.el === 'rime' ? this.atlas.icons.chill : this.atlas.icons.shock;
+        const icon = ev.el === 'ember' ? this.atlas.icons.burn : ev.el === 'rime' ? this.atlas.icons.chill
+          : ev.el === 'storm' ? this.atlas.icons.shock : this.atlas.icons.wither;
         vfx.iconPop(v.x, v.lift + v.height + 0.95, v.z, icon, hex, isBigEnemy(v.kind) ? 1.3 : 0.95);
         vfx.ring(v.x, v.z, 0.5, v.radius * 4.6, 0.32, hex, 0.35, 1.5);
         vfx.flash(v.x, v.lift + v.height * 0.55, v.z, hex, v.height * 1.1, 0.2, 1.3);
@@ -584,6 +622,8 @@ export class WorldView implements FollowSource {
       case 'shieldBreak': {
         const v = this.enemies.get(ev.id);
         if (!v) break;
+        this.enemies.breakGuard(ev.id);
+        if (v.affix === 'armored') vfx.shards(v.x, v.height * 0.5, v.z, AFFIX_COLOR.armored, 12, 8, 0.5, 0.2);
         vfx.sparks(v.x, v.height * 0.5, v.z, PALETTE.shield, 16, 9);
         vfx.ring(v.x, v.z, 0.5, 4, 0.35, PALETTE.shield, 0.35, 1.8);
         vfx.flash(v.x, v.height * 0.5, v.z, PALETTE.shield, 3, 0.16, 1.8);
@@ -597,6 +637,10 @@ export class WorldView implements FollowSource {
         vfx.puff(ev.x, 0.2, ev.z, VIEW.DUST, big ? 8 : 3, def.radius, 0.35);
         vfx.motes(ev.x, 0.1, ev.z, hex, big ? 22 : 5, def.radius * 1.2, 2.2, def.spawnTime);
         if (big) { vfx.ring(ev.x, ev.z, 1, 14, 0.9, hex, 0.4, 1.8); this.shake(0.4); }
+        if (ev.affix) {
+          this.enemies.setAffix(ev.id, ev.affix);
+          vfx.ring(ev.x, ev.z, def.radius * 6, def.radius * 2, def.spawnTime, AFFIX_COLOR[ev.affix], 0.3, 1.6);
+        }
         break;
       }
       case 'wave':
@@ -658,15 +702,63 @@ export class WorldView implements FollowSource {
         }
         break;
       }
+      case 'zone':
+        this.ability.zone(ev);
+        break;
+      case 'zoneEnd':
+        this.ability.zoneEnd(ev.id, ev.sprung);
+        break;
+      case 'buff':
+        this.heroes.buff(ev.slot, ev.id, ev.dur);
+        break;
+      case 'mark': {
+        const v = this.enemies.get(ev.id);
+        this.enemies.mark(ev.id, ev.dur);
+        if (!v) break;
+        vfx.iconPop(v.x, v.lift + v.height + 0.95, v.z, this.atlas.icons.mark, PALETTE.mark, isBigEnemy(v.kind) ? 1.3 : 0.95);
+        vfx.ring(v.x, v.z, v.radius * 7, v.radius * 2, 0.3, PALETTE.mark, 0.3, 1.8);
+        vfx.smoke(v.x, v.lift + v.height * 0.5, v.z, PALETTE.shadow, 3, v.radius, 0.4, 0.7, 1.1);
+        break;
+      }
+      case 'ultReady': {
+        // the steady shimmer comes from PlayerSnap.ult; this is the moment it fills
+        const h = this.heroes.get(ev.slot);
+        if (!h) break;
+        const hex = classColor(h.cls);
+        vfx.ring(h.x, h.z, 0.6, 4.6, 0.55, hex, 0.3, 1.7);
+        vfx.ring(h.x, h.z, 5.5, 1.2, 0.4, hex, 0.2, 1.3);
+        vfx.flash(h.x, 1.3, h.z, hex, 3.4, 0.35, 1.5);
+        vfx.motes(h.x, 0.2, h.z, hex, 18, 0.8, 3.6, 1.1);
+        break;
+      }
+      case 'descend': {
+        // the floor gives way to the dark below: violet rushes in from the edges while the light is pulled down
+        this.setDepth(ev.depth);
+        const span = Math.max(this.level.width, this.level.depth, 24);
+        this.heroes.forEach((h) => {
+          vfx.ring(h.x, h.z, 7, 0.8, 0.7, PALETTE.abyss, 0.4, 1.8);
+          vfx.motes(h.x, 2.6, h.z, PALETTE.abyss, 16, 1, -2.6, 1.1);
+          vfx.smoke(h.x, 0.4, h.z, PALETTE.umbraCore, 5, 0.9, 0.4, 1.1, 1.5);
+        });
+        vfx.ring(this.target.x, this.target.z, span * 1.6, 2, 1.1, PALETTE.abyss, 0.2, 1.6);
+        vfx.stamp(DECAL.SMOKE, this.target.x, this.target.z, span * 0.6, span * 1.5, 1.6, PALETTE.umbraCore, 1, 0, 0.9, 0, 0, 0, 0.8);
+        vfx.groundFlash(this.target.x, this.target.z, span * 1.2, 1.2, PALETTE.abyss, 0.5);
+        this.shake(0.35);
+        break;
+      }
+      case 'set': {
+        const h = this.heroes.get(ev.slot);
+        if (!h) break;
+        vfx.ring(h.x, h.z, 0.5, 3.8 + ev.tier, 0.55, DOOR_GOLD, 0.25, 1.6);
+        vfx.duoRing(h.x, h.z, 0.5, 2.8 + ev.tier, 0.7, DOOR_GOLD, classColor(h.cls), 0.3, 1.6, 0.1);
+        vfx.motes(h.x, 0.2, h.z, DOOR_GOLD, 12 + 8 * ev.tier, 0.8, 3.2, 1.1);
+        break;
+      }
     }
   }
 
-  /** The look of one element as a burst: Ember leaps up in flames, Rime sheds drifting frost, Storm arcs. */
   private elementBurst(el: ElementId, x: number, y: number, z: number, radius: number, amount: number): void {
-    const hex = ELEMENT_COLOR[el];
-    if (el === 'ember') this.vfx.flames(x, y, z, hex, 7 * amount, radius, 0.8 + 0.7 * amount);
-    else if (el === 'rime') this.vfx.frost(x, y + 0.3, z, hex, 14 * amount, radius * 1.2);
-    else this.vfx.arcs(x, y, z, hex, 7 * amount, 0.9 + radius * 1.3);
+    this.ability.elementBurst(el, x, y, z, radius, amount);
   }
 
   private castEffect(who: 'p' | 'e', id: number, ability: string, x: number, z: number, rot: number): void {
@@ -708,12 +800,17 @@ export class WorldView implements FollowSource {
     if (!info) return;
     const a = info.def;
     // an infused ability shows its element in the swing / muzzle / rune; otherwise the class colour
-    const infused = this.heroes.infusion(id, a.anim === 'secondary' ? 'secondary' : 'primary');
-    const color = infused ? ELEMENT_COLOR[infused] : VIEW.SWING_COLOR[info.cls];
+    const infused = this.heroes.infusion(id, a.anim === 'ultimate' ? 'ultimate' : a.anim === 'secondary' || a.anim === 'art' ? 'secondary' : 'primary');
+    const color = infused ? ELEMENT_COLOR[infused] : classColor(info.cls);
     const sin = Math.sin(rot);
     const cos = Math.cos(rot);
     if (id >= 0 && id < this.castAt.length) { this.castAt[id] = this.time; this.castTinted[id] = infused !== null; }
-    if (infused) this.elementBurst(infused, x + sin * 0.8, 1.1, z + cos * 0.8, 0.3, 0.3);
+    // ground-targeted abilities carry their target in the event; the hero's own position comes from its view
+    const hero = this.heroes.get(id);
+    const hx = hero ? hero.x + hero.offX : x;
+    const hz = hero ? hero.z + hero.offZ : z;
+    if (infused) this.elementBurst(infused, hx + sin * 0.8, 1.1, hz + cos * 0.8, 0.3, 0.3);
+    if (this.ability.cast(a, info.cls, id, x, z, rot, hx, hz, color, infused)) { this.shake(this.ability.takeShake()); return; }
     switch (a.shape) {
       case 'arc': {
         const heavy = a.knockback > 0;
@@ -723,9 +820,15 @@ export class WorldView implements FollowSource {
         break;
       }
       case 'projectile': {
-        const hex = infused ? color : a.projectile === 'arcBolt' ? PALETTE.arcane : PALETTE.physical;
+        const hex = infused ? color : a.projectile === 'arcBolt' ? PALETTE.arcane
+          : a.projectile === 'shieldDisc' ? PALETTE.shield : a.projectile === 'bladeWave' || a.projectile === 'shadowDagger' ? color : PALETTE.physical;
         const mx = x + sin * 0.9;
         const mz = z + cos * 0.9;
+        if (a.projectile === 'bladeWave' || a.projectile === 'shieldDisc') {
+          // the swing that sends it off
+          vfx.slash(x, z, rot, 2.6, 130 * DEG, Math.max(0.18, a.lock * 0.6), hex, a.projectile === 'bladeWave' ? -1 : 1, a.windup * 0.7, id, 2);
+          vfx.ring(mx, mz, 0.5, 2.6, 0.25, hex, 0.35, 1.6, a.windup);
+        }
         vfx.flash(mx, 1.2, mz, hex, a.count > 1 ? 2 : 1.5, 0.12, 1.6);
         vfx.sparks(mx, 1.2, mz, hex, a.count > 1 ? 7 : 4, 6, rot, a.count > 1 ? a.arc * DEG * 1.4 : 0.6);
         break;
@@ -785,6 +888,9 @@ export class WorldView implements FollowSource {
     this.heroes.forEach(this.heroFx);
     this.doors.update(step, time, this.decals, this.fx, this.ui, this.vfx);
     this.projectiles.update(step, time, this.decals, this.fx, this.vfx);
+    // lasting friendly ground effects go in before the timed pool, whose telegraphs are drawn last (always on top)
+    this.ability.update(step, time, this.decals, this.fx);
+    this.shake(this.ability.takeShake());
     this.vfx.update(step, this.decals, this.fx, this.ui, this);
 
     this.decals.end(time);
@@ -809,6 +915,10 @@ export class WorldView implements FollowSource {
 
   private readonly heroFx = (h: HeroView): void => {
     const p = this.dt * this.vfx.density;
+    if (h.landed) {
+      h.landed = false;
+      this.vfx.puff(h.x + h.offX, 0.25, h.z + h.offZ, VIEW.DUST, 6, 0.8, 0.35);
+    }
     const dashEl = h.anim === 'dash' ? this.heroes.infusion(h.slot, 'dash') : null;
     if (dashEl && h.state === 'alive') {
       // infused dash: a streak of the element where the hero passes
@@ -861,6 +971,15 @@ export class WorldView implements FollowSource {
       }
     }
     if (stage) return;
+    if (this.descent > 0) {
+      // below the first descent the abyss leaks into every chamber: violet motes sinking through the air
+      this.abyssAcc += VIEW.ABYSS_RATE * Math.min(VIEW.ABYSS_MAX_DEPTH, this.descent) * d * dt;
+      while (this.abyssAcc >= 1) {
+        this.abyssAcc -= 1;
+        vfx.particle(cx + (Math.random() - 0.5) * 34, 2.2 + Math.random() * 3.5, cz + (Math.random() - 0.6) * 22, (Math.random() - 0.5) * 0.3, -0.5 - Math.random() * 0.7,
+          (Math.random() - 0.5) * 0.3, 2.4 + Math.random() * 2, 0.16, 0.03, ABYSS_RGB[0] * 2.2, ABYSS_RGB[1] * 2.2, ABYSS_RGB[2] * 2.2, 0.9, SPRITE.SPARK, 1, 0, 0, 2);
+      }
+    }
     if (biome === 'flooded') {
       // mist drifting low over the water
       this.mistAcc += VIEW.MIST_RATE * d * dt;
@@ -927,7 +1046,7 @@ export class WorldView implements FollowSource {
     let tx = 0;
     let tz = 0;
     const local = this.heroes.get(this.localSlot);
-    if (local) { tx = local.x; tz = local.z; } else {
+    if (local) { tx = local.x + local.offX; tz = local.z + local.offZ; } else {
       let n = 0;
       for (let s = 0; s < 4; s++) { const h = this.heroes.get(s); if (h) { tx += h.x; tz += h.z; n++; } }
       if (n > 0) { tx /= n; tz /= n; }
@@ -996,12 +1115,13 @@ export class WorldView implements FollowSource {
   /** Debug counters for the showcase overlay. */
   getDebug(): {
     quality: Quality; particles: number; decals: number; fxSprites: number; uiSprites: number; enemies: number; projectiles: number;
-    hazards: number; heroTemplates: number; showcase: boolean;
+    hazards: number; heroTemplates: number; showcase: boolean; zones: number; depth: number;
   } {
     return {
       quality: this.quality, particles: this.vfx.particleCount, decals: this.decals.used, fxSprites: this.fx.used,
       uiSprites: this.ui.used, enemies: this.enemies.count, projectiles: this.projectiles.count,
       hazards: this.hazards.active, heroTemplates: this.assets.heroTemplateCount(), showcase: this.level.diorama,
+      zones: this.ability.activeZones, depth: this.descent,
     };
   }
 
@@ -1018,10 +1138,14 @@ export class WorldView implements FollowSource {
     this.enemies.clear();
     this.projectiles.clear();
     this.vfx.clear();
+    this.ability.clear();
     this.doors.clear();
     this.hazards.clear();
     this.marker = null;
     this.hasRoom = false;
+    this.lastRoom = null;
+    this.descent = 0;
+    this.level.descent = 0;
     // back in the menu: a wardrobe request that was waiting behind the chamber takes over again
     if (this.showcase) this.applyShowcase();
     else this.level.setRoom(null, 'combat', 0);
@@ -1051,3 +1175,4 @@ export class WorldView implements FollowSource {
 }
 
 const DOOR_GOLD = 0xffd166;
+const ABYSS_RGB = rgb(PALETTE.abyss);

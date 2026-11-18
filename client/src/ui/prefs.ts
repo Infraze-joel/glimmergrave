@@ -4,10 +4,12 @@ const KEY = 'glimmergrave.ui.v1';
 interface Prefs {
   tips: boolean;
   seen: string[];
+  /** Things the player has looked at once (e.g. `art.knight`: the art choice of a class), so badges can go away. */
+  marks: string[];
 }
 
 function load(): Prefs {
-  const fallback: Prefs = { tips: true, seen: [] };
+  const fallback: Prefs = { tips: true, seen: [], marks: [] };
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return fallback;
@@ -15,6 +17,7 @@ function load(): Prefs {
     return {
       tips: stored.tips !== false,
       seen: Array.isArray(stored.seen) ? stored.seen.filter((id): id is string => typeof id === 'string') : [],
+      marks: Array.isArray(stored.marks) ? stored.marks.filter((id): id is string => typeof id === 'string') : [],
     };
   } catch {
     return fallback; // storage unavailable or corrupt
@@ -48,5 +51,20 @@ export function markTipSeen(id: string): void {
 
 export function resetTips(): void {
   prefs.seen = [];
+  save();
+}
+
+export function isMarked(id: string): boolean {
+  return prefs.marks.includes(id);
+}
+
+export function setMark(id: string): void {
+  if (prefs.marks.includes(id)) return;
+  prefs.marks.push(id);
+  save();
+}
+
+export function resetMarks(): void {
+  prefs.marks = [];
   save();
 }

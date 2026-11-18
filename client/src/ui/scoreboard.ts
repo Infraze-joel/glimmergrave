@@ -4,13 +4,13 @@ import { RUN } from '@shared/constants.ts';
 import type { BoonStack, PlayerRunStats, RosterEntry } from '@shared/types.ts';
 import { selfRoster, state } from '../core/GameState.ts';
 import { h, icon } from './dom.ts';
-import { formatBoon, formatInt, formatTime, maxBoonLevel, roman, t, type I18nKey } from './i18n.ts';
-import { boonIcon, boonTint, oathName } from './model.ts';
+import { formatBoon, formatInt, formatTime, maxBoonLevel, roman, t } from './i18n.ts';
+import { boonIcon, boonTint, depthLabel, oathName } from './model.ts';
 import { levelPips } from './draft.ts';
 import type { View } from './view.ts';
 import type { IconName } from './icons.ts';
 
-type StatKey = 'damage' | 'kills' | 'resonances' | 'revives' | 'downs';
+type StatKey = 'damage' | 'kills' | 'elites' | 'bosses' | 'resonances' | 'ultimates' | 'revives' | 'downs';
 
 interface Column {
   key: StatKey;
@@ -22,22 +22,31 @@ interface Column {
 const COLUMNS: readonly Column[] = [
   { key: 'damage', icon: 'sword', inverse: false },
   { key: 'kills', icon: 'skull', inverse: false },
+  { key: 'elites', icon: 'elite', inverse: false },
+  { key: 'bosses', icon: 'crown', inverse: false },
   { key: 'resonances', icon: 'resonance', inverse: false },
+  { key: 'ultimates', icon: 'ultimate', inverse: false },
   { key: 'revives', icon: 'revive', inverse: false },
   { key: 'downs', icon: 'down', inverse: true },
 ];
 
-const EMPTY_STATS: Omit<PlayerRunStats, 'slot'> = { damage: 0, kills: 0, resonances: 0, revives: 0, downs: 0 };
+const EMPTY_STATS: Omit<PlayerRunStats, 'slot'> = { damage: 0, kills: 0, resonances: 0, revives: 0, downs: 0, elites: 0, bosses: 0, ultimates: 0 };
+
+/** Reward columns of the run summary (RunState.rewards). */
+const REWARD_COLUMNS: readonly { key: 'glimmer' | 'xp' | 'shards'; icon: IconName }[] = [
+  { key: 'glimmer', icon: 'glimmer' }, { key: 'xp', icon: 'xp' }, { key: 'shards', icon: 'shard' },
+];
 
 function statsOf(slot: number): PlayerRunStats {
-  return state.run?.stats.find((s) => s.slot === slot) ?? { slot, ...EMPTY_STATS };
+  // Rows from a server that predates a counter simply show 0 for it.
+  return { slot, ...EMPTY_STATS, ...(state.run?.stats.find((s) => s.slot === slot) ?? {}) };
 }
 
 /** Slots holding the best value of a column. Needs at least two heroes and a non-trivial spread. */
 function mvpSlots(column: Column, roster: RosterEntry[]): Set<number> {
   const best = new Set<number>();
   if (roster.length < 2) return best;
-  const values = roster.map((p) => statsOf(p.slot)[column.key]);
+  const values = roster.map((p) => statsOf(p.slot)[column.key] ?? 0);
   const target = column.inverse ? Math.min(...values) : Math.max(...values);
   const spread = Math.max(...values) - Math.min(...values);
   if (spread === 0 || (!column.inverse && target <= 0)) return best;
@@ -63,13 +72,23 @@ export function boonChips(boons: BoonStack[]): HTMLElement {
 export interface StatsTableOptions {
   mvp: boolean;
   boons: boolean;
+  /** Adds what every hero takes home (Glimmer, XP, relic shards) once the server has announced it. */
+  rewards?: boolean;
 }
 
 export function statsTable(options: StatsTableOptions): HTMLElement {
   const roster = [...state.roster].sort((a, b) => a.slot - b.slot);
   const head = h('tr', null, h('th', { class: 'gg-stats-hero', scope: 'col' }, t('tab.hero')));
   for (const column of COLUMNS) {
-    head.append(h('th', { scope: 'col' }, icon(column.icon), h('span', null, t(`tab.${column.key}` as I18nKey))));
+    head.append(h('th', { scope: 'col', 'data-col': column.key, title: t(`tab.${column.key}`) }, icon(column.icon), h('span', null, t(`tab.${column.key}`))));
+  }
+  const rewards = options.rewards ? state.run?.rewards ?? [] : [];
+  const showRewards = rewards.length > 0;
+  if (showRewards) {
+    for (const column of REWARD_COLUMNS) {
+      head.append(h('th', { scope: 'col', class: 'gg-stats-reward', 'data-col': column.key, title: t(`tab.${column.key}`) },
+        icon(column.icon), h('span', null, t(`tab.${column.key}`))));
+    }
   }
   const body = h('tbody');
   const best = COLUMNS.map((column) => (options.mvp ? mvpSlots(column, roster) : new Set<number>()));
@@ -82,7 +101,8 @@ export function statsTable(options: StatsTableOptions): HTMLElement {
           h('span', { class: 'gg-stats-emblem' }, icon(p.cls)),
           h('span', { class: 'gg-stats-id' },
             h('b', null, p.name),
-            h('span', null, t(`class.${p.cls}.name`), p.connected ? '' : ` · ${t('hud.disconnected')}`),
+            h('span', null, t(`class.${p.cls}.name`), ` · ${t('common.lv', { n: Math.max(1, Math.floor(p.mastery ?? 1)) })}`,
+              p.connected ? '' : ` · ${t('hud.disconnected')}`),
           ),
         ),
       ),
@@ -90,14 +110,20 @@ export function statsTable(options: StatsTableOptions): HTMLElement {
     COLUMNS.forEach((column, i) => {
       const isBest = best[i].has(p.slot);
       row.append(h('td', { class: `gg-num${isBest ? ' is-mvp' : ''}`, title: isBest ? t('summary.mvp') : null },
-        isBest ? icon('star', 'gg-mvp-star') : null, formatInt(stats[column.key])));
+        isBest ? icon('star', 'gg-mvp-star') : null, formatInt(stats[column.key] ?? 0)));
     });
+    if (showRewards) {
+      const reward = rewards.find((r) => r.slot === p.slot);
+      const cell = (value: number | null): HTMLElement =>
+        h('td', { class: 'gg-num gg-stats-reward' }, value === null ? '–' : value > 0 ? `+${formatInt(value)}` : '0');
+      row.append(cell(reward ? reward.glimmer : null), cell(reward ? reward.xp : null), cell(reward ? reward.relics.length : null));
+    }
     body.append(row);
     if (options.boons) {
-      body.append(h('tr', { class: 'gg-stats-boons' }, h('td', { colspan: COLUMNS.length + 1 }, boonChips(p.boons))));
+      body.append(h('tr', { class: 'gg-stats-boons' }, h('td', { colspan: COLUMNS.length + 1 + (showRewards ? REWARD_COLUMNS.length : 0) }, boonChips(p.boons))));
     }
   }
-  return h('table', { class: 'gg-stats' }, h('thead', null, head), body);
+  return h('table', { class: `gg-stats${showRewards ? ' gg-stats--rewards' : ''}`, 'data-cols': String(COLUMNS.length) }, h('thead', null, head), body);
 }
 
 export function createScoreboard(): View {
@@ -113,7 +139,7 @@ export function createScoreboard(): View {
   let bodyKey = '';
   const sync = (): void => {
     const run = state.run;
-    const key = JSON.stringify([run?.chamber, run?.oath, Math.floor(run?.elapsed ?? 0), run?.stats, state.conn.slot, state.roster]);
+    const key = JSON.stringify([run?.chamber, run?.depth, run?.oath, Math.floor(run?.elapsed ?? 0), run?.stats, state.conn.slot, state.roster]);
     if (key === bodyKey) return;
     bodyKey = key;
     meta.replaceChildren();
@@ -123,6 +149,7 @@ export function createScoreboard(): View {
         h('span', { class: 'gg-num' }, icon('hourglass'), formatTime(run.elapsed)),
         h('span', null, icon('bell'), oathName(run.oath)),
       );
+      if ((run.depth ?? 0) > 0) meta.prepend(h('span', null, icon('depth'), depthLabel(run.depth)));
     }
     const own = selfRoster();
     const list = h('ul', { class: 'gg-own-boons' });

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { RUN, TICK_DT, WORLD } from '@shared/constants.ts';
 import { BOON_BY_ID } from '@shared/data/boons.ts';
 import { CLASSES } from '@shared/data/classes.ts';
+import { XP_REWARDS } from '@shared/data/mastery.ts';
 import { REWARDS } from '@shared/data/meta.ts';
 import { TUTORIAL_STEPS, type TutorialStep } from '@shared/data/tutorial.ts';
 import { killEnemy } from '@shared/sim/combat.ts';
@@ -120,7 +121,8 @@ describe('tutorial session', () => {
         expect(seen.resonance!.boons).toEqual(['infuse_ember_primary', 'infuse_rime_secondary']);
         expect(seen.storm!.boons).toEqual(['infuse_ember_primary', 'infuse_rime_secondary', 'infuse_storm_dash']);
         for (const id of ['infuse_ember_primary', 'infuse_rime_secondary', 'infuse_storm_dash']) {
-          expect(s.events.filter((e) => e.e === 'boon' && e.id === id)).toEqual([{ e: 'boon', slot: 0, id, level: 1 }]);
+          // (The draft step later on may offer the same infusion again, as level 2.)
+          expect(s.events.filter((e) => e.e === 'boon' && e.id === id && e.level === 1)).toEqual([{ e: 'boon', slot: 0, id, level: 1 }]);
         }
         // Training targets where they are needed, a real draft, a real door.
         expect(seen.attack!.enemies).toBe(TUTORIAL.ATTACK_DUMMIES.length);
@@ -129,17 +131,20 @@ describe('tutorial session', () => {
         expect(seen.hazard!.enemies).toBe(1);
         expect(seen.draft).toMatchObject({ phase: 'draft', enemies: 0 });
         expect(seen.door).toMatchObject({ phase: 'doors', enemies: 0 });
-        // One boon more than the three grants: the draft pick.
-        expect(w.getBoons(0)).toHaveLength(4);
+        // One pick more than the three grants: the draft (it may be a new boon, a second level, or another
+        // infusion for an ability that already had one).
+        expect(s.events.filter((e) => e.e === 'boon')).toHaveLength(4);
+        expect(w.getBoons(0).length).toBeGreaterThanOrEqual(3);
+        expect(w.getBoons(0).length).toBeLessThanOrEqual(4);
         expect(s.events.some((e) => e.e === 'resonance')).toBe(true);
         expect(s.events.some((e) => e.e === 'hazardHit' && e.target.t === 'e')).toBe(true);
         expect(s.events).toContainEqual({ e: 'doorChosen', type: 'boon' });
         // Paid once: the fixed tutorial reward, and nothing changes afterwards.
-        expect(state.rewards).toEqual([{ slot: 0, glimmer: REWARDS.TUTORIAL }]);
+        expect(state.rewards).toEqual([{ slot: 0, glimmer: REWARDS.TUTORIAL, xp: XP_REWARDS.TUTORIAL, relics: [] }]);
         expect(state.tutorial).toMatchObject({ step: 'door', index: TUTORIAL_STEPS.length - 1, progress: 1 });
         const version = w.runVersion;
         for (let i = 0; i < seconds(5); i++) playTick(s);
-        expect(w.getRunState().rewards).toEqual([{ slot: 0, glimmer: REWARDS.TUTORIAL }]);
+        expect(w.getRunState().rewards).toEqual([{ slot: 0, glimmer: REWARDS.TUTORIAL, xp: XP_REWARDS.TUTORIAL, relics: [] }]);
         expect(w.run.phase).toBe('victory');
         expect(w.runVersion).toBe(version);
         expect(s.steps).toHaveLength(TUTORIAL_STEPS.length);
@@ -175,7 +180,7 @@ describe('tutorial session', () => {
     expect(w.getRunState().doorProgress[0]).toBeGreaterThan(0.8);
     for (let i = 0; i < 6; i++) idleTick(s);
     expect(w.run.phase).toBe('victory');
-    expect(w.getRunState().rewards).toEqual([{ slot: 0, glimmer: REWARDS.TUTORIAL }]);
+    expect(w.getRunState().rewards).toEqual([{ slot: 0, glimmer: REWARDS.TUTORIAL, xp: XP_REWARDS.TUTORIAL, relics: [] }]);
   });
 
   it('a passive player cannot die or soft-lock: every step simply waits or repeats, and can still be finished', () => {
@@ -217,7 +222,7 @@ describe('tutorial session', () => {
       // Waking up, the player finishes from wherever they stopped.
       playUntil(s, 'victory', seconds(200));
       expect(s.steps.map((x) => x.step)).toEqual([...TUTORIAL_STEPS]);
-      expect(w.getRunState().rewards).toEqual([{ slot: 0, glimmer: REWARDS.TUTORIAL }]);
+      expect(w.getRunState().rewards).toEqual([{ slot: 0, glimmer: REWARDS.TUTORIAL, xp: XP_REWARDS.TUTORIAL, relics: [] }]);
     }
   }, 60000);
 

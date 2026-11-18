@@ -3,6 +3,9 @@ import { bus } from './EventBus.ts';
 
 export type Quality = 'low' | 'medium' | 'high';
 export type Lang = 'en' | 'de';
+/** Mouse cursor over the 3D view while aiming: the game's reticle in two sizes, or the system pointer. */
+export type CursorStyle = 'normal' | 'large' | 'system';
+export const CURSOR_STYLES: readonly CursorStyle[] = ['normal', 'large', 'system'];
 
 export interface Settings {
   master: number;
@@ -14,13 +17,14 @@ export interface Settings {
   /** Camera distance multiplier 0.8..1.3. */
   zoom: number;
   damageNumbers: boolean;
+  cursor: CursorStyle;
   lang: Lang;
 }
 
 const KEY = 'glimmergrave.settings.v1';
 
 const defaults: Settings = {
-  master: 0.8, music: 0.6, sfx: 0.9, quality: 'high', shake: 1, zoom: 1, damageNumbers: true,
+  master: 0.8, music: 0.6, sfx: 0.9, quality: 'high', shake: 1, zoom: 1, damageNumbers: true, cursor: 'normal',
   lang: typeof navigator !== 'undefined' && navigator.language.toLowerCase().startsWith('de') ? 'de' : 'en',
 };
 

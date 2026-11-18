@@ -39,6 +39,14 @@ export const DECAL = {
   DUO: 17,
   /** Friendly guidance ring (tutorial). p1..p3 = second colour. */
   MARKER: 18,
+  /** Hallowed ground (templar): double ring, slow turning rays, a pulse running outwards. p0 = fill, p1 = pulse 0..1, p2 = rays. */
+  HALLOW: 19,
+  /** Snare (rogue): toothed iron ring. p0 = armed glow 0..1, p1 = jaws closed 0..1. */
+  TRAP: 20,
+  /** Roiling cloud lying on the floor (smoke bomb, umbra pools). p0 = density, p1 = rim light, p2..p3 unused. */
+  SMOKE: 21,
+  /** Jagged, crackling ring (Superconduct, Void Arc). p0 = thickness, p1 = jaggedness. */
+  CRACKLE: 22,
 } as const;
 
 export const SPRITE = {
@@ -52,6 +60,8 @@ export const SPRITE = {
   PIP: 6,
   /** Jagged lightning bolt along the quad's height; param = seed. */
   ARC: 7,
+  /** Faceted crystal: a tall diamond with a lit and a dark half and no white core. param = highlight 0..1. */
+  SHARD: 8,
 } as const;
 
 const DECAL_STRIDE = 16;
@@ -230,6 +240,46 @@ void main() {
     float swirl = smoothstep( 0.32, 0.68, 0.5 + 0.5 * sin( ang * 3.0 + r * 8.0 - uTime * 9.0 ) );
     col = mix( vColor.rgb, vParam.yzw, swirl );
     col += vec3( 1.0 ) * crest * 0.15;
+  } else if ( shape == 19 ) {       // HALLOW
+    float ring1 = band( edge - 0.07, 0.05, 0.03 );
+    float ring2 = band( rm - vHalf.x * 0.56, 0.03, 0.03 );
+    float rays = pow( abs( cos( ( ang + uTime * 0.22 ) * 4.0 ) ), 14.0 ) * smoothstep( 0.2, 0.5, r ) * step( r, 0.93 );
+    float inner = pow( abs( cos( ( ang - uTime * 0.3 ) * 2.0 ) ), 24.0 ) * step( r, 0.54 ) * smoothstep( 0.05, 0.2, r );
+    float pr = vParam.y * vHalf.x;
+    float pulse = band( rm - pr, 0.12, 0.25 ) * ( 1.0 - vParam.y ) * step( r, 1.0 );
+    float fill = ( 1.0 - smoothstep( 0.0, 1.0, r ) ) * vParam.x;
+    float shimmer = 0.75 + 0.25 * sin( rm * 3.0 - uTime * 2.4 );
+    a = ring1 + ring2 * 0.6 + ( rays * 0.5 + inner * 0.6 ) * vParam.z * shimmer + pulse * 0.8 + fill * step( r, 1.0 );
+    col = mix( col, vec3( 1.0 ), ( ring1 + pulse ) * 0.4 );
+  } else if ( shape == 20 ) {       // TRAP
+    float closed = vParam.y;
+    float ringR = vHalf.x * mix( 0.8, 0.3, closed );
+    float tooth = abs( fract( ang / ( 2.0 * PI ) * 12.0 ) - 0.5 ) * 2.0;
+    float jag = ringR - tooth * vHalf.x * 0.24;
+    float jaws = smoothstep( jag - 0.03, jag, rm ) * ( 1.0 - smoothstep( ringR + 0.07, ringR + 0.1, rm ) );
+    float hub = 1.0 - smoothstep( vHalf.x * 0.12, vHalf.x * 0.15, rm );
+    float plate = ( 1.0 - smoothstep( 0.95, 1.0, r ) ) * 0.28;
+    vec3 iron = vec3( 0.12, 0.12, 0.14 );
+    float glow = band( rm - ringR - 0.03, 0.03, 0.06 ) * vParam.x;
+    col = mix( iron * 0.4, iron * 1.9, jaws );
+    col = mix( col, vColor.rgb, clamp( hub * vParam.x + glow, 0.0, 1.0 ) );
+    a = max( max( jaws, hub ) * 0.96, max( plate, glow ) );
+    a = max( a, band( edge - 0.05, 0.025, 0.03 ) * 0.5 * vParam.x * step( 0.5, fract( ang / ( 2.0 * PI ) * 16.0 + uTime * 0.2 ) ) );
+  } else if ( shape == 21 ) {       // SMOKE
+    float swirl = sin( ang * 3.0 + r * 5.0 - uTime * 0.9 ) * 0.5 + sin( ang * 5.0 - r * 9.0 + uTime * 0.6 ) * 0.3 + sin( ang * 9.0 + uTime * 1.3 ) * 0.2;
+    float body = 1.0 - smoothstep( 0.55 + swirl * 0.14, 1.0, r );
+    float billow = 0.72 + 0.28 * sin( r * 11.0 - uTime * 1.4 + swirl * 3.0 );
+    float rim = smoothstep( 0.5, 0.9, r + swirl * 0.1 ) * body;
+    a = body * vParam.x * billow;
+    col = mix( col, vParam.yzw, clamp( rim * 1.6, 0.0, 1.0 ) * step( 0.001, vParam.y + vParam.z + vParam.w ) );
+  } else if ( shape == 22 ) {       // CRACKLE
+    float n = sin( ang * 7.0 + uTime * 23.0 ) * 0.5 + sin( ang * 17.0 - uTime * 31.0 ) * 0.3 + sin( ang * 41.0 + uTime * 13.0 ) * 0.2;
+    float rr = r + n * 0.07 * vParam.y;
+    float t = clamp( ( 1.0 - rr ) / max( vParam.x, 0.02 ), 0.0, 1.0 );
+    float crest = 1.0 - smoothstep( 0.0, 0.05, abs( rr - 0.93 ) );
+    float spokes = pow( abs( sin( ang * 5.0 + n * 2.0 ) ), 30.0 ) * smoothstep( 0.35, 0.9, r ) * step( rr, 0.95 );
+    a = step( rr, 1.0 ) * ( 1.0 - t ) * ( 1.0 - t ) * 0.7 + crest + spokes * 0.7;
+    col = mix( col, vec3( 1.0 ), clamp( crest * 0.7 + spokes * 0.5, 0.0, 1.0 ) );
   } else {                          // MARKER
     float ring = band( edge - 0.09, 0.06, 0.03 );
     float dash = step( 0.3, fract( ang / ( 2.0 * PI ) * 10.0 + uTime * 0.18 ) );
@@ -320,6 +370,13 @@ void main() {
     a = 1.0 - smoothstep( 0.9, 1.0, r );
     float inner = 1.0 - smoothstep( 0.68, 0.78, r );
     col = mix( vec3( 0.02, 0.02, 0.05 ), col * ( 0.78 + 0.2 * vQuad.y ), inner );
+  } else if ( mode == 8 ) {         // SHARD
+    float d = abs( vQuad.x ) + abs( vQuad.y );
+    a = 1.0 - smoothstep( 0.9, 1.0, d );
+    float lit = step( 0.0, vQuad.x * 0.8 + vQuad.y * 0.25 );
+    float edgeL = 1.0 - smoothstep( 0.0, 0.07, abs( vQuad.x ) );
+    col *= mix( 0.45, 1.15, lit ) + smoothstep( 0.6, 1.0, d ) * 0.35;
+    col = mix( col, col + vec3( 0.55 ), edgeL * vMisc.z );
   } else {                          // ARC
     float y = vQuad.y * 0.5 + 0.5;
     float s = vMisc.z;

@@ -34,6 +34,46 @@ export const SIM = {
   RUN_ANIM_THRESHOLD: 0.1,
   /** Damage dealt to a hero's `fragile` projectile target counts as destroyed within this extra reach. */
   WISP_HIT_PAD: 0.1,
+  // ---- update 3
+  /** Shields granted at the start of a chamber (warding, talents, relics) last the whole chamber. */
+  START_SHIELD_SECONDS: 3600,
+  /** Extra projectiles of an ability without a spread of its own (mage_split) fan out by this much each. */
+  SPLIT_SPREAD_DEG: 8,
+  /** A trap goes off when an enemy's edge comes this close to its centre. */
+  TRAP_TRIGGER_RADIUS: 0.8,
+  /** Smoke keeps working this long after an enemy was last inside it. */
+  SMOKE_LINGER: 0.2,
+  SHADOW_DAGGER_SPEED: 32, SHADOW_DAGGER_RADIUS: 0.4, SHADOW_DAGGER_RANGE_PAD: 4,
+  /** Statuses that jump (set special `spread`, chain_reaction, ember heart) look this far for the next enemy. */
+  SPREAD_RANGE: 8,
+  /** Buff ultimates with an infusion mark every enemy within this distance when cast. */
+  BUFF_PULSE_RADIUS: 6,
+  /** Arcane Echo: delay of the repeated volley. */
+  ECHO_DELAY: 0.1,
+  /** Chill, Wither and other cuts never reduce an enemy's speed or damage by more than this. */
+  MAX_CUT: 0.9,
+  /** Bosses are held by Shatter for this long (they cannot be stunned). */
+  BOSS_STAGGER_SECONDS: 0.35,
+} as const;
+
+/** Talent specials (data/mastery.ts names them; the numbers of their texts live here). */
+export const TALENT = {
+  RIPOSTE_MULTIPLIER: 2,
+  RAMPAGE_ATTACK_SPEED: 0.04, RAMPAGE_SECONDS: 4, RAMPAGE_MAX_STACKS: 5,
+  ARCANE_ECHO_EVERY: 4,
+  /** Poison Tips: potency of the Wither (0.5 = half the normal duration). */
+  POISON_POTENCY: 0.5,
+  MARTYR_SHARE: 0.2,
+  SPELLWEAVE_DAMAGE: 1, SPELLWEAVE_PIERCE: 2,
+} as const;
+
+/** Elite affixes (AFFIX_IDS in types.ts). */
+export const AFFIX = {
+  SWIFT_SPEED: 1.3, SWIFT_ATTACK_RATE: 1.3,
+  ARMORED_REDUCTION: 0.4,
+  VOLATILE_RADIUS: 2.6, VOLATILE_DELAY: 0.9, VOLATILE_DAMAGE: 14,
+  /** Fraction of its maximum health a vampiric elite regains per hit on a hero. */
+  VAMPIRIC_HEAL: 0.08,
 } as const;
 
 /** Permanent upgrades (values themselves live in data/meta.ts). */
@@ -42,6 +82,8 @@ export const META = {
   RESOLVE_INVULNERABILITY: 2,
   /** Choices of the attunement draft at run start. */
   ATTUNEMENT_CHOICES: 3,
+  /** Tenacity: extra solo Second Winds and how much faster its owner is revived in a party. */
+  TENACITY_SECOND_WINDS: 1, TENACITY_REVIVE: 0.5,
 } as const;
 
 export const AI = {
@@ -213,7 +255,7 @@ export const DIRECTOR = {
   /** Caps on simultaneously spawned ranged enemies per wave: base + per hero. */
   ARCHER_CAP_BASE: 2, ARCHER_CAP_PER_HERO: 1, MAGE_CAP_BASE: 1, MAGE_CAP_PER_HERO: 0.5,
   /** Extra enemy damage per additional hero (parties share the pressure and can revive each other). */
-  DAMAGE_PER_EXTRA_PLAYER: 0,
+  DAMAGE_PER_EXTRA_PLAYER: 0.15,
   CLEAR_DELAY: 0.8,
   /** Room generation details. */
   OBSTACLE_GRID: 0.25, CENTRED_OBSTACLE_CHANCE: 0.2, BOSS_PILLAR_INSET: 3, BOSS_PILLAR_RADIUS: 0.9,

@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { NET, WORLD } from '@shared/constants.ts';
-import { DEFAULT_LOOK, LOOK, META_UPGRADES, sanitizeLook, sanitizeMeta } from '@shared/data/meta.ts';
+import { RUN } from '@shared/constants.ts';
+import { MASTERY } from '@shared/data/mastery.ts';
+import { DEFAULT_LOOK, LOOK, META_INDEX, META_UPGRADES, PARAGON, PARAGON_TUNING, sanitizeLook, sanitizeMeta } from '@shared/data/meta.ts';
+import { RELIC_TUNING } from '@shared/data/relics.ts';
 import {
   BIN, INPUT_BYTES, decodeInput, decodeSnapshot, encodeInput, encodeSnapshot, encodeSnapshotBody, normalizeRoomCode,
   parseClientMsg, sanitizeLoadout, sanitizeName, type SnapshotBody,
 } from '@shared/protocol.ts';
-import { BTN, EF, ENEMY_ANIMS, ENEMY_KINDS, PF, PROJECTILE_KINDS, type InputCmd, type SelfState } from '@shared/types.ts';
+import { BTN, EF, ELEMENT_IDS, ENEMY_ANIMS, ENEMY_KINDS, PF, PLAYER_ANIMS, PROJECTILE_KINDS, type InputCmd, type Loadout, type SelfState } from '@shared/types.ts';
 
 const TAU = Math.PI * 2;
 const angleErr = (a: number, b: number): number => Math.abs(((a - b + Math.PI * 3) % TAU) - Math.PI);
@@ -59,8 +62,8 @@ describe('input codec', () => {
 const body: SnapshotBody = {
   tick: 4242,
   players: [
-    { slot: 0, x: 3.25, z: -7.5, rot: 1.2, hp: 87, maxHp: 130, shield: 14, state: 'alive', anim: 'primary2', animSeq: 9, cdSecondary: 0.5, cdDash: 0.25, dashCharges: 2, revive: 0, flags: PF.CONNECTED | PF.KINDRED_AURA },
-    { slot: 3, x: -12.02, z: 9.99, rot: 6.1, hp: 0, maxHp: 90, shield: 0, state: 'downed', anim: 'downed', animSeq: 255, cdSecondary: 1, cdDash: 0, dashCharges: 0, revive: 0.6, flags: PF.BEING_REVIVED },
+    { slot: 0, x: 3.25, z: -7.5, rot: 1.2, hp: 87, maxHp: 130, shield: 14, state: 'alive', anim: 'primary2', animSeq: 9, cdSecondary: 0.5, cdDash: 0.25, ult: 0.4, dashCharges: 2, revive: 0, flags: PF.CONNECTED | PF.KINDRED_AURA },
+    { slot: 3, x: -12.02, z: 9.99, rot: 6.1, hp: 0, maxHp: 90, shield: 0, state: 'downed', anim: 'downed', animSeq: 255, cdSecondary: 1, cdDash: 0, ult: 1, dashCharges: 0, revive: 0.6, flags: PF.BEING_REVIVED },
   ],
   enemies: [
     { id: 17, kind: 'warrior', x: 1.5, z: 2.5, rot: 3.3, hp: 0.5, anim: 'windup', animSeq: 3, flags: EF.SHIELDED | EF.CHILL },
@@ -106,6 +109,7 @@ describe('snapshot codec', () => {
       expect(p.animSeq).toBe(src.animSeq);
       expect(p.cdSecondary).toBeCloseTo(src.cdSecondary, 2);
       expect(p.cdDash).toBeCloseTo(src.cdDash, 2);
+      expect(Math.abs(p.ult - src.ult)).toBeLessThanOrEqual(0.5 / 255 + 1e-9);
       expect(p.dashCharges).toBe(src.dashCharges);
       expect(Math.abs(p.revive - src.revive)).toBeLessThanOrEqual(1 / 15);
       expect(p.flags).toBe(src.flags);
@@ -177,17 +181,88 @@ describe('snapshot codec', () => {
   });
 });
 
+describe('update 3 on the wire', () => {
+  it('speaks protocol version 3', () => {
+    expect(NET.PROTOCOL_VERSION).toBe(3);
+  });
+
+  it('the ultimate button survives the input codec next to the others', () => {
+    const all = BTN.PRIMARY | BTN.SECONDARY | BTN.DASH | BTN.INTERACT | BTN.ULTIMATE;
+    expect(decodeInput(encodeInput({ seq: 1, moveX: 0, moveZ: 0, aim: 0, aimDist: 0, buttons: BTN.ULTIMATE }))?.buttons).toBe(BTN.ULTIMATE);
+    expect(decodeInput(encodeInput({ seq: 2, moveX: 0, moveZ: 0, aim: 0, aimDist: 0, buttons: all }))?.buttons).toBe(all);
+  });
+
+  it('the `ult` byte: 0, a full bar and everything between round-trip; a full bar decodes as exactly 1', () => {
+    for (const ult of [0, 0.01, 0.25, 0.5, 0.999, 1, 7, -3]) {
+      const players = [{ ...body.players[0]!, ult }];
+      const out = decodeSnapshot(encodeSnapshot(1, self, encodeSnapshotBody({ ...body, players })));
+      const want = Math.max(0, Math.min(1, ult));
+      expect(Math.abs(out!.players[0]!.ult - want)).toBeLessThanOrEqual(0.5 / 255 + 1e-9);
+      if (ult >= 1) expect(out!.players[0]!.ult).toBe(1);
+      if (ult <= 0) expect(out!.players[0]!.ult).toBe(0);
+    }
+  });
+
+  it('the new animations and the Wither flag round-trip', () => {
+    for (const anim of ['art', 'ultimate'] as const) {
+      expect(PLAYER_ANIMS).toContain(anim);
+      const out = decodeSnapshot(encodeSnapshot(1, self, encodeSnapshotBody({ ...body, players: [{ ...body.players[0]!, anim }] })));
+      expect(out!.players[0]!.anim).toBe(anim);
+    }
+    const enemies = [{ ...body.enemies[0]!, flags: EF.WITHER | EF.ELITE }];
+    const out = decodeSnapshot(encodeSnapshot(1, self, encodeSnapshotBody({ ...body, enemies })));
+    expect(out!.enemies[0]!.flags).toBe(EF.WITHER | EF.ELITE);
+  });
+
+  it('projectiles: every kind x every element code (3 bits) x the hostile bit (0x80) round-trips', () => {
+    expect(PROJECTILE_KINDS.length).toBeLessThanOrEqual(16);
+    expect(ELEMENT_IDS).toHaveLength(4);
+    let id = 1;
+    const projectiles = [];
+    for (const kind of PROJECTILE_KINDS) {
+      for (let element = 0; element <= ELEMENT_IDS.length; element++) {
+        for (const hostile of [false, true]) projectiles.push({ id: id++, kind, x: 1, z: -1, rot: 1, element, hostile });
+      }
+    }
+    const encoded = encodeSnapshotBody({ ...body, projectiles });
+    const out = decodeSnapshot(encodeSnapshot(1, self, encoded));
+    expect(out!.projectiles).toHaveLength(projectiles.length);
+    out!.projectiles.forEach((p, i) => {
+      expect(p).toMatchObject({ id: projectiles[i]!.id, kind: projectiles[i]!.kind, element: projectiles[i]!.element, hostile: projectiles[i]!.hostile });
+    });
+    // The hostile flag is the top bit of the kind / element byte.
+    const one = encodeSnapshotBody({ ...body, players: [], enemies: [], projectiles: [{ id: 1, kind: 'shadowDagger', x: 0, z: 0, rot: 0, element: 4, hostile: true }] });
+    const kindByte = one[3 + 2]!;
+    expect(kindByte & 0x80).toBe(0x80);
+    expect((kindByte >> 4) & 7).toBe(4);
+    expect(kindByte & 0x0f).toBe(PROJECTILE_KINDS.indexOf('shadowDagger'));
+  });
+});
+
+const fullLoadout = (over: Partial<Loadout> = {}): Loadout => ({
+  look: { ...DEFAULT_LOOK }, meta: META_UPGRADES.map(() => 0), paragon: PARAGON.map(() => 0), mastery: 1, art: 0, talents: MASTERY.TALENT_LEVELS.map(() => 0),
+  relics: [], ...over,
+});
+
 describe('parseClientMsg', () => {
   const v = NET.PROTOCOL_VERSION;
   it('accepts every valid message type', () => {
-    const loadout = { look: { color: 3, head: false, cape: true, style: 2 }, meta: [1, 2, 3, 0, 1, 2, 1, 2, 3] };
-    const plain = { look: DEFAULT_LOOK, meta: META_UPGRADES.map(() => 0) };
+    const meta = META_UPGRADES.map((u, i) => Math.min(u.costs.length, i % 3));
+    const loadout = fullLoadout({
+      look: { color: 3, head: false, cape: true, style: 2 }, meta, paragon: PARAGON.map((_, i) => i * 3), mastery: 12, art: 1, talents: [1, 2, 1],
+      relics: [{ id: 'whetstone', rank: 3 }],
+    });
+    const plain = fullLoadout();
     expect(parseClientMsg({ t: 'create', v, name: ' Ada  Lovelace ', cls: 'mage', loadout })).toEqual({ t: 'create', v, name: 'Ada Lovelace', cls: 'mage', loadout, tutorial: false });
     expect(parseClientMsg({ t: 'create', v, name: 'Ada', cls: 'mage', loadout, tutorial: true })).toEqual({ t: 'create', v, name: 'Ada', cls: 'mage', loadout, tutorial: true });
     // A missing loadout is the default one (no upgrades); `tutorial` must be exactly true.
     expect(parseClientMsg({ t: 'create', v, name: 'Ada', cls: 'mage', tutorial: 'yes' })).toEqual({ t: 'create', v, name: 'Ada', cls: 'mage', loadout: plain, tutorial: false });
     expect(parseClientMsg({ t: 'join', v, code: 'abcde', name: 'Bo', cls: 'rogue', loadout })).toEqual({ t: 'join', v, code: 'ABCDE', name: 'Bo', cls: 'rogue', loadout });
-    expect(parseClientMsg({ t: 'lobby', loadout })).toEqual({ t: 'lobby', loadout });
+    // A lobby loadout belongs to a class: it is only valid together with `cls`.
+    expect(parseClientMsg({ t: 'lobby', cls: 'mage', loadout })).toEqual({ t: 'lobby', cls: 'mage', loadout });
+    expect(parseClientMsg({ t: 'lobby', loadout })).toBeNull();
+    for (const oath of [0, 4, RUN.OATH_MAX]) expect(parseClientMsg({ t: 'lobby', oath })).toEqual({ t: 'lobby', oath });
+    for (const cls of ['templar', 'spellblade', 'shade']) expect(parseClientMsg({ t: 'lobby', cls })).toEqual({ t: 'lobby', cls });
     expect(parseClientMsg({ t: 'reroll', extra: 1 })).toEqual({ t: 'reroll' });
     expect(parseClientMsg({ t: 'rejoin', v, code: 'ABCDE', token: '0123456789abcdef' })).toEqual({ t: 'rejoin', v, code: 'ABCDE', token: '0123456789abcdef' });
     expect(parseClientMsg({ t: 'lobby', cls: 'knight', ready: true, oath: 3 })).toEqual({ t: 'lobby', cls: 'knight', ready: true, oath: 3 });
@@ -201,20 +276,50 @@ describe('parseClientMsg', () => {
 
   it('sanitises loadouts: garbage becomes the default, levels are clamped to 0..max, look indices to their range', () => {
     const max = META_UPGRADES.map((u) => u.costs.length);
-    expect(sanitizeLoadout(undefined)).toEqual({ look: DEFAULT_LOOK, meta: max.map(() => 0) });
-    for (const junk of [null, 7, 'x', [], { look: 'red', meta: 'all' }, { look: [], meta: {} }]) {
-      expect(sanitizeLoadout(junk), JSON.stringify(junk)).toEqual({ look: DEFAULT_LOOK, meta: max.map(() => 0) });
+    const zero = max.map(() => 0);
+    expect(sanitizeLoadout(undefined, 'knight')).toEqual(fullLoadout());
+    for (const junk of [null, 7, 'x', [], { look: 'red', meta: 'all', paragon: 3, mastery: 'max', art: [], talents: 'yes', relics: {} }, { look: [], meta: {} }]) {
+      expect(sanitizeLoadout(junk, 'mage'), JSON.stringify(junk)).toEqual(fullLoadout());
     }
-    const over = sanitizeLoadout({ look: { color: 99, head: 0, cape: false, style: -4, hat: 'crown' }, meta: [99, -3, 2.9, NaN, Infinity, '3', null, 1e9, 1, 5, 5, 5] });
+    const over = sanitizeLoadout({ look: { color: 99, head: 0, cape: false, style: -4, hat: 'crown' }, meta: [99, -3, 2.9, NaN, Infinity, '3', null, 1e9, 1] }, 'knight');
     expect(over.look).toEqual({ color: LOOK.COLORS.length - 1, head: true, cape: false, style: 0 });
-    expect(over.meta).toEqual([max[0], 0, 2, 0, 0, 0, 0, max[7], 1]);
+    expect(over.meta).toEqual([max[0], 0, 2, 0, 0, 0, 0, max[7], 1, ...zero.slice(9)]);
     expect(over.meta).toHaveLength(META_UPGRADES.length);
     for (let i = 0; i < over.meta.length; i++) expect(Number.isInteger(over.meta[i]) && over.meta[i]! >= 0 && over.meta[i]! <= max[i]!).toBe(true);
     // The same clamping applies inside messages; a hostile loadout never makes a message invalid.
     const msg = parseClientMsg({ t: 'create', v, name: 'A', cls: 'mage', loadout: { look: { color: -1, style: 7.9 }, meta: [1e6] } });
-    expect(msg).toEqual({ t: 'create', v, name: 'A', cls: 'mage', tutorial: false, loadout: { look: { color: 0, head: true, cape: true, style: LOOK.STYLES - 1 }, meta: [max[0], 0, 0, 0, 0, 0, 0, 0, 0] } });
-    expect(sanitizeMeta([1, 1])).toEqual([1, 1, 0, 0, 0, 0, 0, 0, 0]);
+    expect(msg).toEqual({
+      t: 'create', v, name: 'A', cls: 'mage', tutorial: false,
+      loadout: fullLoadout({ look: { color: 0, head: true, cape: true, style: LOOK.STYLES - 1 }, meta: [max[0]!, ...zero.slice(1)] }),
+    });
+    expect(sanitizeMeta([1, 1])).toEqual([1, 1, ...zero.slice(2)]);
     expect(sanitizeLook({ color: 2.7 }).color).toBe(2);
+  });
+
+  it('clamps the update 3 loadout: art and talents by mastery, relics by slots / duplicates / rank, ranks by maximum', () => {
+    const wish = { mastery: 1, art: 1, talents: [1, 2, 2], paragon: [5, -2, 1e9, 2.9, NaN], relics: [{ id: 'whetstone', rank: 99 }, { id: 'whetstone', rank: 2 }, { id: 'nope', rank: 1 }, { id: 'phoenix', rank: 0 }, { id: 'bell', rank: 4 }, { id: 'tome', rank: 2 }] };
+    // Mastery 1: no art, no talents. One relic slot without the reliquary upgrade; rank capped; unknown ids dropped.
+    const fresh = sanitizeLoadout(wish, 'knight');
+    expect(fresh).toMatchObject({ mastery: 1, art: 0, talents: [0, 0, 0] });
+    expect(fresh.relics).toEqual([{ id: 'whetstone', rank: RELIC_TUNING.MAX_RANK }]);
+    expect(fresh.paragon).toEqual([5, 0, PARAGON_TUNING.MAX_RANK, 2, 0, 0, 0]);
+    expect(fresh.paragon).toHaveLength(PARAGON.length);
+    // The art opens at mastery 2, the talent tiers at 3 / 6 / 10.
+    expect(sanitizeLoadout({ ...wish, mastery: MASTERY.ART_LEVEL }, 'knight')).toMatchObject({ art: 1, talents: [0, 0, 0] });
+    expect(sanitizeLoadout({ ...wish, mastery: MASTERY.TALENT_LEVELS[0] }, 'knight').talents).toEqual([1, 0, 0]);
+    expect(sanitizeLoadout({ ...wish, mastery: MASTERY.TALENT_LEVELS[1] }, 'knight').talents).toEqual([1, 2, 0]);
+    expect(sanitizeLoadout({ ...wish, mastery: MASTERY.TALENT_LEVELS[2] }, 'knight').talents).toEqual([1, 2, 2]);
+    expect(sanitizeLoadout({ mastery: 50, art: 2, talents: [3, -1, 1.5] }, 'knight')).toMatchObject({ art: 0, talents: [0, 0, 0] });
+    expect(sanitizeLoadout({ mastery: 1e9 }, 'knight').mastery).toBe(MASTERY.MAX_LEVEL);
+    expect(sanitizeLoadout({ mastery: -4 }, 'knight').mastery).toBe(1);
+    // Each reliquary level adds a slot (duplicates never count); a rank below 1 becomes 1.
+    const meta = META_UPGRADES.map(() => 0);
+    meta[META_INDEX.get('reliquary')!] = 1;
+    expect(sanitizeLoadout({ ...wish, meta }, 'knight').relics).toEqual([{ id: 'whetstone', rank: RELIC_TUNING.MAX_RANK }, { id: 'phoenix', rank: 1 }]);
+    meta[META_INDEX.get('reliquary')!] = 99;
+    const full = sanitizeLoadout({ ...wish, meta }, 'knight').relics;
+    expect(full).toEqual([{ id: 'whetstone', rank: RELIC_TUNING.MAX_RANK }, { id: 'phoenix', rank: 1 }, { id: 'bell', rank: 4 }]);
+    expect(full).toHaveLength(RELIC_TUNING.MAX_SLOTS);
   });
 
   it('drops unknown extra fields', () => {
@@ -228,7 +333,7 @@ describe('parseClientMsg', () => {
       { t: 'create', v: 1.5, name: 'A', cls: 'mage' }, { t: 'create', v, name: 7, cls: 'mage' }, { t: 'create', v, name: '\u0000\u0007', cls: 'mage' },
       { t: 'join', v, code: 'ABCD', name: 'A', cls: 'mage' }, { t: 'join', v, code: 'ABCDO', name: 'A', cls: 'mage' }, { t: 'join', v, code: 12345, name: 'A', cls: 'mage' },
       { t: 'rejoin', v, code: 'ABCDE', token: 'short' }, { t: 'rejoin', v, code: 'ABCDE', token: 'x'.repeat(65) }, { t: 'rejoin', v, code: 'ABCDE' },
-      { t: 'lobby', cls: 'nope' }, { t: 'lobby', ready: 'yes' }, { t: 'lobby', oath: 4 }, { t: 'lobby', oath: -1 }, { t: 'lobby', oath: 1.5 },
+      { t: 'lobby', cls: 'nope' }, { t: 'lobby', ready: 'yes' }, { t: 'lobby', loadout: {} }, { t: 'lobby', cls: 'paladin', loadout: {} }, { t: 'lobby', oath: RUN.OATH_MAX + 1 }, { t: 'lobby', oath: -1 }, { t: 'lobby', oath: 1.5 },
       { t: 'pick' }, { t: 'pick', index: -1 }, { t: 'pick', index: 8 }, { t: 'pick', index: '1' }, { t: 'pick', index: NaN },
       { t: 'ping' }, { t: 'ping', c: Infinity }, { t: 'ping', c: '1' },
     ];

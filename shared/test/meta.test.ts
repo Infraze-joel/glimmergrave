@@ -3,7 +3,9 @@ import { RUN, TICK_DT, WORLD } from '@shared/constants.ts';
 import { BOONS, BOON_BY_ID, BOON_TUNING } from '@shared/data/boons.ts';
 import { CLASSES, DASH } from '@shared/data/classes.ts';
 import { STATUS } from '@shared/data/enemies.ts';
+import { XP_REWARDS } from '@shared/data/mastery.ts';
 import { META_INDEX, META_UPGRADES, REWARDS } from '@shared/data/meta.ts';
+import { reactionOf } from '@shared/data/reactions.ts';
 import {
   applyBoon, baseReward, computeMeta, DIRECTOR, generateDraft, heroReward, maxMetaLevels, META, noMetaLevels, Rng, SIM, World,
 } from '@shared/sim/index.ts';
@@ -35,11 +37,13 @@ describe('permanent upgrades: sanitising inside the simulation', () => {
   it('clamps whatever levels it is handed and treats missing ones as 0', () => {
     const max = maxMetaLevels();
     expect(computeMeta(undefined).levels).toEqual(noMetaLevels());
-    expect(computeMeta([99, 99, 99, 99, 99, 99, 99, 99, 99, 99]).levels).toEqual(max);
-    expect(computeMeta([-1, 2.9, NaN]).levels).toEqual([0, 2, 0, 0, 0, 0, 0, 0, 0]);
+    expect(max).toHaveLength(META_UPGRADES.length);
+    expect(computeMeta(META_UPGRADES.map(() => 99)).levels).toEqual(max);
+    const rest = META_UPGRADES.slice(3).map(() => 0);
+    expect(computeMeta([-1, 2.9, NaN]).levels).toEqual([0, 2, 0, ...rest]);
     const w = new World();
     w.addPlayer(0, 'knight', 'A', [1e9, -5, 1.5] as number[]);
-    expect(w.getMeta(0)).toEqual([max[0], 0, 1, 0, 0, 0, 0, 0, 0]);
+    expect(w.getMeta(0)).toEqual([max[0], 0, 1, ...rest]);
     // setMeta replaces the levels in the lobby only; a class change keeps them.
     expect(w.setMeta(0, max)).toBe(true);
     expect(w.setClass(0, 'mage')).toBe(true);
@@ -101,11 +105,13 @@ describe('permanent upgrades: every effect matches its summary', () => {
       return { resonance, burn };
     };
     const plain = burst();
-    expect(plain.resonance).toBeCloseTo(STATUS.RESONANCE.DAMAGE, 4);
+    // Ember then rime is Shatter (burst x damageMul).
+    const shatter = reactionOf('ember', 'rime')!.damageMul;
+    expect(plain.resonance).toBeCloseTo(STATUS.RESONANCE.DAMAGE * shatter, 4);
     expect(plain.burn).toBeCloseTo(STATUS.BURN.DPS * SIM.BURN_TICK_SECONDS, 4);
     const v = def('might').values.at(-1)!;
     const mighty = burst(levels('might', def('might').values.length));
-    expect(mighty.resonance).toBeCloseTo(STATUS.RESONANCE.DAMAGE * (1 + v), 4);
+    expect(mighty.resonance).toBeCloseTo(STATUS.RESONANCE.DAMAGE * shatter * (1 + v), 4);
     expect(mighty.burn).toBeCloseTo(STATUS.BURN.DPS * SIM.BURN_TICK_SECONDS * (1 + v), 4);
   });
 
@@ -208,7 +214,10 @@ describe('permanent upgrades: every effect matches its summary', () => {
     for (const u of META_UPGRADES) expect(u.values).toHaveLength(u.costs.length);
     const fresh = computeMeta(noMetaLevels()).stats;
     const maxed = computeMeta(maxMetaLevels()).stats;
-    expect(fresh).toEqual({ hp: 0, might: 0, moveSpeed: 0, secondaryHaste: 0, dashHaste: 0, rerolls: 0, attunement: false, resolve: 0, fortune: 0 });
+    expect(fresh).toEqual({
+      hp: 0, might: 0, moveSpeed: 0, secondaryHaste: 0, dashHaste: 0, rerolls: 0, attunement: false, resolve: 0, fortune: 0,
+      foresight: 0, tenacity: false,
+    });
     for (const key of Object.keys(fresh) as (keyof typeof fresh)[]) expect(maxed[key], key).not.toBe(fresh[key]);
   });
 });
@@ -394,9 +403,13 @@ describe('attunement draft at run start', () => {
     clearChamber(w);
     expect(w.run.phase).toBe('draft');
     expect(w.getDraft(0)).toHaveLength(RUN.DRAFT_CHOICES);
+    const taken = w.getDraft(0)[0]!.id;
     draftAll(w);
     expect(w.run.phase).toBe('doors');
-    expect(w.getBoons(0)).toHaveLength(2);
+    // The attunement infusion plus the pick (an infusion for the same ability replaces the first one).
+    expect(w.getBoons(0).map((b) => b.id)).toContain(taken);
+    expect(w.getBoons(0).length).toBeGreaterThanOrEqual(1);
+    expect(w.getBoons(0).length).toBeLessThanOrEqual(2);
     // The second chamber starts in combat: the attunement draft happens once per run.
     takeDoor(w, 0);
     expect(w.run.phase).toBe('combat');
@@ -430,7 +443,10 @@ describe('rewards', () => {
     const state = w.getRunState();
     expect(state.phase).toBe('defeat');
     expect(w.runVersion).toBeGreaterThan(version);
-    expect(state.rewards).toEqual([{ slot: 0, glimmer: REWARDS.MINIMUM }, { slot: 1, glimmer: Math.round(REWARDS.MINIMUM * 1.3) }]);
+    expect(state.rewards).toEqual([
+      { slot: 0, glimmer: REWARDS.MINIMUM, xp: XP_REWARDS.MINIMUM, relics: [] },
+      { slot: 1, glimmer: Math.round(REWARDS.MINIMUM * 1.3), xp: XP_REWARDS.MINIMUM, relics: [] },
+    ]);
     // Nothing is paid twice.
     stepN(w, seconds(2));
     expect(w.getRunState().rewards).toEqual(state.rewards);
@@ -456,7 +472,12 @@ describe('rewards', () => {
     w.step();
     expect(w.run.phase).toBe('defeat');
     const base = (4 * REWARDS.PER_CHAMBER_CLEARED + REWARDS.PER_ELITE_SLAIN) * (1 + REWARDS.OATH_BONUS);
-    expect(w.getRunState().rewards).toEqual([{ slot: 0, glimmer: Math.round(base * 1.1) }]);
+    const xp = (4 * XP_REWARDS.PER_CHAMBER_CLEARED + XP_REWARDS.PER_ELITE_SLAIN) * (1 + XP_REWARDS.OATH_BONUS);
+    const reward = w.getRunState().rewards;
+    expect(reward).toHaveLength(1);
+    expect(reward[0]).toMatchObject({ slot: 0, glimmer: Math.round(base * 1.1), xp: Math.round(xp) });
+    // The champion of the elite chamber may have dropped a relic shard (12 % per hero); nothing else can have.
+    expect(reward[0]!.relics.length).toBeLessThanOrEqual(1);
   });
 
   it('a victory pays every chamber, both elites and the boss', () => {
@@ -474,11 +495,24 @@ describe('rewards', () => {
     boss.hp = 0;
     boss.dead = true;
     w.step();
+    // Since update 3 the run goes on after the boss: a draft, then the descend / ascend doors. Ascending banks it.
+    expect(w.run.phase).toBe('draft');
+    expect(w.getRunState().rewards).toEqual([]);
+    draftAll(w);
+    expect(w.getRunState().doors.map((d) => d.type)).toEqual(['descend', 'ascend']);
+    takeDoor(w, 1);
     const state = w.getRunState();
     expect(state.phase).toBe('victory');
+    expect(state).toMatchObject({ cleared: 1, depth: 0, chambersCleared: RUN.CHAMBERS.length });
     const base = (8 * REWARDS.PER_CHAMBER_CLEARED + 2 * REWARDS.PER_ELITE_SLAIN + REWARDS.BOSS_SLAIN) * (1 + 2 * REWARDS.OATH_BONUS);
     expect(base).toBe(318);
-    expect(state.rewards).toEqual([{ slot: 0, glimmer: 318 }, { slot: 1, glimmer: Math.round(318 * 1.2) }, { slot: 2, glimmer: Math.round(318 * 1.3) }]);
+    expect(state.rewards.map((r) => ({ slot: r.slot, glimmer: r.glimmer }))).toEqual([{ slot: 0, glimmer: 318 }, { slot: 1, glimmer: Math.round(318 * 1.2) }, { slot: 2, glimmer: Math.round(318 * 1.3) }]);
+    const xp = (8 * XP_REWARDS.PER_CHAMBER_CLEARED + 2 * XP_REWARDS.PER_ELITE_SLAIN + XP_REWARDS.BOSS_SLAIN) * (1 + 2 * XP_REWARDS.OATH_BONUS);
+    for (const r of state.rewards) {
+      expect(r.xp).toBe(Math.round(xp));
+      // The final boss always drops one shard per hero at depth 0.
+      expect(r.relics.length).toBeGreaterThanOrEqual(1);
+    }
     // Back in the lobby the slate is clean.
     w.reset();
     expect(w.getRunState().rewards).toEqual([]);
