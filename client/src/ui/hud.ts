@@ -5,17 +5,18 @@
 import { RUN, WORLD, depthScale } from '@shared/constants.ts';
 import { SETS } from '@shared/data/boons.ts';
 import {
-  OBJECTIVE_KINDS, PF, type AbilitySlot, type BiomeId, type Door, type DoorType, type ElementId, type EnemyKind, type GameEvent,
+  OBJECTIVE_KINDS, PF, type AbilitySlot, type AffixId, type BiomeId, type Door, type DoorType, type ElementId, type EnemyKind, type GameEvent,
   type ObjectiveKind, type PlayerSnap, type RunState,
 } from '@shared/types.ts';
 import { self, selfRoster, state } from '../core/GameState.ts';
 import { createCoach } from './coach.ts';
+import { FEED_PRIORITY, createFeed } from './feed.ts';
 import { h, icon, key, retrigger, setAttr, setText, setVar, show, toggle } from './dom.ts';
 import { actTitle, bossLabel, chamberActs, distinctElements, enemyName, infusionsOf, phaseThresholds } from './elements.ts';
 import { createBuffs, createSets, createUltimate } from './hud3.ts';
-import { DOOR_TEXT_PARAMS, formatBoon, roman, t, type I18nKey } from './i18n.ts';
+import { DOOR_TEXT_PARAMS, formatBoon, formatList, roman, t, type I18nKey } from './i18n.ts';
 import { ABILITY_SLOTS, abilityIcon, depthLabel, infusionOf, maxDashCharges, nameOf } from './model.ts';
-import { OBJECTIVE_ICON, createObjective, createObjectiveBanner, hasBonus, objectiveBonus, objectiveGoal, objectiveName } from './objective.ts';
+import { OBJECTIVE_ICON, createObjective, createObjectiveBanner, hasBonus, objectiveBonus, objectiveGoal, objectiveName, objectiveReward } from './objective.ts';
 import { affixBody, affixName, setName, setTierText } from './text.ts';
 import { ui, UI_CONFIG } from './store.ts';
 import { createStrip } from './strip.ts';
@@ -316,20 +317,11 @@ export function createHud(): HudView {
   const pingText = h('span', { class: 'gg-num' });
   const ping = h('div', { class: 'gg-ping' }, icon('signal'), pingText);
   const roomCode = h('div', { class: 'gg-room-code' });
-  const feed = h('ul', { class: 'gg-feed', 'aria-live': 'polite' });
+  const feed = createFeed();
   const reconnect = h('div', { class: 'gg-reconnect', role: 'alert', 'data-testid': 'reconnect-banner' },
     h('span', { class: 'gg-spinner' }), h('span', null, t('hud.reconnecting')));
   const reconnectSlot = h('div', { class: 'gg-reconnect-slot' });
 
-  const pushFeed = (iconName: IconName, text: string, tone: string): void => {
-    const item = h('li', { class: 'gg-feed-item', 'data-tone': tone }, icon(iconName), h('span', null, text));
-    feed.append(item);
-    while (feed.children.length > UI_CONFIG.FEED_MAX) feed.firstElementChild?.remove();
-    window.setTimeout(() => {
-      item.classList.add('is-leaving');
-      window.setTimeout(() => item.remove(), 200);
-    }, UI_CONFIG.FEED_MS);
-  };
 
   const syncNet = (): void => {
     const ms = Math.round(state.conn.pingMs);
@@ -417,6 +409,11 @@ export function createHud(): HudView {
                 hasBonus(kind)
                   ? h('em', { class: 'gg-door-obj-bonus', title: objectiveBonus(kind) }, icon('star'),
                     h('span', null, `${t('objective.bonus')}: ${objectiveBonus(kind)}`))
+                  : null,
+                // What meeting the condition is worth (a vault pays without a condition).
+                objectiveReward(kind) !== ''
+                  ? h('em', { class: 'gg-door-obj-reward', 'data-testid': `door-reward-${index}`, title: t('door.objective.rewardLabel') }, icon('boon'),
+                    h('span', null, objectiveReward(kind)))
                   : null,
               ))
             : null;
@@ -553,7 +550,7 @@ export function createHud(): HudView {
     vignette,
     h('div', { class: 'gg-hud-tl' }, party),
     topCentre,
-    h('div', { class: 'gg-hud-tr' }, h('div', { class: 'gg-net' }, ping, roomCode), feed),
+    h('div', { class: 'gg-hud-tr' }, h('div', { class: 'gg-net' }, ping, roomCode), feed.el),
     reconnectSlot,
     tips.el,
     h('div', { class: 'gg-hud-bl' }, vitals),
@@ -651,9 +648,17 @@ export function createHud(): HudView {
         if (ev.slot === own) {
           ultimate.ready();
           const cls = selfRoster()?.cls ?? state.profile.cls;
-          pushFeed('ultimate', `${t('toast.ultReady')}: ${t('toast.ultReadySub', { name: t(`class.${cls}.ultimate.name`), key: t('hud.key.ultimate') })}`, 'ult');
+          // The button itself says "Ready": one short line is enough here.
+          feed.push({
+            key: 'ult-own', icon: 'ultimate', tone: 'ult', priority: FEED_PRIORITY.NOTICE,
+            text: t('toast.ultReadyOwn', { name: t(`class.${cls}.ultimate.name`), key: t('hud.key.ultimate') }),
+          });
         } else {
-          pushFeed('ultimate', t('toast.ultReadyAlly', { name: nameOf(ev.slot) }), 'ult');
+          // Allies' ultimates are a nicety (their party frame wears a star): one merged line that never crowds out news.
+          feed.push({
+            key: 'ult-ally', icon: 'ultimate', tone: 'ult-ally', priority: FEED_PRIORITY.LOW, item: nameOf(ev.slot),
+            list: (names) => (names.length === 1 ? t('toast.ultReadyAlly', { name: names[0] }) : t('toast.ultReadyMany', { n: names.length })),
+          });
         }
         break;
       case 'buff':
@@ -668,7 +673,10 @@ export function createHud(): HudView {
           sets.flash(ev.id);
           showBanner(t('toast.set', { name: setName(def), tier }), setTierText(def, ev.tier), 'set');
         } else {
-          pushFeed(def.element ?? def.category ?? 'boon', t('toast.setAlly', { who: nameOf(ev.slot), name: setName(def), tier }), 'set');
+          feed.push({
+            key: `set-${ev.slot}`, icon: def.element ?? def.category ?? 'boon', tone: 'set', priority: FEED_PRIORITY.LOW,
+            text: t('toast.setAlly', { who: nameOf(ev.slot), name: setName(def), tier }),
+          });
         }
         break;
       }
@@ -685,13 +693,34 @@ export function createHud(): HudView {
         if (ev.ward && now - (wardSeen.get(ev.ward) ?? -Infinity) >= UI_CONFIG.WARD_CALLOUT_GAP_MS) {
           wardSeen.set(ev.ward, now);
           const mine = distinctElements(infusionsOf(selfRoster()?.boons ?? [])).includes(ev.ward);
-          pushFeed('warded', t(mine ? 'toast.wardOwn' : 'toast.ward', { element: t(`element.${ev.ward}.name`) }), `ward-${ev.ward}`);
+          const element = t(`element.${ev.ward}.name`);
+          // Several warded elements in one wave share a line; a ward against an own element is the louder one.
+          if (mine) {
+            feed.push({
+              key: 'ward-own', icon: 'warded', tone: `ward-${ev.ward}`, priority: FEED_PRIORITY.ALERT, item: element,
+              list: (els) => (els.length === 1 ? t('toast.wardOwn', { element: els[0] }) : t('toast.wardOwnMany', { elements: formatList(els) })),
+            });
+          } else {
+            feed.push({
+              key: 'ward', icon: 'warded', tone: `ward-${ev.ward}`, priority: FEED_PRIORITY.NOTICE, item: element,
+              list: (els) => (els.length === 1 ? t('toast.ward', { element: els[0] }) : t('toast.wardMany', { elements: formatList(els) })),
+            });
+          }
         }
         // Elite affixes: one small line per affix, however many elites spawn with it.
         if (!ev.affix) break;
         if (now - (affixSeen.get(ev.affix) ?? -Infinity) < UI_CONFIG.AFFIX_CALLOUT_GAP_MS) break;
         affixSeen.set(ev.affix, now);
-        pushFeed('affix', `${t('toast.affix', { affix: affixName(ev.affix) })} — ${affixBody(ev.affix)}`, 'affix');
+        // One affix is explained; several at once are only named (the tip and the codex explain them).
+        feed.push({
+          key: 'affix', icon: 'affix', tone: 'affix', priority: FEED_PRIORITY.INFO, item: ev.affix,
+          list: (ids) => {
+            const affixes = ids as AffixId[];
+            return affixes.length === 1
+              ? `${t('toast.affix', { affix: affixName(affixes[0]) })} — ${affixBody(affixes[0])}`
+              : t('toast.affixMany', { affixes: formatList(affixes.map(affixName)) });
+          },
+        });
         break;
       }
       case 'objective': {
@@ -718,10 +747,10 @@ export function createHud(): HudView {
           sites.forEach((site, index) => { if (site.lit) litSites.add(index); });
           if (typeof ev.index === 'number') litSites.add(ev.index);
           const lit = Math.max(litSites.size, 1);
-          pushFeed('ritual', t('toast.objective.site', { n: lit, m: Math.max(sites.length, lit) }), 'objective');
+          feed.push({ key: 'site', icon: 'ritual', tone: 'objective', priority: FEED_PRIORITY.INFO, text: t('toast.objective.site', { n: lit, m: Math.max(sites.length, lit) }) });
         } else if (ev.what === 'anchorHit' && now - anchorCalloutAt >= UI_CONFIG.ANCHOR_CALLOUT_GAP_MS) {
           anchorCalloutAt = now;
-          pushFeed('defend', t('toast.objective.anchorHit'), 'anchor');
+          feed.push({ key: 'anchor', icon: 'defend', tone: 'anchor', priority: FEED_PRIORITY.NOTICE, text: t('toast.objective.anchorHit') });
         }
         break;
       }
@@ -750,17 +779,30 @@ export function createHud(): HudView {
         if (ev.slot === own) break;
         const boon = formatBoon(ev.id, ev.level).name;
         const name = nameOf(ev.slot);
-        pushFeed('boon', ev.level > 1 ? t('toast.boonLevel', { name, boon, n: ev.level }) : t('toast.boon', { name, boon }), 'boon');
+        feed.push({
+          key: `boon-${ev.slot}`, icon: 'boon', tone: 'boon', priority: FEED_PRIORITY.LOW,
+          text: ev.level > 1 ? t('toast.boonLevel', { name, boon, n: ev.level }) : t('toast.boon', { name, boon }),
+        });
         break;
       }
       case 'down':
-        pushFeed('skull', t('toast.down', { name: nameOf(ev.slot) }), 'down');
+        feed.dropItem('revive', nameOf(ev.slot));
+        feed.push({
+          key: 'down', icon: 'skull', tone: 'down', priority: FEED_PRIORITY.ALERT, item: nameOf(ev.slot),
+          list: (names) => (names.length === 1 ? t('toast.down', { name: names[0] }) : t('toast.downMany', { names: formatList(names) })),
+        });
         break;
-      case 'revived':
-        pushFeed('revive', ev.by >= 0 && ev.by !== ev.slot
-          ? t('toast.revived', { by: nameOf(ev.by), name: nameOf(ev.slot) })
-          : t('toast.revivedSelf', { name: nameOf(ev.slot) }), 'revive');
+      case 'revived': {
+        // Whoever is back up leaves the "is down" line.
+        feed.dropItem('down', nameOf(ev.slot));
+        const by = ev.by >= 0 && ev.by !== ev.slot ? nameOf(ev.by) : '';
+        feed.push({
+          key: 'revive', icon: 'revive', tone: 'revive', priority: FEED_PRIORITY.NOTICE, item: nameOf(ev.slot),
+          list: (names) => (names.length > 1 ? t('toast.revivedMany', { names: formatList(names) })
+            : by !== '' ? t('toast.revived', { by, name: names[0] }) : t('toast.revivedSelf', { name: names[0] })),
+        });
         break;
+      }
       default:
         break;
     }
@@ -788,7 +830,7 @@ export function createHud(): HudView {
   const reset = (): void => {
     tips.reset();
     strip.reset();
-    feed.replaceChildren();
+    feed.reset();
     buffs.reset();
     affixSeen.clear();
     wardSeen.clear();
@@ -806,6 +848,6 @@ export function createHud(): HudView {
   return {
     el, sync, syncHud, onEvent, onLocalAction, reset,
     dismissTip: () => tips.dismiss(),
-    dispose: () => { window.clearTimeout(bannerTimer); objectiveBanner.hide(); coach.dispose?.(); strip.dispose?.(); tips.dispose?.(); },
+    dispose: () => { window.clearTimeout(bannerTimer); objectiveBanner.hide(); coach.dispose?.(); strip.dispose?.(); tips.dispose?.(); feed.dispose(); },
   };
 }

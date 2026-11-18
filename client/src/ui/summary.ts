@@ -319,8 +319,8 @@ export function createSummary(openModal: (kind: ModalKind) => void, openPage: (p
           ? h('div', { class: 'gg-summary-chip gg-cut gg-summary-chip--bosses', 'data-testid': 'summary-bosses', 'data-cleared': String(cleared) },
             icon('crown'), h('div', null, h('span', null, t('summary.bosses')), h('b', { class: 'gg-num' }, String(cleared))))
           : null,
-        // Special objectives completed and bonuses earned; hidden when the run was not watched from its start.
-        tally && tally.done > 0
+        // Special objectives completed and bonuses earned in the whole run (counted by the server).
+        tally.done > 0
           ? h('div', { class: 'gg-summary-chip gg-cut gg-summary-chip--objectives', 'data-testid': 'summary-objectives', 'data-done': String(tally.done), 'data-bonus': String(tally.bonus) },
             icon('hunt'), h('div', null, h('span', null, t('summary.objectives')),
               h('b', { class: 'gg-num' }, t('summary.objectivesValue', { n: tally.done })),

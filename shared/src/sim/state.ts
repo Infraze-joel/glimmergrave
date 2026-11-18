@@ -268,6 +268,8 @@ export interface Hero {
   sanctuary: number;
   /** Relic shards found so far this run. */
   shards: string[];
+  /** Shards found from the elite rank and file of the current (cursed) chamber; capped by CURSED_SHARDS_PER_CHAMBER. */
+  cursedShards: number;
   /** Hazard afflictions: seconds of burn left, time to the next burn tick, seconds of chill left. */
   burnTime: number;
   burnTimer: number;

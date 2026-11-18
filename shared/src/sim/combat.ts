@@ -10,7 +10,7 @@ import { angleDiff, angleTo, DEG } from './geom.ts';
 import { maxDashCharges } from './boons.ts';
 import { onHordeDeath } from './horde.ts';
 import { earn } from './meta.ts';
-import { rollShards } from './loot.ts';
+import { rollCursedShard, rollShards } from './loot.ts';
 import type { Enemy, Hero } from './state.ts';
 import { AFFIX, META, SIM, TALENT } from './tuning.ts';
 import type { World } from './world.ts';
@@ -154,9 +154,12 @@ export function addCharge(w: World, h: Hero, points: number): void {
   if (h.ult >= ULTIMATE.MAX) w.emit({ e: 'ultReady', slot: h.slot });
 }
 
-/** Charge earned by fighting: scaled by the hero's ultCharge bonus, at most MAX_PER_HIT per hit. */
+/** Share of the charge earned by fighting that a hero keeps in a party of `partySize` (ULTIMATE.PARTY_FALLOFF). */
+export const partyChargeScale = (partySize: number): number => 1 / (1 + ULTIMATE.PARTY_FALLOFF * Math.max(0, partySize - 1));
+
+/** Charge earned by fighting: scaled by the hero's ultCharge bonus and the party falloff, at most MAX_PER_HIT per hit. */
 function earnCharge(w: World, h: Hero, points: number): void {
-  addCharge(w, h, Math.min(ULTIMATE.MAX_PER_HIT, points) * (1 + h.mods.ultCharge));
+  addCharge(w, h, Math.min(ULTIMATE.MAX_PER_HIT, points) * (1 + h.mods.ultCharge) * partyChargeScale(w.partySize));
 }
 
 function heroNearest(w: World, x: number, z: number): Hero | null {
@@ -217,6 +220,8 @@ export function killEnemy(w: World, e: Enemy, by: number, quiet = false): void {
   e.animSeq++;
   w.emit({ e: 'kill', id: e.id, kind: e.kind, x: e.x, z: e.z, by });
   if (e.kind === 'aegis' || e.kind === 'bomber' || e.kind === 'necromancer') onHordeDeath(w, e, quiet);
+  // Cursed chambers: elite-flagged rank and file slain by a hero may leave a shard (at most one per hero and chamber).
+  if (killer && w.cursed && e.elite && !e.boss && !e.summoned && !quiet) rollCursedShard(w);
   if (!killer) return;
   killer.run.kills++;
   if (e.boss && e.kind !== 'champion') killer.run.bosses++;
@@ -354,7 +359,7 @@ function resonate(w: World, e: Enemy, el: ElementId, h: Hero, potency: number): 
   const z = e.z;
   clearStatus(e);
   h.run.resonances++;
-  addCharge(w, h, ULTIMATE.PER_RESONANCE * (1 + h.mods.ultCharge));
+  addCharge(w, h, ULTIMATE.PER_RESONANCE * (1 + h.mods.ultCharge) * partyChargeScale(w.partySize));
   if (h.setOverflow) addCharge(w, h, ULTIMATE.MAX * BOON_TUNING.SET_OVERFLOW_CHARGE);
   burst(w, x, z, a, el, h, potency);
   if (h.stats.echo > 0 && w.rng.chance(h.stats.echo)) burst(w, x, z, a, el, h, potency);

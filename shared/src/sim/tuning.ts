@@ -256,6 +256,12 @@ export const OBJECTIVE = {
   RITUAL_SECONDS_PER_EXTRA_HERO: 1,
   /** Vault: seconds a living hero has to stand within OBJECTIVE_TUNING.VAULT.OPEN_RADIUS_PAD of the reliquary's edge; its size. */
   VAULT_HOLD_SECONDS: 1.5, VAULT_RADIUS: 0.9,
+  /**
+   * Polish 1: the fixtures are solid. Collision radius of a brazier's bowl (the shard uses DEFEND.RADIUS, the
+   * reliquary VAULT_RADIUS), and how far from a fixture's edge a hero's edge must find walkable ground that is
+   * connected to the spawn points and the doors.
+   */
+  RITUAL_BOWL_RADIUS: 0.6, FIXTURE_APPROACH: 0.8, FIXTURE_APPROACH_POINTS: 8,
 } as const;
 
 export const DIRECTOR = {

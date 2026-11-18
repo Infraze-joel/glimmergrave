@@ -60,7 +60,7 @@ export function createLobby(openModal: (kind: ModalKind) => void, openPage: (pag
   const renderSlots = (): void => {
     // Rebuild only when something visible changed (net:status fires on every ping update).
     const key = JSON.stringify([
-      state.conn.slot, state.roster.map((p) => [p.slot, p.name, p.cls, p.ready, p.connected, p.host, p.look?.color ?? 0, p.mastery, p.art]),
+      state.conn.slot, state.roster.map((p) => [p.slot, p.name, p.cls, p.ready, p.connected, p.host, p.look?.color ?? 0, p.mastery, p.art, p.relics, p.talents]),
       equippedRelics(), state.profile.talents,
     ]);
     if (key === slotsKey) return;
@@ -87,12 +87,15 @@ export function createLobby(openModal: (kind: ModalKind) => void, openPage: (pag
       const cloth = lookColor(p.look?.color ?? 0);
       const level = Math.max(1, Math.floor(p.mastery ?? 1));
       const art = p.art ?? 0;
-      const relics = own ? equippedRelics().length : 0;
-      const talents = own ? talentsOf(p.cls).filter((option) => option > 0).length : 0;
+      // The own card follows the profile at once; the others show what the roster says (counts only).
+      const count = (n: unknown): number => (typeof n === 'number' && Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0);
+      const relics = own ? equippedRelics().length : count(p.relics);
+      const talents = own ? talentsOf(p.cls).filter((option) => option > 0).length : Math.min(TALENT_TIERS, count(p.talents));
       const card = h('div', {
         class: `gg-slot gg-cut gg-cls-${p.cls}${own ? ' is-own' : ''}${p.ready && p.connected ? ' is-ready' : ''}${p.connected ? '' : ' is-off'}`,
         'data-testid': `lobby-slot-${slot}`, 'data-ready': String(p.ready), 'data-connected': String(p.connected),
         'data-look-color': String(p.look?.color ?? 0), 'data-mastery': String(p.mastery ?? 1), 'data-art': String(p.art ?? 0),
+        'data-relics': String(relics), 'data-talents': String(talents),
       },
         p.host ? h('span', { class: 'gg-slot-host', title: t('lobby.host') }, icon('boss'), t('lobby.host')) : null,
         own ? h('span', { class: 'gg-slot-you' }, t('common.you')) : null,
@@ -101,9 +104,8 @@ export function createLobby(openModal: (kind: ModalKind) => void, openPage: (pag
         h('div', { class: 'gg-slot-class' }, t(`class.${p.cls}.name`), h('b', { class: 'gg-slot-level gg-num' }, t('common.lv', { n: level }))),
         h('div', { class: 'gg-slot-loadout' },
           h('span', { class: 'gg-slot-art', title: t('mastery.secondary') }, icon(abilityIcon(p.cls, 'secondary', art)), abilityName(p.cls, 'secondary', art)),
-          // Relics and talents are not part of the roster: only the own card can show them.
-          own && relics > 0 ? h('span', { class: 'gg-slot-relics' }, icon('relic'), relics === 1 ? t('lobby.slot.relics.one') : t('lobby.slot.relics.many', { n: relics })) : null,
-          own && talents > 0 ? h('span', { class: 'gg-slot-talents' }, icon('talent'), t('lobby.slot.talents', { n: talents, m: TALENT_TIERS })) : null,
+          relics > 0 ? h('span', { class: 'gg-slot-relics' }, icon('relic'), relics === 1 ? t('lobby.slot.relics.one') : t('lobby.slot.relics.many', { n: relics })) : null,
+          talents > 0 ? h('span', { class: 'gg-slot-talents' }, icon('talent'), t('lobby.slot.talents', { n: talents, m: TALENT_TIERS })) : null,
         ),
         status,
         h('i', { class: 'gg-slot-cloth', 'aria-hidden': 'true' }),

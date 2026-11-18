@@ -11,6 +11,7 @@ import {
   type BoonOffer, type BoonStack, type ClassId, type ElementId, type EnemySnap, type GameEvent, type Hazard, type InputCmd,
   type PlayerSnap, type ProjectileSnap, type RoomLayout, type RunState, type TutorialState,
 } from '../types.ts';
+import { blocksShots } from './fixtures.ts';
 import { angleDiff, inArc, inLine, sweepHit } from './geom.ts';
 import { HAZARD_TIMING, hazardState, type HazardState } from './hazards.ts';
 import { Rng } from './rng.ts';
@@ -40,6 +41,8 @@ export interface BotOptions {
    * cursed door if that is the only one (tests, soaks).
    */
   preferObjectives?: boolean;
+  /** Door choice: take a cursed door whenever one is offered (soaks that measure cursed chambers). */
+  preferCursed?: boolean;
 }
 
 const BOT = {
@@ -79,6 +82,11 @@ const BOT = {
   SHARD_STAND: 1.6, VAULT_STAND: 0.7,
   /** Ritual: the bot holds this fraction of its circle's radius and steps back in when it is pushed further out. */
   SITE_HOLD: 0.62, SITE_STEP: 0.6,
+  /**
+   * Obstacles (pillars and the solid objective fixtures): when the way ahead is blocked within LOOKAHEAD the bot
+   * walks along the obstacle's edge instead of pushing into it, PAD outside the distance at which it collides.
+   */
+  AVOID_LOOKAHEAD: 1.6, AVOID_PAD: 0.12, AVOID_OUTWARD: 0.3, AVOID_DEAD_ON: 0.02,
   TUTORIAL_DASH_LEAD_SECONDS: 0.2, TUTORIAL_STAND: { x: 0, z: 1.5 }, TUTORIAL_HAZARD_STANDOFF: 1.8, TUTORIAL_STORM_DASH_RANGE: 3.6, TUTORIAL_CLOSE_RANGE: 3,
 } as const;
 
@@ -143,6 +151,9 @@ export class BotBrain {
   private art = 0;
   private descendTo: number;
   private preferObjectives: boolean;
+  private preferCursed: boolean;
+  /** Centre of the objective fixture the bot is walking up to this tick (not steered around), or null. */
+  private goal: { x: number; z: number } | null = null;
 
   constructor(slot: number, cls: ClassId, seed = 1, opts: BotOptions = {}) {
     this.slot = slot;
@@ -152,6 +163,7 @@ export class BotBrain {
     this.missChance = opts.missChance ?? BOT.MISS_CHANCE;
     this.descendTo = opts.descendTo ?? 0;
     this.preferObjectives = opts.preferObjectives === true;
+    this.preferCursed = opts.preferCursed === true;
     this.strafeDir = this.rng.chance(0.5) ? 1 : -1;
   }
 
@@ -239,6 +251,10 @@ export class BotBrain {
       n++;
     }
     const want = n > 0 && hp / n < BOT.LOW_PARTY_HP ? 'blessing' : 'boon';
+    if (this.preferCursed) {
+      const cursed = doors.findIndex((d) => d.type === 'cursed');
+      if (cursed >= 0) return cursed;
+    }
     if (this.preferObjectives) {
       // A special objective first: of the wanted door type if both doors have one, behind a cursed door only if
       // there is no other.
@@ -252,8 +268,52 @@ export class BotBrain {
     return index < 0 ? 0 : index;
   }
 
+  /**
+   * Turns a move that runs into an obstacle within AVOID_LOOKAHEAD into a walk along its edge (on the side the
+   * bot is already heading for; dead on, the slot decides). The obstacle the bot wants to stand next to
+   * (`this.goal`: the shard, a brazier's bowl, the reliquary) is not walked around.
+   */
+  private steerAround(room: RoomLayout, me: PlayerSnap, cmd: InputCmd): void {
+    const len = Math.hypot(cmd.moveX, cmd.moveZ);
+    if (len < 0.01) return;
+    const nx = cmd.moveX / len;
+    const nz = cmd.moveZ / len;
+    const goal = this.goal;
+    let bestAlong = Infinity;
+    let bx = 0;
+    let bz = 0;
+    let bReach = 0;
+    for (const o of room.obstacles) {
+      if (goal && o.x === goal.x && o.z === goal.z) continue;
+      const cx = o.x - me.x;
+      const cz = o.z - me.z;
+      const reach = o.r + WORLD.PLAYER_RADIUS + BOT.AVOID_PAD;
+      const along = cx * nx + cz * nz;
+      if (along <= 0 || along >= bestAlong || along > BOT.AVOID_LOOKAHEAD + reach) continue;
+      if (Math.abs(nx * cz - nz * cx) >= reach) continue;
+      bestAlong = along;
+      bx = cx;
+      bz = cz;
+      bReach = reach;
+    }
+    if (bestAlong === Infinity) return;
+    const dc = Math.hypot(bx, bz);
+    if (dc < 1e-6) return;
+    const cross = nx * bz - nz * bx;
+    const side = Math.abs(cross) > BOT.AVOID_DEAD_ON ? Math.sign(cross) : (this.slot & 1) === 0 ? 1 : -1;
+    // Along the edge, away from the side the centre lies on; a little outwards while touching it.
+    let tx = (bz / dc) * side;
+    let tz = (-bx / dc) * side;
+    if (dc < bReach) { tx -= (bx / dc) * BOT.AVOID_OUTWARD; tz -= (bz / dc) * BOT.AVOID_OUTWARD; }
+    const tl = Math.hypot(tx, tz);
+    const scale = Math.min(1, len) / tl;
+    cmd.moveX = tx * scale;
+    cmd.moveZ = tz * scale;
+  }
+
   think(view: BotView): InputCmd {
     const cmd: InputCmd = { seq: ++this.seq, moveX: 0, moveZ: 0, aim: this.aim, aimDist: 6, buttons: 0 };
+    this.goal = null;
     const me = view.players.find((p) => p.slot === this.slot);
     const room = view.run.room;
     this.art = view.art ?? 0;
@@ -265,6 +325,7 @@ export class BotBrain {
     if (phase === 'doors') {
       const door = view.run.doors[this.chooseDoor(view)];
       if (door) this.moveTo(cmd, me, door.x, door.z, BOT.DOOR_STAND_DISTANCE);
+      this.steerAround(room, me, cmd);
       this.aim = cmd.aim = Math.atan2(cmd.moveX, cmd.moveZ) || this.aim;
       this.lastButtons = 0;
       return cmd;
@@ -275,7 +336,10 @@ export class BotBrain {
     }
     const tutorial = view.run.tutorial;
     if (tutorial) this.tutorial(view, me, room, cmd, tutorial);
-    else this.combat(view, me, room, cmd);
+    else {
+      this.combat(view, me, room, cmd);
+      this.steerAround(room, me, cmd);
+    }
     this.rememberProjectiles(view);
     this.lastButtons = cmd.buttons;
     this.aim = cmd.aim;
@@ -424,7 +488,7 @@ export class BotBrain {
   }
 
   private lineOfFire(room: RoomLayout, ax: number, az: number, bx: number, bz: number): boolean {
-    for (const o of room.obstacles) if (sweepHit(ax, az, bx, bz, o.x, o.z, o.r + 0.3) >= 0) return false;
+    for (const o of room.obstacles) if (blocksShots(o) && sweepHit(ax, az, bx, bz, o.x, o.z, o.r + 0.3) >= 0) return false;
     return true;
   }
 
@@ -570,9 +634,11 @@ export class BotBrain {
         const a = objective.anchor;
         const d = Math.hypot(a.x - me.x, a.z - me.z);
         if (d > a.r + BOT.VAULT_STAND) { mx = (a.x - me.x) / d; mz = (a.z - me.z) / d; } else { mx = 0; mz = 0; }
+        this.goal = a;
       } else if (shard && !target) {
         const d = Math.hypot(shard.x - me.x, shard.z - me.z);
         if (d > shard.r + BOT.SHARD_STAND) { mx = (shard.x - me.x) / d; mz = (shard.z - me.z) / d; }
+        this.goal = shard;
       } else if (objective.kind === 'ritual') {
         const site = this.ritualSite(view, objective.sites);
         if (site) {
@@ -582,6 +648,7 @@ export class BotBrain {
           if (d > hold) {
             mx = (site.x - me.x) / d;
             mz = (site.z - me.z) / d;
+            this.goal = site;
           } else if (len > 0.01 && Math.hypot(me.x + (mx / len) * BOT.SITE_STEP - site.x, me.z + (mz / len) * BOT.SITE_STEP - site.z) > hold) {
             mx = 0;
             mz = 0;

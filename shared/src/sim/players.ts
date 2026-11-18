@@ -43,7 +43,7 @@ export function createHero(slot: number, cls: ClassId, name: string, loadout?: u
     build, perm: perm.mods, mods: emptyMods(), abil: buildAbilities(def, build.art, { boons: [] }, 0), talent: perm.talent, relic: perm.relic,
     setTiers: noSetTiers(), setSpread: [], setOverflow: false, setBond: false,
     momentum: 0, momentumTime: 0, rampage: 0, rampageTime: 0, riposte: false, spellweave: false, echoCount: 0, coilHits: 0,
-    phoenixUsed: false, slipstreamTime: 0, sanctuary: 0, shards: [],
+    phoenixUsed: false, slipstreamTime: 0, sanctuary: 0, shards: [], cursedShards: 0,
     burnTime: 0, burnTimer: 0, chillTime: 0, inDoor: false,
     run: { slot, damage: 0, kills: 0, resonances: 0, revives: 0, downs: 0, elites: 0, bosses: 0, ultimates: 0 },
     damageTaken: 0,

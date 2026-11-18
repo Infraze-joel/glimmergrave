@@ -201,7 +201,7 @@ export const DE_DATA: Readonly<Record<string, string>> = {
   'feat.polymath.body': 'Gewinne mit {n} verschiedenen Klassen.',
 
   // ---------------------------------------------------------------- reactions (6)
-  'reaction.shatter.name': 'Zersplittern',
+  'reaction.shatter.name': 'Frostbruch',
   'reaction.shatter.body': 'Thermoschock: Die Explosion trifft härter und betäubt alles, was sie berührt.',
   'reaction.conflagration.name': 'Feuersbrunst',
   'reaction.conflagration.body': 'Eine viel größere Explosion, die jeden Gegner darin mit stärkerem Brand entzündet.',
@@ -209,7 +209,7 @@ export const DE_DATA: Readonly<Record<string, string>> = {
   'reaction.superconduct.body': 'Gegner in der Explosion sind zerrüttet: Sie erleiden eine Zeit lang mehr Schaden aus allen Quellen.',
   'reaction.soulfire.name': 'Seelenfeuer',
   'reaction.soulfire.body': 'Die Explosion heilt jeden Helden in der Nähe.',
-  'reaction.entomb.name': 'Einsargen',
+  'reaction.entomb.name': 'Eisgrab',
   'reaction.entomb.body': 'Gegner in der Explosion frieren an Ort und Stelle fest, und der Auslöser erhält einen Schild.',
   'reaction.voidarc.name': 'Leerenbogen',
   'reaction.voidarc.body': 'Blitze springen von der Explosion auf weitere Gegner über, weit über ihren Radius hinaus.',
@@ -280,10 +280,10 @@ export const DE_DATA: Readonly<Record<string, string>> = {
   'boon.spell_flux.desc': 'Zauberklinge: Deine Sekundärfähigkeit lädt viel schneller auf.',
   'boon.shade_venom.desc': 'Schatten: Deine Dolche verursachen +{v} % Schaden.',
   'boon.shade_reach.desc': 'Schatten: Schattenschritt reicht {v} % weiter; die Rauchbombe ist {v} % größer.',
-  'boon.duo_shatter.desc': 'Zersplittern verursacht +{v} % Schaden und betäubt doppelt so lange.',
+  'boon.duo_shatter.desc': 'Frostbruch verursacht +{v} % Schaden und betäubt doppelt so lange.',
   'boon.duo_conflagration.desc': 'Feuersbrunst verursacht +{v} % Schaden, und ihr Brand ist doppelt so stark.',
   'boon.duo_superconduct.desc': 'Supraleitung verursacht +{v} % Schaden und zerrüttet doppelt so tief.',
   'boon.duo_soulfire.desc': 'Seelenfeuer verursacht +{v} % Schaden und heilt doppelt so viel.',
-  'boon.duo_entomb.desc': 'Einsargen verursacht +{v} % Schaden, hält doppelt so lange und gibt doppelt so viel Schild.',
+  'boon.duo_entomb.desc': 'Eisgrab verursacht +{v} % Schaden, hält doppelt so lange und gibt doppelt so viel Schild.',
   'boon.duo_voidarc.desc': 'Leerenbogen verursacht +{v} % Schaden und springt auf doppelt so viele Gegner über.',
 };

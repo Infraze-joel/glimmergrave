@@ -69,25 +69,25 @@ const look = (color: number, style = 0, head = true, cape = true): Look => ({ co
 function roster(): RosterEntry[] {
   return [
     {
-      slot: 0, name: 'Aldric', cls: 'knight', look: look(2, 1), mastery: 7, art: 1, ready: true, connected: true, host: true,
+      slot: 0, name: 'Aldric', cls: 'knight', look: look(2, 1), mastery: 7, art: 1, relics: 1, talents: 1, ready: true, connected: true, host: true,
       boons: [
         { id: 'infuse_ember_primary', level: 1 }, { id: 'keen_edge', level: 2 }, { id: 'barrier', level: 1 },
         { id: 'amplifier', level: 1 }, { id: 'spare_step', level: 1 }, { id: 'kindred_flame', level: 1 },
       ],
     },
     {
-      slot: 1, name: 'Brunhild', cls: 'templar', look: look(0), mastery: 23, art: 0, ready: true, connected: true, host: false,
+      slot: 1, name: 'Brunhild', cls: 'templar', look: look(0), mastery: 23, art: 0, relics: 2, talents: 3, ready: true, connected: true, host: false,
       boons: [{ id: 'infuse_storm_secondary', level: 1 }, { id: 'heavy_hand', level: 3 }, { id: 'iron_heart', level: 2 }],
     },
     {
-      slot: 2, name: 'Mirelle', cls: 'spellblade', look: look(5, 2, true, false), mastery: 3, art: 0, ready: false, connected: true, host: false,
+      slot: 2, name: 'Mirelle', cls: 'spellblade', look: look(5, 2, true, false), mastery: 3, art: 0, relics: 0, talents: 0, ready: false, connected: true, host: false,
       boons: [
         { id: 'infuse_rime_primary', level: 2 }, { id: 'deep_frost', level: 1 }, { id: 'echo', level: 1 },
         { id: 'quick_wits', level: 2 },
       ],
     },
     {
-      slot: 3, name: 'Schattenklinge99', cls: 'shade', look: look(4, 1, false), mastery: 112, art: 1, ready: true, connected: false, host: false,
+      slot: 3, name: 'Schattenklinge99', cls: 'shade', look: look(4, 1, false), mastery: 112, art: 1, relics: 3, talents: 1, ready: true, connected: false, host: false,
       boons: [{ id: 'deadeye', level: 1 }, { id: 'fleet_foot', level: 2 }],
     },
   ];
@@ -126,6 +126,7 @@ function run(patch: Partial<RunState> = {}): RunState {
     ],
     secondWinds: 0,
     ...patch,
+    traits: patch.traits ?? [],
   };
 }
 
@@ -557,6 +558,62 @@ function objectiveRoute(kind: ObjectiveKind, stage: ObjectiveStage, soloRun = fa
   if (stage === 'done' || stage === 'won') fire({ e: 'objective', kind, what: 'done', bonus: stage === 'won' });
 }
 
+/**
+ * Polish 1: a realistic burst of a four-hero fight in a ritual chamber — five new foes in one wave, wards, affixes,
+ * three allied ultimates, reactions of several kinds, downs and a revive — to judge feed, callouts and tips under
+ * load. All tips are unseen. `ownDown` also drops the own hero two seconds in.
+ */
+const BUSY_MS = { STEP: 150, OWN_DOWN: 2000, REVIVE: 2300, LATE_FOE: 2700 } as const;
+let busyTimers: number[] = [];
+
+function busyFight(ownDown: boolean): void {
+  for (const id of busyTimers) window.clearTimeout(id);
+  busyTimers = [];
+  inGame({ chamber: 5, entered: 'cursed', wave: 1, waveCount: 1, objective: objectiveState('ritual', 'mid'), room: room('forge', false) });
+  state.players = players().map((p) => ({ ...p, state: 'alive', hp: Math.max(p.hp, 40), revive: 0, ult: p.slot === OWN_SLOT ? 0.97 : 0.9 }));
+  state.roster = roster().map((p) => ({ ...p, connected: true }));
+  state.enemiesAlive = 27;
+  emitAll();
+  resetTips();
+  const p = { x: 2, z: -1 };
+  const steps: (() => void)[] = [
+    () => {
+      // One wave brings all five new kinds, two wards and two affixed elites.
+      NEW_FOES.forEach((kind, i) => fire({ e: 'spawn', id: 60 + i, kind, ...p, elite: false, ...(i === 1 ? { ward: 'rime' as const } : {}) }));
+      fire({ e: 'spawn', id: 70, kind: 'warrior', ...p, elite: false, ward: 'umbra' });
+      fire({ e: 'spawn', id: 71, kind: 'warrior', ...p, elite: true, affix: 'volatile' });
+      fire({ e: 'spawn', id: 72, kind: 'archer', ...p, elite: true, affix: 'swift' });
+    },
+    () => fire({ e: 'ultReady', slot: 1 }),
+    () => fire({ e: 'resonance', ...p, r: 3, a: 'storm', b: 'umbra', by: 2 }),
+    () => { fire({ e: 'ultReady', slot: 2 }); fire({ e: 'hit', target: { t: 'e', id: 60 }, ...p, dmg: 22, crit: false, el: 'ember', by: OWN_SLOT }); },
+    () => fire({ e: 'resonance', ...p, r: 3, a: 'rime', b: 'umbra', by: 1 }),
+    () => { state.players[2] = { ...state.players[2], hp: 0, state: 'downed' }; bus.emit('state:hud'); fire({ e: 'down', slot: 2 }); },
+    () => { state.players[0].ult = 1; bus.emit('state:hud'); fire({ e: 'ultReady', slot: OWN_SLOT }); },
+    () => fire({ e: 'resonance', ...p, r: 3, a: 'storm', b: 'umbra', by: OWN_SLOT }),
+    () => fire({ e: 'objective', kind: 'ritual', what: 'site', index: 0 }),
+    () => { state.players[3] = { ...state.players[3], hp: 0, state: 'downed' }; bus.emit('state:hud'); fire({ e: 'down', slot: 3 }); },
+    () => fire({ e: 'ultReady', slot: 3 }),
+    () => fire({ e: 'resonance', ...p, r: 3, a: 'ember', b: 'rime', by: 3 }),
+    () => fire({ e: 'resonance', ...p, r: 3, a: 'storm', b: 'umbra', by: 2 }),
+  ];
+  const later = (ms: number, step: () => void): void => {
+    busyTimers.push(window.setTimeout(() => { if (state.screen === 'game') step(); }, ms));
+  };
+  steps.forEach((step, i) => later(i * BUSY_MS.STEP, step));
+  if (ownDown) {
+    later(BUSY_MS.OWN_DOWN, () => { state.players[0] = { ...state.players[0], hp: 0, state: 'downed' }; bus.emit('state:hud'); fire({ e: 'down', slot: OWN_SLOT }); });
+  }
+  later(BUSY_MS.REVIVE, () => {
+    state.players[2] = { ...state.players[2], hp: 40, state: 'alive' };
+    bus.emit('state:hud');
+    fire({ e: 'revived', slot: 2, by: 1 });
+    fire({ e: 'resonance', ...p, r: 3, a: 'rime', b: 'umbra', by: 1 });
+  });
+  // A late arrival of a kind that is already explained must not bring its tip back.
+  later(BUSY_MS.LATE_FOE, () => { fire({ e: 'spawn', id: 80, kind: 'bomber', ...p, elite: false }); fire({ e: 'objective', kind: 'ritual', what: 'site', index: 1 }); });
+}
+
 const door = (x: number, type: DoorType, objective: ObjectiveKind): Door => ({ x, z: -10, type, objective });
 
 function objectiveDoors(doors: Door[], patch: Partial<RunState> = {}): void {
@@ -633,6 +690,8 @@ const OBJECTIVE_ROUTES: Record<string, () => void> = {
     emitAll();
   },
   'draft-vault': () => objectiveDraft('vault', false, [{ id: 'encore', level: 1 }, { id: 'infuse_storm_dash', level: 1 }, { id: 'iron_heart', level: 2 }, { id: 'echo', level: 1 }]),
+  busy: () => busyFight(false),
+  'busy-down': () => busyFight(true),
   ward: () => { inGame({ entered: 'boon', chamber: 5, objective: objectiveState('slay', 'mid') }); ELEMENT_IDS.forEach((ward, i) => fire({ e: 'spawn', id: 80 + i, kind: 'warrior', x: 2, z: -1, elite: false, ward })); },
   'ward-own': () => { solo(TRAINING_BOONS.slice(0, 1), { chamber: 5, objective: objectiveState('slay', 'mid') }); fire({ e: 'spawn', id: 80, kind: 'minion', x: 2, z: -1, elite: false, ward: 'ember' }); },
   foes: () => {

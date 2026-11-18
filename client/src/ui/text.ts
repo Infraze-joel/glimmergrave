@@ -173,7 +173,7 @@ export function missingTexts(): string[] {
     if (OBJECTIVES[kind].bonus !== '') { mirrored.push(`objective.${kind}.bonus`); keys.push(`objective.lost.${kind}`); }
   }
   for (const kind of ENEMY_KINDS) keys.push(`enemy.${kind}.name`, `enemy.${kind}.desc`, `enemy.${kind}.tip`);
-  for (const kind of NEW_FOE_KINDS) keys.push(`tip.enemy.${kind}.body`);
+  for (const kind of NEW_FOE_KINDS) keys.push(`tip.enemy.${kind}.body`, `tip.enemy.${kind}.short`);
 
   const out: string[] = [];
   const names = /\.name$/;

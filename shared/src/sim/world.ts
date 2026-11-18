@@ -38,7 +38,8 @@ const lobbyRoom = (): RoomLayout => ({
   seed: 0, biome: 'crypt', w: LOBBY_ROOM_W, d: LOBBY_ROOM_D, obstacles: [], hazards: [], spawns: roomSpawns(LOBBY_ROOM_D),
 });
 
-type RunCore = Omit<RunState, 'stats' | 'room'>;
+/** `stats`, `room` and `traits` are derived from the heroes, the room and the living enemies when the state is published. */
+type RunCore = Omit<RunState, 'stats' | 'room' | 'traits'>;
 
 const freshRun = (): RunCore => ({
   phase: 'lobby', oath: 0, chamber: 0, chamberKind: 'combat', entered: 'boon', wave: 0, waveCount: 0, doors: [],
@@ -430,8 +431,27 @@ export class World {
       } : null,
       tutorial: run.tutorial ? { ...run.tutorial, marker: run.tutorial.marker ? { ...run.tutorial.marker } : null } : null,
       room: run.phase === 'lobby' ? null : this.room,
+      traits: this.getTraits(),
       stats: this.heroes.map((h) => ({ ...h.run, damage: Math.round(h.run.damage) })),
     };
+  }
+
+  /**
+   * Wards, affixes and necromancer links of the enemies alive right now (RunState.traits), in spawn order. Built
+   * on demand from the living enemies, so every published run state — the one a (re)joining client receives
+   * included — is current, and nothing has to be tracked or re-sent when an enemy rises or falls.
+   */
+  getTraits(): RunState['traits'] {
+    const out: RunState['traits'] = [];
+    for (const e of this.enemies) {
+      if (e.dead || (e.ward === null && e.affix === null && e.master < 0)) continue;
+      const trait: RunState['traits'][number] = { id: e.id };
+      if (e.ward !== null) trait.ward = e.ward;
+      if (e.affix !== null) trait.affix = e.affix;
+      if (e.master >= 0) trait.raisedBy = e.master;
+      out.push(trait);
+    }
+    return out;
   }
 
   getSelfState(slot: number): SelfState {

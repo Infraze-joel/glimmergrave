@@ -5,8 +5,8 @@ import { BOON_BY_ID, BOON_TUNING } from '@shared/data/boons.ts';
 import { REWARDS } from '@shared/data/meta.ts';
 import { OBJECTIVES, OBJECTIVE_TUNING } from '@shared/data/objectives.ts';
 import { downHero, killEnemy } from '@shared/sim/combat.ts';
-import { damageAnchor, huntTargets, surviveSeconds } from '@shared/sim/objectives.ts';
-import { glimmerReward, OBJECTIVE, World } from '@shared/sim/index.ts';
+import { damageAnchor, huntSeconds, huntTargets, surviveSeconds } from '@shared/sim/objectives.ts';
+import { FIXTURE_KINDS, glimmerReward, OBJECTIVE, World } from '@shared/sim/index.ts';
 import { EF, OBJECTIVE_KINDS, type ClassId, type Door, type GameEvent, type ObjectiveKind, type ObjectiveState } from '@shared/types.ts';
 import { draftAll, place, seconds, takeDoor } from './harness.ts';
 import { of } from './u3kit.ts';
@@ -167,8 +167,12 @@ describe('defend', () => {
     const s = state(w);
     expect(s).toMatchObject({ kind: 'defend', bonus: true, timeLeft: 0, sites: [], targets: [] });
     expect(s.anchor).toMatchObject({ r: T.DEFEND.RADIUS, hp: 1 });
-    for (const o of w.room.obstacles) expect(Math.hypot(o.x - s.anchor!.x, o.z - s.anchor!.z)).toBeGreaterThan(o.r + s.anchor!.r);
-    expect(w.director.obj!.anchorMaxHp).toBeCloseTo(T.DEFEND.HP * w.damageMul, 6);
+    // Clear of everything the room was generated with (the shard itself is an obstacle too since polish 1).
+    const scenery = w.room.obstacles.filter((o) => !FIXTURE_KINDS.has(o.kind));
+    expect(scenery).toHaveLength(w.room.obstacles.length - 1);
+    for (const o of scenery) expect(Math.hypot(o.x - s.anchor!.x, o.z - s.anchor!.z)).toBeGreaterThan(o.r + s.anchor!.r);
+    // A lone hero's shard is tougher (SOLO_HP_MUL).
+    expect(w.director.obj!.anchorMaxHp).toBeCloseTo(T.DEFEND.HP * w.damageMul * T.DEFEND.SOLO_HP_MUL, 6);
     expect(w.run.waveCount).toBeGreaterThan(1);
     const all = run(w, seconds(60), slayAll);
     expect(objectiveEvents(all)).toEqual(['done:true']);
@@ -265,7 +269,7 @@ describe('hunt', () => {
     expect([1, 2, 3, 4].map(huntTargets)).toEqual([2, 2, 3, 3]);
     const { w, ev } = begin('hunt', ['knight', 'mage', 'rogue'], 2);
     expect(objectiveEvents(ev)).toEqual(['start']);
-    expect(state(w)).toMatchObject({ kind: 'hunt', timeLeft: T.HUNT.SECONDS, bonus: true, targets: [], progress: 0 });
+    expect(state(w)).toMatchObject({ kind: 'hunt', timeLeft: huntSeconds(3), bonus: true, targets: [], progress: 0 });
     expect(w.run.waveCount).toBe(1);
     const rise = run(w, seconds(8));
     const marked = w.enemies.filter((e) => e.marked);
@@ -279,7 +283,7 @@ describe('hunt', () => {
     const escort = w.enemies.filter((e) => !e.marked);
     expect(escort.length).toBeGreaterThan(0);
     expect(of(rise, 'spawn')).toHaveLength(marked.length + escort.length);
-    expect(state(w).timeLeft).toBeCloseTo(T.HUNT.SECONDS - 8, 1);
+    expect(state(w).timeLeft).toBeCloseTo(huntSeconds(3) - 8, 1);
     // One down.
     killEnemy(w, marked[0]!, 0);
     run(w, 2);
@@ -337,7 +341,7 @@ describe('ritual', () => {
           expect(s).toMatchObject({ r: T.RITUAL.RADIUS, progress: 0, lit: false });
           expect(Math.abs(s.x) + s.r, where).toBeLessThan(w.room.w / 2);
           expect(Math.abs(s.z) + s.r, where).toBeLessThan(w.room.d / 2);
-          for (const o of w.room.obstacles) expect(Math.hypot(o.x - s.x, o.z - s.z), where).toBeGreaterThan(o.r + s.r);
+          for (const o of w.room.obstacles) if (!FIXTURE_KINDS.has(o.kind)) expect(Math.hypot(o.x - s.x, o.z - s.z), where).toBeGreaterThan(o.r + s.r);
           for (const h of w.room.hazards) expect(Math.hypot(h.x - s.x, h.z - s.z), where).toBeGreaterThan(h.r + s.r);
           for (let j = 0; j < i; j++) expect(Math.hypot(sites[j]!.x - s.x, sites[j]!.z - s.z), where).toBeGreaterThan(2 * s.r);
         });
@@ -677,7 +681,7 @@ describe('across depths', () => {
     expect(doors[0]!.objective).toBe('defend');
     takeDoor(w, 0);
     expect(state(w).kind).toBe('defend');
-    expect(w.director.obj!.anchorMaxHp).toBeCloseTo(T.DEFEND.HP * w.damageMul, 6);
+    expect(w.director.obj!.anchorMaxHp).toBeCloseTo(T.DEFEND.HP * w.damageMul * T.DEFEND.SOLO_HP_MUL, 6);
     expect(w.damageMul).toBeGreaterThan(1.5);
     finishChamber(w);
     expect(w.getRunState()).toMatchObject({ objectivesDone: 1, objectiveBonuses: 1 });

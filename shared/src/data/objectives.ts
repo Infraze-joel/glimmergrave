@@ -35,13 +35,16 @@ export const OBJECTIVE_TUNING = {
   DEFEND: {
     /** Shard health (scaled like enemy damage by chamber, Oath and depth) and size. */
     HP: 520, RADIUS: 1.1,
+    /** Polish 1: a hero who is alone cannot guard the shard and fight at once; its shard has this much more health. */
+    SOLO_HP_MUL: 1.5,
     /** Share of each wave that goes for the shard instead of the heroes. */
     ATTACKER_SHARE: 0.3,
     /** Heroes standing within this distance slowly repair the shard between hits. */
     REPAIR_RADIUS: 3, REPAIR_PER_SECOND: 0.02, REPAIR_DELAY: 4,
     ANCHOR_HIT_EVENT_SECONDS: 1,
   },
-  HUNT: { TARGETS: 2, TARGETS_PER_EXTRA_PLAYER: 0.5, SECONDS: 45, ESCORT_BUDGET_FRACTION: 0.6, ENRAGE_DAMAGE_MUL: 1.4, ENRAGE_SPEED_MUL: 1.25 },
+  /** Polish 1: SECONDS_PER_EXTRA_PLAYER more time for each additional hero (a party hunts more and tougher marks). */
+  HUNT: { TARGETS: 2, TARGETS_PER_EXTRA_PLAYER: 0.5, SECONDS: 45, SECONDS_PER_EXTRA_PLAYER: 5, ESCORT_BUDGET_FRACTION: 0.6, ENRAGE_DAMAGE_MUL: 1.4, ENRAGE_SPEED_MUL: 1.25 },
   RITUAL: {
     SITES: 3, RADIUS: 2.4, SECONDS_TO_LIGHT: 7,
     /** Progress drains at this fraction of the fill rate while no hero stands inside. */

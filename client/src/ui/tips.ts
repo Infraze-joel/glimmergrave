@@ -2,6 +2,13 @@
  * First-time contextual tips. Each tip is shown once per profile (ui/prefs.ts), one at a time, never during
  * training, a draft or a boss windup. Tips dismiss themselves after a while or with Enter; the HUD stays
  * click-through, so there is no button to press with the mouse.
+ *
+ * Polish 1 — tips no longer pile up behind each other:
+ *  - new foes that arrive together share one compact card ("New foes", one line each);
+ *  - a tip that cannot be shown within TIP_QUEUE_MAX_MS is dropped unseen and returns with its next trigger;
+ *  - a downed hero only ever sees the tip about being down;
+ *  - during a fight a tip leaves after TIP_COMBAT_SECONDS.
+ * Every tip can be read again in the codex (tab "Tips").
  */
 import { BOON_TUNING } from '@shared/data/boons.ts';
 import { ENEMY_TUNING } from '@shared/data/enemies.ts';
@@ -9,7 +16,7 @@ import { RUN, WORLD } from '@shared/constants.ts';
 import { HAZARD_TIMING } from '@shared/sim/hazards.ts';
 import { SETS } from '@shared/data/boons.ts';
 import type { AffixId, ElementId, EnemyKind, GameEvent } from '@shared/types.ts';
-import { selfRoster, state } from '../core/GameState.ts';
+import { self, selfRoster, state } from '../core/GameState.ts';
 import { h, icon, key } from './dom.ts';
 import { bossLabel, distinctElements, enemyName, infusionsOf, resonanceParams, statusParams } from './elements.ts';
 import type { IconName } from './icons.ts';
@@ -179,20 +186,33 @@ export function tipContent(id: TipId, detail: TipDetail = {}): TipContent {
   }
 }
 
-interface Shown {
+/** `data-tip` of the card that introduces several new foes at once. */
+export const FOES_TIP = 'enemy.group';
+const isFoeTip = (id: TipId): boolean => id.startsWith('enemy.');
+const foeOf = (id: TipId): NewFoe => id.slice('enemy.'.length) as NewFoe;
+
+interface Queued {
   content: TipContent;
+  /** performance.now() of the offer: a tip that waits too long is dropped unseen (its next trigger brings it back). */
+  at: number;
+}
+
+interface Shown {
+  /** One tip, or several new-foe tips sharing one card. */
+  tips: TipContent[];
   since: number;
   timer: number;
 }
 
 export function createTips(): TipsView {
   const el = h('div', { class: 'gg-tip-slot', 'aria-live': 'polite' });
-  const queue: TipContent[] = [];
+  const queue: Queued[] = [];
   let current: Shown | null = null;
   let bossBusyUntil = 0;
   let nextAt = 0;
   let retry = 0;
 
+  /** Nothing may be shown: no run, training, a draft, the end of the run, a boss winding up. */
   const blocked = (): boolean => {
     const run = state.run;
     if (!run || state.screen !== 'game' || run.tutorial) return true;
@@ -200,53 +220,130 @@ export function createTips(): TipsView {
     return performance.now() < bossBusyUntil;
   };
 
+  /** A downed hero has other worries: only the tip about being down may show. */
+  const ownDown = (): boolean => {
+    const me = self();
+    return me !== null && me.state !== 'alive';
+  };
+
+  const allowed = (id: TipId): boolean => id === 'downed' || !ownDown();
+
+  /** Seconds a card stays: shorter during a fight, a little longer per extra foe on a shared card. */
+  const lifetime = (count: number): number => {
+    const base = state.run?.phase === 'combat' ? UI_CONFIG.TIP_COMBAT_SECONDS : UI_CONFIG.TIP_SECONDS;
+    return count <= 1 ? base : Math.max(base, Math.min(UI_CONFIG.TIP_FOES_MAX_SECONDS, UI_CONFIG.TIP_COMBAT_SECONDS + (count - 1) * UI_CONFIG.TIP_FOE_SECONDS));
+  };
+
   const close = (seen: boolean): void => {
     if (!current) return;
-    const { content, timer } = current;
+    const { tips, timer } = current;
     window.clearTimeout(timer);
-    if (seen) markTipSeen(content.id);
-    else queue.unshift(content);
+    for (const content of tips) if (seen) markTipSeen(content.id);
+    // Not read: back into the queue, where it waits a moment and otherwise returns with its next trigger.
+    if (!seen) queue.unshift(...tips.map((content) => ({ content, at: performance.now() })));
     current = null;
     el.replaceChildren();
     nextAt = performance.now() + UI_CONFIG.TIP_GAP_MS;
   };
 
-  const open = (content: TipContent): void => {
-    const card = h('aside', { class: 'gg-tip', 'data-testid': 'tip-root', 'data-tip': content.id, 'data-tone': content.tone },
+  const foot = (hint: string | null): HTMLElement =>
+    h('div', { class: 'gg-tip-foot' },
+      hint !== null ? h('span', { class: 'gg-tip-more' }, icon('codex'), hint) : null,
+      key('Enter'), h('span', null, t('tip.dismiss')));
+
+  const card = (tips: TipContent[]): HTMLElement => {
+    if (tips.length === 1) {
+      const content = tips[0];
+      return h('aside', { class: 'gg-tip', 'data-testid': 'tip-root', 'data-tip': content.id, 'data-tone': content.tone },
+        h('div', { class: 'gg-tip-head' },
+          h('span', { class: 'gg-tip-icon' }, icon(content.icon)),
+          h('div', null,
+            h('span', { class: 'gg-tip-label' }, icon('tip'), t('tip.label')),
+            h('b', { class: 'gg-tip-title' }, content.title),
+          ),
+        ),
+        h('p', { class: 'gg-tip-body' }, ...rich(content.body)),
+        foot(null),
+        h('i', { class: 'gg-tip-timer' }),
+      );
+    }
+    // Several new foes at once: one compact card, one line each. The full texts are in the codex.
+    const foes = tips.map((content) => foeOf(content.id));
+    return h('aside', { class: 'gg-tip gg-tip--foes', 'data-testid': 'tip-root', 'data-tip': FOES_TIP, 'data-foes': foes.join(' '), 'data-tone': 'danger' },
       h('div', { class: 'gg-tip-head' },
-        h('span', { class: 'gg-tip-icon' }, icon(content.icon)),
+        h('span', { class: 'gg-tip-icon' }, icon('skull')),
         h('div', null,
           h('span', { class: 'gg-tip-label' }, icon('tip'), t('tip.label')),
-          h('b', { class: 'gg-tip-title' }, content.title),
+          h('b', { class: 'gg-tip-title' }, t('tip.foes.title')),
         ),
       ),
-      h('p', { class: 'gg-tip-body' }, ...rich(content.body)),
-      h('div', { class: 'gg-tip-foot' }, key('Enter'), h('span', null, t('tip.dismiss'))),
+      h('ul', { class: 'gg-tip-foes' }, ...foes.map((kind) =>
+        h('li', { 'data-foe': kind },
+          icon(FOE_ICON[kind]),
+          h('div', null, h('b', null, enemyName(kind)), h('span', null, t(`tip.enemy.${kind}.short`))),
+        ))),
+      foot(t('tip.foes.more')),
       h('i', { class: 'gg-tip-timer' }),
     );
-    card.style.setProperty('--tip-s', `${UI_CONFIG.TIP_SECONDS}s`);
-    el.replaceChildren(card);
-    current = {
-      content, since: performance.now(),
-      timer: window.setTimeout(() => close(true), UI_CONFIG.TIP_SECONDS * MS),
-    };
   };
 
+  const open = (tips: TipContent[]): void => {
+    if (current) window.clearTimeout(current.timer);
+    const seconds = lifetime(tips.length);
+    const view = card(tips);
+    view.style.setProperty('--tip-s', `${seconds}s`);
+    // A card that only gained a line does not slide in again.
+    if (current) view.classList.add('is-updated');
+    el.replaceChildren(view);
+    current = { tips, since: current?.since ?? performance.now(), timer: window.setTimeout(() => close(true), seconds * MS) };
+  };
+
+  const known = (id: TipId): boolean => current?.tips.some((c) => c.id === id) === true || queue.some((q) => q.content.id === id);
+
   const offer = (id: TipId, detail?: TipDetail, urgent = false): void => {
-    if (!tipsEnabled() || tipSeen(id) || state.run?.tutorial) return;
-    if (current?.content.id === id || queue.some((q) => q.id === id)) return;
+    if (!tipsEnabled() || tipSeen(id) || state.run?.tutorial || known(id)) return;
+    const now = performance.now();
     const content = tipContent(id, detail);
-    if (urgent) queue.unshift(content);
-    else queue.push(content);
+    // A new foe joins the card that is already introducing new foes instead of waiting behind it.
+    if (isFoeTip(id) && current && current.tips.every((c) => isFoeTip(c.id)) && !blocked() && allowed(id)) {
+      open([...current.tips, content]);
+      return;
+    }
+    if (urgent) queue.unshift({ content, at: now });
+    else queue.push({ content, at: now });
+    // Tips of the same moment (a wave's spawns) are looked at together; an urgent one does not wait.
+    if (!current && !urgent) nextAt = Math.max(nextAt, now + UI_CONFIG.TIP_COLLECT_MS);
+  };
+
+  /** Drops what waited too long. Only tips whose trigger comes again are affected (all of them do). */
+  const prune = (): void => {
+    const now = performance.now();
+    for (let i = queue.length - 1; i >= 0; i--) if (now - queue[i].at > UI_CONFIG.TIP_QUEUE_MAX_MS) queue.splice(i, 1);
   };
 
   function pump(): void {
+    prune();
+    // Being down cannot wait behind another tip or a pause.
+    const downedAt = queue.findIndex((q) => q.content.id === 'downed');
     if (current) {
+      const read = performance.now() - current.since >= READ_MS;
       if (!tipsEnabled()) close(true);
-      else if (blocked()) close(performance.now() - current.since >= READ_MS);
-      return;
+      else if (blocked()) close(read);
+      else if (!current.tips.every((c) => allowed(c.id))) close(read);
+      else if (downedAt >= 0 && current.tips[0].id !== 'downed') {
+        const [urgent] = queue.splice(downedAt, 1);
+        close(read);
+        open([urgent.content]);
+      }
+      if (current || downedAt < 0) return;
     }
     if (queue.length === 0) return;
+    if (!tipsEnabled()) { queue.length = 0; return; }
+    if (downedAt >= 0) {
+      const at = queue.findIndex((q) => q.content.id === 'downed');
+      if (at >= 0 && !blocked()) open([queue.splice(at, 1)[0].content]);
+      return;
+    }
     const wait = Math.max(nextAt, bossBusyUntil) - performance.now();
     if (wait > 0) {
       // Pause between two tips / boss windup: come back by ourselves instead of relying on the next HUD update.
@@ -255,9 +352,16 @@ export function createTips(): TipsView {
       return;
     }
     if (blocked()) return;
-    if (!tipsEnabled()) { queue.length = 0; return; }
-    const next = queue.shift();
-    if (next && !tipSeen(next.id)) open(next);
+    const index = queue.findIndex((q) => allowed(q.content.id) && !tipSeen(q.content.id));
+    if (index < 0) return;
+    const [next] = queue.splice(index, 1);
+    if (!isFoeTip(next.content.id)) { open([next.content]); return; }
+    // Every new foe that is waiting shares the card.
+    const foes = [next.content];
+    for (let i = queue.length - 1; i >= 0; i--) {
+      if (isFoeTip(queue[i].content.id) && !tipSeen(queue[i].content.id)) foes.splice(1, 0, ...queue.splice(i, 1).map((q) => q.content));
+    }
+    open(foes);
   }
 
   const onEvent = (ev: GameEvent): void => {

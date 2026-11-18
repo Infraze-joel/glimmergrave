@@ -65,6 +65,13 @@ export const RELIC_TUNING = {
   DROP_PER_DEPTH: 0.1, DROP_PER_OATH: 0.02,
   /** A final boss below depth 0 drops this many shards. */
   DEEP_BOSS_SHARDS: 2,
+  /**
+   * Polish 1: behind a cursed door every elite-flagged enemy of the rank and file that a hero slays gives each
+   * hero this (small) chance of a shard, raised by depth, Oath and relic find in the same proportion as the
+   * champion's DROP_ELITE. No hero finds more than CURSED_SHARDS_PER_CHAMBER of them in one chamber. Summoned
+   * minions and enemies that crumble by themselves never roll.
+   */
+  DROP_CURSED_ELITE: 0.02, CURSED_SHARDS_PER_CHAMBER: 1,
   /** Phoenix: health fraction; storm coil: hits per strike and damage; and so on for the specials. */
   PHOENIX_HP: 0.3, COIL_EVERY: 5, COIL_DAMAGE: 18, LANTERN_HEAL: 4, FROST_CORE_WEAKEN: 0.08,
   BELL_SLOW: 0.3, BELL_SECONDS: 2, HOURGLASS_SECONDS: 15, COMPASS_BONUS: 0.25,

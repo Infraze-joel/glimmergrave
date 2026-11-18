@@ -31,6 +31,10 @@
  *                       ritual: prog 0.5 = one lit, one half filled, one untouched; hunt: bonus=0 = enraged
  *       demo=objdoors   doors with objective emblems (&set=1 for the second set)
  *       stress mode now includes the five new kinds, wards, a dome and (obj=) an objective; default obj=defend
+ * Polish 1:
+ *       mode=fight[&at=6]  the stress scene as a real brawl: the party in a knot at the shard, area hits on many enemies at
+ *                       once, and at `at` four ultimates + a chain of ten reactions under hostile telegraphs
+ *       seed=N          reproducible script (same moment before / after a rendering change) · local=0..3 own hero's slot
  */
 import { AnimationMixer, Vector3 } from 'three';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
@@ -53,6 +57,18 @@ import { enemyDef } from '../render/config.ts';
 import type { Quality } from '../core/Settings.ts';
 
 const DEG = Math.PI / 180;
+/**
+ * The script's own random numbers (mulberry32). With &seed=N a run is reproducible whatever the render kit does with
+ * Math.random, so the same moment can be captured before and after a rendering change.
+ */
+let rndState = (Date.now() ^ 0x9e3779b9) >>> 0;
+function rnd(): number {
+  rndState = (rndState + 0x6d2b79f5) >>> 0;
+  let t = rndState;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
 let NORTH = Math.PI;
 const QUALITIES: Quality[] = ['low', 'medium', 'high'];
 const KINDS: ChamberKind[] = ['combat', 'elite', 'boss'];
@@ -193,6 +209,18 @@ function enemyScript(kind: EnemyKind): EnemyStep[] {
   return base;
 }
 
+/** mode=fight: hero formation [x, z], volley rhythm and the hostile warnings laid across the climax [x, z, r]. */
+const FIGHT = {
+  HEROES: [[-1.6, 3.4], [1.8, 2.6], [-3.4, 1.2], [3.2, 0.6]],
+  VOLLEY_EVERY: 0.16,
+  VOLLEY_RADIUS: 4.2,
+  DAMAGE: [13, 43, 243, 346],
+  LEAD: 0.7,
+  TELEGRAPH: 3.2,
+  CIRCLES: [[-2.2, 2.6, 2.4], [3.6, -1.8, 2.8], [-5.5, -3, 2.2]],
+  CHAIN: 10,
+} as const;
+
 const FLAG_DEMOS = [EF.BURN, EF.CHILL, EF.SHOCK, EF.WITHER, EF.STUNNED, EF.SHIELDED, EF.ENRAGED, EF.BURN | EF.SHIELDED, EF.CHILL | EF.SHOCK | EF.ENRAGED, EF.WITHER | EF.BURN, 0];
 const STATUS_BIT: Record<ElementId, number> = { ember: EF.BURN, rime: EF.CHILL, storm: EF.SHOCK, umbra: EF.WITHER };
 const ANY_STATUS = EF.BURN | EF.CHILL | EF.SHOCK | EF.WITHER;
@@ -239,6 +267,12 @@ class Showcase {
   private calm = false;
   private quality: Quality = 'high';
   private stress = false;
+  /** Polish 1: `mode=fight`, a four-hero brawl in a special-objective chamber with a scripted climax at `at`. */
+  private fight = false;
+  private fightDone = false;
+  private fightHit = 0;
+  /** Slot the view treats as the own hero. */
+  private local = 0;
   private doorsOn = true;
   private paused = false;
   private zoom = 1;
@@ -278,7 +312,12 @@ class Showcase {
     if (kind && KINDS.includes(kind)) this.kind = kind;
     const quality = params.get('quality') as Quality | null;
     if (quality && QUALITIES.includes(quality)) this.quality = quality;
-    this.stress = params.get('mode') === 'stress';
+    this.fight = params.get('mode') === 'fight';
+    this.stress = params.get('mode') === 'stress' || this.fight;
+    if (params.has('seed')) rndState = Number(params.get('seed')) >>> 0;
+    this.local = Math.max(0, Math.min(SLOTS - 1, Number(params.get('local') ?? 0) || 0));
+    if (this.fight && !params.has('classes')) this.classes = ['mage', 'templar', 'spellblade', 'barbarian'];
+    if (this.fight && !params.has('at')) this.demoAt = 6;
     if (params.has('freeze')) this.freezeAt = Number(params.get('freeze'));
     if (params.has('zoom')) this.zoom = Number(params.get('zoom'));
     if (params.get('doors') === '0') this.doorsOn = false;
@@ -338,7 +377,7 @@ class Showcase {
   private readonly cursor = { x: 0, z: 0 };
 
   private randomLook(): Look {
-    return { color: Math.floor(Math.random() * LOOK.COLORS.length), head: Math.random() < 0.7, cape: Math.random() < 0.7, style: Math.floor(Math.random() * LOOK.STYLES) };
+    return { color: Math.floor(rnd() * LOOK.COLORS.length), head: rnd() < 0.7, cape: rnd() < 0.7, style: Math.floor(rnd() * LOOK.STYLES) };
   }
 
   private applyRoster(): void {
@@ -388,6 +427,8 @@ class Showcase {
     this.view.clearSession();
     this.view.setDepth(this.depth);
     this.demoDone = false;
+    this.fightDone = false;
+    this.fightHit = 0.3;
     this.applyRoster();
     this.applyMenu();
     this.view.setRoom(this.menu ? null : this.room, this.kind, KINDS.indexOf(this.kind) * 3);
@@ -403,8 +444,8 @@ class Showcase {
     this.timers = { tele: 0.5, reso: 1.2, shot: 0.3, event: 2, hit: 0.4, stressFx: 0 };
     const hd = this.room.d / 2;
     this.classes.forEach((cls, slot) => {
-      const homeX = this.stress ? [-5, 5, -2, 2][slot] : -6 + slot * 4;
-      const homeZ = this.stress ? [2, 2, 5, 5][slot] : hd - 4.5;
+      const homeX = this.fight ? FIGHT.HEROES[slot][0] : this.stress ? [-5, 5, -2, 2][slot] : -6 + slot * 4;
+      const homeZ = this.fight ? FIGHT.HEROES[slot][1] : this.stress ? [2, 2, 5, 5][slot] : hd - 4.5;
       const maxHp = CLASSES[cls].maxHp;
       this.heroes.push({
         cls, homeX, homeZ, step: -1, t: 0, offset: slot * 0.95,
@@ -449,11 +490,11 @@ class Showcase {
 
   private addEnemy(kind: EnemyKind, x: number, z: number, elite: boolean, statusDemo: boolean): void {
     const actor: EnemyActor = {
-      homeX: x, homeZ: z, step: -1, t: Math.random() * 0.2, cycle: 0, gone: 0, script: enemyScript(kind), statusDemo, slamCount: 0,
+      homeX: x, homeZ: z, step: -1, t: rnd() * 0.2, cycle: 0, gone: 0, script: enemyScript(kind), statusDemo, slamCount: 0,
       leapBack: false, fromX: x, fromZ: z, toX: x, toZ: z,
       snap: { id: this.nextId++, kind, x, z, rot: 0, hp: 1, anim: 'spawn', animSeq: 0, flags: elite ? EF.ELITE : 0 },
     };
-    if (this.stress) { actor.step = 1 + Math.floor(Math.random() * 3); actor.t = Math.random(); actor.snap.anim = 'move'; }
+    if (this.stress) { actor.step = 1 + Math.floor(rnd() * 3); actor.t = rnd(); actor.snap.anim = 'move'; }
     this.enemies.push(actor);
     if (!this.stress) this.emit({ e: 'spawn', id: actor.snap.id, kind, x, z, elite });
   }
@@ -1055,6 +1096,11 @@ class Showcase {
     const pz = s.z;
     s.x = Math.sin(a) * (4 + s.slot) * 1.2;
     s.z = Math.cos(a * 1.3) * 3.2 + 2;
+    if (this.fight) {
+      // the party holds a loose knot around the shard, as real groups do
+      s.x = h.homeX + Math.sin(a * 1.7) * 0.9;
+      s.z = h.homeZ + Math.cos(a * 1.3) * 0.7;
+    }
     const moveRot = Math.atan2(s.x - px, s.z - pz);
     h.t -= dt;
     if (h.t <= 0) {
@@ -1062,7 +1108,7 @@ class Showcase {
       const attack = h.step % 3 !== 0;
       const secondary = h.step % 9 === 4;
       // update 3 load: every hero also keeps throwing its art and its ultimate (zones, buffs, the star, leaps)
-      const special: PlayerAnim | null = h.step % 14 === 7 ? 'ultimate' : h.step % 9 === 1 ? 'art' : null;
+      const special: PlayerAnim | null = h.step % 14 === 7 && !this.fight ? 'ultimate' : h.step % 9 === 1 ? 'art' : null;
       const ab = special === 'ultimate' ? cls.ultimate : special === 'art' ? cls.arts[0] : secondary ? cls.secondary : cls.primary[h.step % cls.primary.length];
       s.anim = attack ? ab.anim : 'run';
       s.animSeq++;
@@ -1078,6 +1124,51 @@ class Showcase {
       }
     }
     if (s.anim === 'run') s.rot = moveRot;
+  }
+
+  /**
+   * mode=fight: what a maxed four-hero party does to a special-objective chamber. Area abilities strike every enemy
+   * in reach at once and again a moment later (the piles of numbers of the live captures), and at `at` all four
+   * ultimates go off within half a second, followed by a chain of reactions, while hostile telegraphs lie across it.
+   */
+  private fightScript(dt: number): void {
+    this.fightHit -= dt;
+    while (this.fightHit <= 0) {
+      this.fightHit += FIGHT.VOLLEY_EVERY;
+      const by = Math.floor(rnd() * SLOTS);
+      const h = this.heroes[by].snap;
+      const cx = h.x * 0.5 + (rnd() - 0.5) * 5;
+      const cz = h.z - 2.5 + (rnd() - 0.5) * 4;
+      const el = rnd() < 0.7 ? ELEMENT_IDS[Math.floor(rnd() * ELEMENT_IDS.length)] : null;
+      const dmg = FIGHT.DAMAGE[Math.floor(rnd() * FIGHT.DAMAGE.length)];
+      for (const e of this.enemies) {
+        if (e.gone > 0 || e.snap.anim === 'spawn' || Math.hypot(e.snap.x - cx, e.snap.z - cz) > FIGHT.VOLLEY_RADIUS) continue;
+        const crit = rnd() < 0.2;
+        this.emit({ e: 'hit', target: { t: 'e', id: e.snap.id }, x: e.snap.x, z: e.snap.z, dmg: crit ? dmg * 2 - 1 : dmg, crit, el, by });
+      }
+      if (rnd() < 0.3) this.emit({ e: 'heal', slot: Math.floor(rnd() * SLOTS), amount: 11 });
+    }
+    if (this.fightDone || this.time < this.demoAt - FIGHT.LEAD) return;
+    this.fightDone = true;
+    // warnings first: three circles, a lane and a cleave right where the party stands and where the ultimates will land
+    FIGHT.CIRCLES.forEach(([x, z, r]) => this.emit({ e: 'telegraph', shape: 'circle', x, z, rot: 0, r, w: 0, dur: FIGHT.TELEGRAPH }));
+    this.emit({ e: 'telegraph', shape: 'line', x: -11, z: 1.2, rot: Math.PI / 2 - 0.12, r: 22, w: 1.6, dur: FIGHT.TELEGRAPH });
+    this.emit({ e: 'telegraph', shape: 'arc', x: 1.5, z: -3.2, rot: 0.2, r: 4.2, w: 130 * DEG, dur: FIGHT.TELEGRAPH });
+    this.heroes.forEach((h, i) => this.later(FIGHT.LEAD + i * 0.12, () => {
+      h.snap.rot = Math.atan2(-h.snap.x, -2 - h.snap.z);
+      this.perform(h, 'ultimate');
+      h.t = 1.6;
+    }));
+    // the chain: every reaction once, then twice more, from all four heroes, inside two thirds of a second
+    for (let k = 0; k < FIGHT.CHAIN; k++) {
+      this.later(FIGHT.LEAD + 0.5 + k * 0.07, () => {
+        const [a, b] = ELEMENT_PAIRS[k % ELEMENT_PAIRS.length];
+        const x = -5 + (k % 4) * 3.4 + (rnd() - 0.5);
+        const z = -3.5 + Math.floor(k / 4) * 2.6 + (rnd() - 0.5);
+        this.emit({ e: 'resonance', x, z, r: STATUS.RESONANCE.RADIUS * REACTIONS[k % REACTIONS.length].radiusMul, a, b, by: k % SLOTS });
+        this.emit({ e: 'aoe', x, z, r: STATUS.RESONANCE.RADIUS, el: b, hostile: false });
+      });
+    }
   }
 
   // ---------------------------------------------------------------------------------------------- enemies
@@ -1215,11 +1306,11 @@ class Showcase {
     }
     if (step.anim !== 'spawn' && step.anim !== 'death') {
       // constant chip damage so health bars and numbers show
-      if (!this.calm && Math.random() < dt * 0.9) {
-        const el = Math.random() < 0.5 ? ELEMENT_IDS[Math.floor(Math.random() * ELEMENT_IDS.length)] : null;
-        const crit = Math.random() < 0.2;
+      if (!this.calm && rnd() < dt * 0.9) {
+        const el = rnd() < 0.5 ? ELEMENT_IDS[Math.floor(rnd() * ELEMENT_IDS.length)] : null;
+        const crit = rnd() < 0.2;
         s.hp = Math.max(0.12, s.hp - 0.07);
-        this.emit({ e: 'hit', target: { t: 'e', id: s.id }, x: s.x, z: s.z, dmg: Math.round((crit ? 2 : 1) * (9 + Math.random() * 30)), crit, el, by: 0 });
+        this.emit({ e: 'hit', target: { t: 'e', id: s.id }, x: s.x, z: s.z, dmg: Math.round((crit ? 2 : 1) * (9 + rnd() * 30)), crit, el, by: 0 });
       }
     }
     return true;
@@ -1255,7 +1346,7 @@ class Showcase {
       const next: EnemyAnim = s.anim === 'spawn' ? 'move' : s.anim === 'move' ? 'windup' : s.anim === 'windup' ? 'attack' : 'move';
       s.anim = next;
       s.animSeq++;
-      e.t = next === 'move' ? 1.2 + Math.random() * 2.5 : next === 'windup' ? def.windup : 0.5;
+      e.t = next === 'move' ? 1.2 + rnd() * 2.5 : next === 'windup' ? def.windup : 0.5;
       if (next === 'windup' && s.kind === 'bomber') {
         this.tele(e, 'circle', s.x, s.z, 0, HT.BOMBER.BLAST_RADIUS, 0, def.windup);
         this.emit({ e: 'cast', who: { t: 'e', id: s.id }, ability: 'fuse', x: s.x, z: s.z, rot: s.rot });
@@ -1297,7 +1388,7 @@ class Showcase {
     this.menuTimer = 0;
     const n = this.counters.event++;
     if (n % 3 === 2) { this.menuCls = (this.menuCls + 1) % CLASS_IDS.length; this.menuLook = { ...DEFAULT_LOOK }; }
-    else if (n % 3 === 0) this.menuLook = { ...this.menuLook, color: 1 + Math.floor(Math.random() * (LOOK.COLORS.length - 1)) };
+    else if (n % 3 === 0) this.menuLook = { ...this.menuLook, color: 1 + Math.floor(rnd() * (LOOK.COLORS.length - 1)) };
     else this.menuLook = this.randomLook();
     this.applyMenu();
   }
@@ -1306,8 +1397,8 @@ class Showcase {
     if (this.menu) { this.simulateMenu(dt); return; }
     this.time += dt;
     // hazard demo: whoever stands on an active plate gets the matching impact once in a while
-    if (this.room.hazards.length > 0 && Math.random() < dt * 1.2) {
-      const h = this.room.hazards[Math.floor(Math.random() * this.room.hazards.length)];
+    if (this.room.hazards.length > 0 && rnd() < dt * 1.2) {
+      const h = this.room.hazards[Math.floor(rnd() * this.room.hazards.length)];
       const victim = this.enemies.find((e) => e.gone <= 0 && Math.hypot(e.snap.x - h.x, e.snap.z - h.z) < h.r + 1.5);
       if (victim) this.emit({ e: 'hazardHit', target: { t: 'e', id: victim.snap.id }, kind: h.kind });
     }
@@ -1340,20 +1431,20 @@ class Showcase {
       t.shot -= dt;
       while (this.shots.length < 60 && t.shot <= 0) {
         const demo = PROJECTILE_DEMO[c.shot++ % PROJECTILE_DEMO.length];
-        const a = Math.random() * Math.PI * 2;
-        this.shoot(demo.kind, Math.sin(a) * 3, Math.cos(a) * 3, Math.random() * Math.PI * 2, 9 + Math.random() * 8, 14, demo.hostile ? 0 : c.shot % 4, demo.hostile);
+        const a = rnd() * Math.PI * 2;
+        this.shoot(demo.kind, Math.sin(a) * 3, Math.cos(a) * 3, rnd() * Math.PI * 2, 9 + rnd() * 8, 14, demo.hostile ? 0 : c.shot % 4, demo.hostile);
         t.shot += 0.02;
       }
       if (t.shot <= 0) t.shot = 0.05;
       t.hit -= dt;
       while (t.hit <= 0) {
         t.hit += 0.05;
-        const e = this.enemies[Math.floor(Math.random() * this.enemies.length)];
+        const e = this.enemies[Math.floor(rnd() * this.enemies.length)];
         if (e.gone > 0 || e.snap.anim === 'spawn') continue;
-        const el = Math.random() < 0.6 ? ELEMENT_IDS[Math.floor(Math.random() * ELEMENT_IDS.length)] : null;
-        const crit = Math.random() < 0.15;
+        const el = rnd() < 0.6 ? ELEMENT_IDS[Math.floor(rnd() * ELEMENT_IDS.length)] : null;
+        const crit = rnd() < 0.15;
         e.snap.hp -= e.snap.kind === 'regent' || e.snap.kind === 'champion' ? 0.004 : 0.09;
-        this.emit({ e: 'hit', target: { t: 'e', id: e.snap.id }, x: e.snap.x, z: e.snap.z, dmg: Math.round(10 + Math.random() * 40), crit, el, by: Math.floor(Math.random() * 4) });
+        this.emit({ e: 'hit', target: { t: 'e', id: e.snap.id }, x: e.snap.x, z: e.snap.z, dmg: Math.round(10 + rnd() * 40), crit, el, by: Math.floor(rnd() * 4) });
         if (el) {
           const bit = STATUS_BIT[el];
           const had = e.snap.flags & ANY_STATUS;
@@ -1367,11 +1458,12 @@ class Showcase {
         if (e.snap.hp <= 0) {
           this.emit({ e: 'kill', id: e.snap.id, kind: e.snap.kind, x: e.snap.x, z: e.snap.z, by: 0 });
           e.gone = 0.9;
-          const a = Math.random() * Math.PI * 2;
-          e.snap.x = Math.sin(a) * (hw - 3) * Math.random(); e.snap.z = Math.cos(a) * (hd - 3) * Math.random();
+          const a = rnd() * Math.PI * 2;
+          e.snap.x = Math.sin(a) * (hw - 3) * rnd(); e.snap.z = Math.cos(a) * (hd - 3) * rnd();
           e.snap.flags &= EF.ELITE;
         }
       }
+      if (this.fight) this.fightScript(dt);
       t.stressFx -= dt;
       if (t.stressFx <= 0) {
         t.stressFx = 0.7;
@@ -1513,7 +1605,7 @@ class Showcase {
       this.view.setServerTick(this.time * NET.TICK_HZ);
       if (!this.menu) this.applyFocus();
       this.view.setObjective(this.menu ? null : this.objective);
-      this.view.syncPlayers(this.playerRows, 0);
+      this.view.syncPlayers(this.playerRows, this.local);
       this.view.syncEnemies(this.enemyRows);
       this.view.syncProjectiles(this.projectileRows);
       this.view.update(step, !fast || n === 1);

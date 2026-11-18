@@ -53,6 +53,8 @@ export interface RunOptions {
   descendTo?: number;
   /** Bots prefer doors with a special objective. */
   preferObjectives?: boolean;
+  /** Bots take every cursed door (soaks). */
+  preferCursed?: boolean;
   overrides?: RunOverrides;
   startChamber?: number;
   onTick?: (world: World, events: GameEvent[]) => void;
@@ -72,7 +74,7 @@ export function runBots(opts: RunOptions): RunResult {
   const world = new World();
   opts.classes.forEach((cls, slot) => world.addPlayer(slot, cls, `Bot${slot}`, opts.loadouts ? opts.loadouts[slot] : opts.meta));
   world.start(opts.oath ?? 0, opts.seed, opts.startChamber ?? 0, opts.overrides);
-  const bots = opts.classes.map((cls, slot) => new BotBrain(slot, cls, opts.seed, { descendTo: opts.descendTo, preferObjectives: opts.preferObjectives }));
+  const bots = opts.classes.map((cls, slot) => new BotBrain(slot, cls, opts.seed, { descendTo: opts.descendTo, preferObjectives: opts.preferObjectives, preferCursed: opts.preferCursed }));
   const maxTicks = opts.maxTicks ?? 30 * 60 * 30;
   const result: RunResult = {
     label: opts.classes.join('+'), phase: 'combat', ticks: 0, minutes: 0, chamber: 0, damageTaken: 0, damageDealt: 0, downs: 0, resonances: 0,

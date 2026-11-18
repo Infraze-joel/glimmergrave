@@ -24,6 +24,28 @@ export const hasBonus = (kind: ObjectiveKind): boolean => OBJECTIVES[kind].bonus
 /** The bonus condition, or '' for objectives without one (slay, vault). */
 export const objectiveBonus = (kind: ObjectiveKind): string => (hasBonus(kind) ? tx(`objective.${kind}.bonus`, undefined, OBJECTIVES[kind].bonus) : '');
 
+/**
+ * What the door card promises: the reward for meeting the bonus condition, or what a vault pays (it has no
+ * condition). '' for objectives that pay nothing extra (slay).
+ */
+export function objectiveReward(kind: ObjectiveKind): string {
+  if (kind === 'vault') return t('door.objective.rewardVault', { hp: Math.round(OBJECTIVE_TUNING.VAULT.HEAL_FRACTION * PERCENT) });
+  return hasBonus(kind) ? t('door.objective.reward') : '';
+}
+
+/**
+ * How many marked elites a hunt has in total. `progress` is the share already slain, so the total follows from
+ * the living ones — which also works for a hero who joined or reloaded in the middle of the chamber. With
+ * nobody left it falls back to what the chamber was set up with for this party size.
+ */
+export function huntTotal(o: ObjectiveState, partySize: number): number {
+  const left = o.targets.length;
+  const share = Math.min(1, Math.max(0, o.progress));
+  if (left > 0 && share < 1) return Math.max(left, Math.round(left / (1 - share)));
+  if (left === 0 && share >= 1) return Math.floor(OBJECTIVE_TUNING.HUNT.TARGETS + OBJECTIVE_TUNING.HUNT.TARGETS_PER_EXTRA_PLAYER * Math.max(0, partySize - 1));
+  return left;
+}
+
 /** `data-bonus` of the tracker: none (no condition), open (can still be met), lost, earned. */
 export type BonusState = 'none' | 'open' | 'lost' | 'earned';
 
@@ -48,38 +70,27 @@ export function draftUpgrade(run: RunState): 'bonus' | 'vault' | null {
   return hasBonus(done.kind) && done.bonus ? 'bonus' : null;
 }
 
-/** Counts finished objectives for the run summary and remembers the last one for the draft (called for every event). */
+/** Remembers the last finished objective for the draft's "objective bonus" mark (called for every event). */
 export function trackObjectiveEvent(ev: ObjectiveEvent): void {
   if (ev.what !== 'done') return;
   const run = state.run;
   ui.lastObjective = { kind: ev.kind, bonus: ev.bonus === true, chamber: run?.chamber ?? -1, depth: Math.max(0, Math.floor(run?.depth ?? 0)) };
-  if (ev.kind === 'slay') return;
-  ui.objectives.done += 1;
-  if (ev.bonus === true && hasBonus(ev.kind)) ui.objectives.bonus += 1;
 }
 
-/** Keeps the run tally honest: it starts with the run's first chamber and ends with the session. */
+/** Forgets the remembered objective when the session is back in the lobby. */
 export function trackObjectiveRun(): void {
   const run = state.run;
-  if (!run || run.phase === 'lobby') {
-    ui.objectives = { done: 0, bonus: 0, tracked: false };
-    ui.lastObjective = null;
-    return;
-  }
-  const first = run.phase === 'combat' && run.chamber === 0 && (run.depth ?? 0) === 0 && (run.chambersCleared ?? 0) === 0;
-  if (first && !ui.objectives.tracked) ui.objectives = { done: 0, bonus: 0, tracked: true };
+  if (!run || run.phase === 'lobby') ui.lastObjective = null;
 }
 
 /**
- * Objectives completed / bonuses earned in a run, or null when unknown. Prefers run-level counters from the
- * server (not part of the contract yet, see the UI report) over the client's own tally.
+ * Special objectives completed / bonuses earned in a run. The server counts them for the whole run
+ * (`RunState.objectivesDone` / `objectiveBonuses`), so a hero who joined or reloaded mid-run sees them too.
  */
-export function objectiveTally(run: RunState): { done: number; bonus: number } | null {
-  const extra = run as unknown as { objectivesDone?: unknown; objectiveBonuses?: unknown };
-  if (typeof extra.objectivesDone === 'number' && typeof extra.objectiveBonuses === 'number') {
-    return { done: Math.max(0, Math.floor(extra.objectivesDone)), bonus: Math.max(0, Math.floor(extra.objectiveBonuses)) };
-  }
-  return ui.objectives.tracked ? { done: ui.objectives.done, bonus: ui.objectives.bonus } : null;
+export function objectiveTally(run: RunState): { done: number; bonus: number } {
+  const count = (n: unknown): number => (typeof n === 'number' && Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0);
+  const done = count(run.objectivesDone);
+  return { done, bonus: Math.min(done, count(run.objectiveBonuses)) };
 }
 
 const pct = (v: number): string => `${Math.round(Math.min(1, Math.max(0, v)) * PERCENT * 10) / 10}%`;
@@ -125,7 +136,7 @@ export function createObjective(): ObjectiveView {
   let tag: HTMLElement | null = null;
   let pips: HTMLElement | null = null;
   let chamberKey = '';
-  let huntTotal = 0;
+  let huntSeen = 0;
   /** run.elapsed when the ritual began (fallback for its bonus countdown, see `ritualLeft`). */
   let ritualStart: number | null = null;
   let lastBonus: BonusState | null = null;
@@ -140,8 +151,8 @@ export function createObjective(): ObjectiveView {
     } else if (kind === 'defend') {
       barLabel = h('span', { class: 'gg-obj-bar-label' }, icon('defend'), h('span', null, t('objective.defend.shard')));
       barValue = h('b', { class: 'gg-num' });
-      note = h('span', { class: 'gg-obj-note gg-num' });
-      children.push(h('div', { class: 'gg-obj-row' }, barLabel, fill(), barValue, note));
+      // The wave is told once, by the wave pill above the tracker.
+      children.push(h('div', { class: 'gg-obj-row' }, barLabel, fill(), barValue));
     } else if (kind === 'hunt') {
       pips = h('span', { class: 'gg-obj-pips', 'aria-hidden': 'true' });
       note = h('span', { class: 'gg-obj-note' });
@@ -189,7 +200,7 @@ export function createObjective(): ObjectiveView {
     const key = `${run.chamber}|${run.depth ?? 0}|${o.kind}`;
     if (key !== chamberKey) {
       chamberKey = key;
-      huntTotal = 0;
+      huntSeen = 0;
       lastBonus = null;
       lastStatus = '';
     }
@@ -211,17 +222,18 @@ export function createObjective(): ObjectiveView {
       const shattered = hp <= 0;
       if (bar) setVar(bar, '--w', pct(hp));
       if (barValue) setText(barValue, shattered ? t('objective.defend.shattered') : `${Math.ceil(hp * PERCENT)}%`);
-      if (note) setText(note, run.waveCount > 0 ? t('hud.wave', { n: Math.max(1, run.wave), m: Math.max(1, run.waveCount) }) : '');
       toggle(el, 'is-shattered', shattered);
       toggle(el, 'is-low', !shattered && hp < UI_CONFIG.LOW_HEALTH_FRACTION);
     } else if (o.kind === 'hunt') {
       const left = o.targets.length;
-      huntTotal = Math.max(huntTotal, left);
+      // The most seen at once, or what the server's progress implies (a reload in mid-chamber knows only that).
+      huntSeen = Math.max(huntSeen, left, huntTotal(o, state.roster.length));
       const enraged = !done && !o.bonus && left > 0;
       // Before the marked elites have risen there is nobody to count, but the clock already runs.
-      const slain = left === 0 && huntTotal > 0;
+      const slain = left === 0 && huntSeen > 0;
       seconds = done || slain || !o.bonus ? null : o.timeLeft;
-      if (pips && pips.children.length !== huntTotal) pips.replaceChildren(...Array.from({ length: huntTotal }, () => h('i', null, icon('skull'))));
+      if (pips && pips.children.length !== huntSeen) pips.replaceChildren(...Array.from({ length: huntSeen }, () => h('i', null, icon('skull'))));
+      if (pips) setAttr(pips, 'data-total', String(huntSeen));
       if (pips) Array.from(pips.children).forEach((pip, i) => toggle(pip, 'is-dead', i >= left));
       if (note) setText(note, left === 0 ? (slain && !done ? t('objective.hunt.escort') : '') : left === 1 ? t('objective.hunt.one') : t('objective.hunt.many', { n: left }));
       if (tag) show(tag, enraged);
@@ -272,7 +284,7 @@ export function createObjective(): ObjectiveView {
       if (ev.what === 'anchorHit') retrigger(el, 'is-hit');
       sync();
     },
-    reset: () => { chamberKey = ''; huntTotal = 0; ritualStart = null; lastBonus = null; lastStatus = ''; show(el, false); },
+    reset: () => { chamberKey = ''; huntSeen = 0; ritualStart = null; lastBonus = null; lastStatus = ''; show(el, false); },
   };
 }
 

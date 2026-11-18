@@ -130,6 +130,11 @@ const DESCENT = {
 const _hsl = { h: 0, s: 0, l: 0 };
 const _abyss = new Color(DESCENT.ABYSS);
 
+/** Collision-only obstacle entries of the chamber objective (Obstacle.kind, polish 1): never drawn as props. */
+function isFixture(o: Obstacle): boolean {
+  return o.kind === 'shard' || o.kind === 'ritualBowl' || o.kind === 'reliquary';
+}
+
 function deepenColor(hex: number, steps: number, light: number, abyss: number): number {
   const c = new Color(hex);
   c.getHSL(_hsl);
@@ -312,7 +317,10 @@ export class LevelView {
   /** Rebuilds only when the room, biome, chamber kind or index actually changed. Returns true when rebuilt. */
   setRoom(room: RoomLayout | null, kind: ChamberKind, index: number): boolean {
     const biome: BiomeId = room && room.biome in MOODS ? room.biome : 'crypt';
-    const key = room ? `${room.seed}:${room.w}:${room.d}:${room.obstacles.length}:${biome}:${kind}:${index}:${this.descent}` : '';
+    // objective fixtures are collision-only entries: they neither count as dressing nor rebuild the chamber
+    let dressing = 0;
+    if (room) for (const o of room.obstacles) if (!isFixture(o)) dressing++;
+    const key = room ? `${room.seed}:${room.w}:${room.d}:${dressing}:${biome}:${kind}:${index}:${this.descent}` : '';
     if (key === this.roomKey) return false;
     this.roomKey = key;
     this.clear();
@@ -716,7 +724,8 @@ export class LevelView {
     }
 
     // ---------------------------------------------------------------- obstacles
-    for (const o of room.obstacles) this.placeObstacle(o, b);
+    // the bell shard, ritual bowls and the reliquary are drawn by render/objectives.ts from the objective state
+    for (const o of room.obstacles) if (!isFixture(o)) this.placeObstacle(o, b);
 
     // ---------------------------------------------------------------- accents
     cluster(-hw + 0.75, 0, -hd + 0.75, 1.0, 5);
@@ -981,6 +990,7 @@ export class LevelView {
   }
 
   private placeObstacle(o: Obstacle, b: Build): void {
+    if (isFixture(o)) return;
     const { rng, put, flame, cluster, extra, propTint, wallTint } = b;
     const r = o.r;
     const rot = rng.range(0, Math.PI * 2);
