@@ -294,7 +294,7 @@ export function stepObjective(w: World, obj: ObjectiveRun): void {
       if (state.timeLeft <= 0) loseBonus(w, state);
     }
   } else if (obj.kind === 'vault' && state.anchor) {
-    const reach = state.anchor.r + OBJECTIVE.VAULT_REACH;
+    const reach = state.anchor.r + T.VAULT.OPEN_RADIUS_PAD;
     let present = false;
     for (const h of w.heroes) {
       if (h.state !== 'alive' || !h.connected) continue;

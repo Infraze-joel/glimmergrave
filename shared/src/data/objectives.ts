@@ -51,6 +51,7 @@ export const OBJECTIVE_TUNING = {
     BONUS_SECONDS: 60, SPAWN_INTERVAL: 6, BUDGET_FRACTION: 0.4,
   },
   /** Vault: draft choices added on top of the normal count; the draft guarantees rare or better; healing. */
-  VAULT: { EXTRA_CHOICES: 1, HEAL_FRACTION: 0.2, GLIMMER: 20 },
+  /** A living hero within OPEN_RADIUS_PAD of the reliquary's edge (anchor.r + pad from its centre) opens it. */
+  VAULT: { EXTRA_CHOICES: 1, HEAL_FRACTION: 0.2, GLIMMER: 20, OPEN_RADIUS_PAD: 1.6 },
   BONUS_EXTRA_CHOICES: 1,
 } as const;

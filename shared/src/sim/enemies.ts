@@ -109,6 +109,7 @@ export function spawnEnemy(w: World, kind: EnemyKind, x: number, z: number, opts
   const ev: Extract<GameEvent, { e: 'spawn' }> = { e: 'spawn', id: e.id, kind, x: e.x, z: e.z, elite };
   if (affix) ev.affix = affix;
   if (ward) ev.ward = ward;
+  if (opts.master !== undefined && opts.master >= 0) ev.raisedBy = opts.master;
   w.emit(ev);
   return e;
 }

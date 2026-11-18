@@ -254,8 +254,8 @@ export const OBJECTIVE = {
   SIEGE_KINDS: ['minion', 'warrior', 'bomber', 'mage'],
   /** Ritual: a brazier takes this much longer to light per additional hero in the party (SECONDS_TO_LIGHT is the solo time). */
   RITUAL_SECONDS_PER_EXTRA_HERO: 1,
-  /** Vault: seconds a living hero has to stand within VAULT_REACH of the reliquary's edge; its size. */
-  VAULT_HOLD_SECONDS: 1.5, VAULT_REACH: 1.6, VAULT_RADIUS: 0.9,
+  /** Vault: seconds a living hero has to stand within OBJECTIVE_TUNING.VAULT.OPEN_RADIUS_PAD of the reliquary's edge; its size. */
+  VAULT_HOLD_SECONDS: 1.5, VAULT_RADIUS: 0.9,
 } as const;
 
 export const DIRECTOR = {

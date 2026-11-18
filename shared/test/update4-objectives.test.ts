@@ -440,6 +440,9 @@ describe('vault', () => {
     place(w, 1, s.anchor!.x + 9, s.anchor!.z);
     run(w, seconds(OBJECTIVE.VAULT_HOLD_SECONDS / 2));
     expect(state(w).progress).toBeCloseTo(0.5, 1);
+    // The ring the client draws: anchor.r + OPEN_RADIUS_PAD. Just outside it nothing happens.
+    expect(T.VAULT.OPEN_RADIUS_PAD).toBe(1.6);
+    place(w, 1, s.anchor!.x + s.anchor!.r + T.VAULT.OPEN_RADIUS_PAD + 0.1, s.anchor!.z);
     // Stepping away loses the progress again.
     place(w, 0, s.anchor!.x + 8, s.anchor!.z);
     run(w, seconds(OBJECTIVE.VAULT_HOLD_SECONDS));

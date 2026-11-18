@@ -353,7 +353,7 @@ describe('necromancer', () => {
     const cast = stepN(w, seconds(ENEMIES.necromancer.windup) + 2);
     const raised = of(cast, 'spawn');
     expect(raised).toHaveLength(NE.RAISE_COUNT);
-    expect(raised.every((s) => s.kind === 'minion')).toBe(true);
+    expect(raised.every((s) => s.kind === 'minion' && s.raisedBy === necro.id)).toBe(true);
     const mine = (): Enemy[] => w.enemies.filter((e) => e.master === necro.id && !e.dead);
     expect(mine()).toHaveLength(NE.RAISE_COUNT);
     expect(mine().every((e) => e.summoned)).toBe(true);
@@ -763,5 +763,38 @@ describe('interrupt event', () => {
     strikeEnemy(c.w, c.h, struck, 100000, 'primary', hitOpts(c.h));
     expect(struck.dead).toBe(true);
     expect(interrupts(stepN(c.w, 3))).toEqual([]);
+  });
+});
+
+describe('bomber event order (what the client builds its fuse and burst on)', () => {
+  const brief = (ev: GameEvent[], id: number): string[] => ev.flatMap((x): string[] => {
+    if (x.e === 'telegraph') return [`telegraph:${x.src === id ? 'src' : 'nosrc'}`];
+    if (x.e === 'cast') return [`cast:${x.ability}`];
+    if (x.e === 'kill') return [`kill:${x.by}`];
+    if (x.e === 'aoe') return [`aoe:${x.hostile ? 'hostile' : 'friendly'}`];
+    if (x.e === 'hit' && x.target.t === 'p') return ['hit'];
+    return [];
+  });
+
+  it('fuse: telegraph (with src) and cast `fuse` in one tick; windup later kill (by -1), hostile aoe, hits in one tick', () => {
+    const { w } = arena();
+    const bomber = live(w, 'bomber', 0, 1.5);
+    w.drainEvents();
+    const start = until(w, (x) => x.e === 'telegraph');
+    expect(brief(start, bomber.id)).toEqual(['telegraph:src', 'cast:fuse']);
+    const quiet = stepN(w, seconds(ENEMIES.bomber.windup) - 2);
+    expect(brief(quiet, bomber.id)).toEqual([]);
+    expect(brief(stepN(w, 3), bomber.id)).toEqual(['kill:-1', 'aoe:hostile', 'hit']);
+  });
+
+  it('slain: kill and a telegraph without src in one tick; DEATH_BLAST_DELAY later the hostile aoe, then the hits', () => {
+    const { w } = arena();
+    const bomber = live(w, 'bomber', 0, 1.5);
+    bomber.stunTime = 99;
+    w.drainEvents();
+    killEnemy(w, bomber, 0);
+    expect(brief(w.drainEvents(), bomber.id)).toEqual(['kill:0', 'telegraph:nosrc']);
+    expect(brief(stepN(w, seconds(BO.DEATH_BLAST_DELAY) - 2), bomber.id)).toEqual([]);
+    expect(brief(stepN(w, 3), bomber.id)).toEqual(['aoe:hostile', 'hit']);
   });
 });

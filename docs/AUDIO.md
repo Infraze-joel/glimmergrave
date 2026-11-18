@@ -574,9 +574,10 @@ have their own limiter family (`voice`, 2 per 0.2 s), so a bomber in a crowded w
   families (`fuse` 3 per 0.15 s, `burst` 3 per 0.12 s, `leap` 2 per 0.2 s) are separate from the other enemy casts;
   the ticks, the hiss and the whistle are synthesised, so no voice limit can take them away.
 - **Channels.** Mend, fuse, raise and leap are remembered per enemy id. The enemy's `kill` cuts them in 12 ms
-  (a reaver killed in the air does not land), `sfx.interrupt(id)` does the same for a stun or stagger.
-  **The server sends no event for a broken wind-up yet**, so today an interrupted mend rises to its end and stops
-  without the release; with the requested `interrupt` event it is cut on the spot (see the update 4 report).
+  (a reaver killed in the air does not land). The `interrupt` event (a stun or stagger broke the wind-up) does
+  the same through `sfx.interrupt(id)`: mend, raise, fuse and leap stop dead, and a scheduled landing is taken
+  back. A cut mend also gets a swallowed, falling choke of 0.1 s, so the stop reads as an interruption. An
+  `interrupt` for an enemy that channels nothing is silent.
 - **Bomber burst.** It is not scheduled with the fuse (a stun may still stop it). It answers the server's report:
   the bomber's `kill` or the hostile `aoe`, whichever comes first within 0.2 s before / 0.3 s after the fuse's end;
   the other one is then swallowed, so the burst sounds once and the common hostile blast does not play on top.
@@ -668,7 +669,8 @@ rendered again after that one trim. Centroid as before; "active" = seconds withi
 
 Timed sequences (level per 50 ms): a completed mend rises from −35 to −18 dBFS and resolves; interrupted at half
 time it falls from −25 to −32 within 50 ms and decays (room only); a stunned fuse falls from −19 to −36 within
-50 ms and no burst follows; a fuse answered by `kill` + `aoe` in either order, 0.12 s late or 0.1 s early gives one
+50 ms and no burst follows; an interrupted raise falls from −19 to −28 and an interrupted leap from −27 to −40
+within 50 ms, with no final knock and no landing; a fuse answered by `kill` + `aoe` in either order, 0.12 s late or 0.1 s early gives one
 burst of the same level (−12.1 … −12.9 over three runs), never two; a bomber slain at half fuse bursts once, 0.6 s
 after the kill; a reaver killed in the air does not land; a landing reported by `aoe` measures like one without.
 
@@ -687,8 +689,8 @@ apart, no re-anchoring except where the simulated timer itself jumped; the objec
 - Not listened to. Most at risk: whether the five kinds are told apart by ear as the centroid / envelope figures
   suggest; the shaman's hum and the necromancer's chant (saws and noise through band-passes); whether the fuse
   reads as "run" or as a noise; whether the timer is alarming or annoying over a busy fight.
-- No `interrupt` event: a mend broken by a stagger is not cut at that moment (10.1). A fuse stopped by a stun
-  simply ends without a burst.
+- Interrupted raise, fuse and leap are only cut; the mend alone has a cut-off sound of its own. The audio side of
+  `interrupt` was checked with workbench events and offline renders, not against the sim's emit.
 - The burst / landing matching is by time, not by enemy: an unrelated hostile blast within 0.3 s of an expected
   bomber burst or reaver landing is swallowed, and a hero's kill in the last 0.2 s of a fuse bursts 0.6 s early.
 - Spawn signatures are about 9 dB above the common spawn sound on purpose; a wave of mixed new kinds is loud for
