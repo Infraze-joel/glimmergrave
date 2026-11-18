@@ -31,24 +31,24 @@ export const OBJECTIVE_TUNING = {
   BONUS_GLIMMER: 14,
   /** The two doors of a choice never show the same special objective; at most this many vaults per depth. */
   MAX_VAULTS_PER_DEPTH: 1,
-  SURVIVE: { SECONDS: 55, SECONDS_PER_CHAMBER: 3, MAX_SECONDS: 80, SPAWN_INTERVAL: 5, BUDGET_FRACTION: 0.4 },
+  SURVIVE: { SECONDS: 55, SECONDS_PER_CHAMBER: 3, MAX_SECONDS: 80, SPAWN_INTERVAL: 5, BUDGET_FRACTION: 0.45 },
   DEFEND: {
     /** Shard health (scaled like enemy damage by chamber, Oath and depth) and size. */
-    HP: 260, RADIUS: 1.1,
+    HP: 520, RADIUS: 1.1,
     /** Share of each wave that goes for the shard instead of the heroes. */
-    ATTACKER_SHARE: 0.4,
+    ATTACKER_SHARE: 0.3,
     /** Heroes standing within this distance slowly repair the shard between hits. */
-    REPAIR_RADIUS: 3, REPAIR_PER_SECOND: 0.01, REPAIR_DELAY: 4,
+    REPAIR_RADIUS: 3, REPAIR_PER_SECOND: 0.02, REPAIR_DELAY: 4,
     ANCHOR_HIT_EVENT_SECONDS: 1,
   },
-  HUNT: { TARGETS: 2, TARGETS_PER_EXTRA_PLAYER: 0.5, SECONDS: 50, ESCORT_BUDGET_FRACTION: 0.6, ENRAGE_DAMAGE_MUL: 1.4, ENRAGE_SPEED_MUL: 1.25 },
+  HUNT: { TARGETS: 2, TARGETS_PER_EXTRA_PLAYER: 0.5, SECONDS: 45, ESCORT_BUDGET_FRACTION: 0.6, ENRAGE_DAMAGE_MUL: 1.4, ENRAGE_SPEED_MUL: 1.25 },
   RITUAL: {
     SITES: 3, RADIUS: 2.4, SECONDS_TO_LIGHT: 7,
     /** Progress drains at this fraction of the fill rate while no hero stands inside. */
     DECAY: 0.35,
     /** Each extra hero in the same circle adds this much speed. */
     EXTRA_HERO_SPEED: 0.35,
-    BONUS_SECONDS: 75, SPAWN_INTERVAL: 6, BUDGET_FRACTION: 0.35,
+    BONUS_SECONDS: 60, SPAWN_INTERVAL: 6, BUDGET_FRACTION: 0.4,
   },
   /** Vault: draft choices added on top of the normal count; the draft guarantees rare or better; healing. */
   VAULT: { EXTRA_CHOICES: 1, HEAL_FRACTION: 0.2, GLIMMER: 20 },

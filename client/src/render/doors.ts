@@ -5,12 +5,13 @@ import {
 import type { BufferGeometry, MeshLambertMaterial, Object3D } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { WORLD } from '@shared/constants.ts';
-import type { Door, DoorType } from '@shared/types.ts';
+import type { Door, DoorType, ObjectiveKind } from '@shared/types.ts';
 import type { Assets } from './assets.ts';
 import type { Atlas } from './atlas.ts';
 import { DECAL, SPRITE } from './batches.ts';
 import type { BillboardBatch, DecalBatch } from './batches.ts';
-import { DOOR_COLOR, PALETTE } from './config.ts';
+import { DOOR_COLOR, OBJECTIVE_COLOR, PALETTE } from './config.ts';
+import type { IconName } from './atlas.ts';
 import { solidGeometry } from './level.ts';
 import { createLevelMaterial } from './materials.ts';
 import type { Vfx } from './vfx.ts';
@@ -24,6 +25,9 @@ const CFG = {
   POST: 0.6,
   APPEAR_TIME: 0.55,
   ICON_Y: 5.0,
+  /** Emblem of the chamber's objective, on a dark plate above the type icon. */
+  EMBLEM_Y: 6.45,
+  EMBLEM_SIZE: 1.2,
   FRAME_TINT: [0.5, 0.52, 0.66],
 } as const;
 
@@ -88,6 +92,8 @@ const ICON: Record<DoorType, 'boon' | 'blessing' | 'cursed' | 'boss' | 'descend'
   boon: 'boon', blessing: 'blessing', cursed: 'cursed', boss: 'boss', descend: 'descend', ascend: 'ascend',
 };
 const ABYSS_CORE = rgb(PALETTE.umbraCore);
+/** What the chamber behind a door asks for; `slay` (the ordinary chamber) shows nothing. */
+const EMBLEM: Record<ObjectiveKind, IconName | null> = { slay: null, survive: 'survive', defend: 'defend', hunt: 'hunt', ritual: 'ritual', vault: 'vault' };
 
 const _m = new Matrix4();
 const _q = new Quaternion();
@@ -107,6 +113,7 @@ export class Doors {
   private readonly x: number[] = [];
   private readonly z: number[] = [];
   private readonly type: DoorType[] = [];
+  private readonly objective: ObjectiveKind[] = [];
   private readonly progress: number[] = [];
   private readonly pulse: number[] = [];
   private count = 0;
@@ -153,7 +160,7 @@ export class Doors {
       parent.add(mesh);
     }
     for (let i = 0; i < CFG.MAX; i++) {
-      this.x.push(0); this.z.push(0); this.type.push('boon'); this.progress.push(0); this.pulse.push(0);
+      this.x.push(0); this.z.push(0); this.type.push('boon'); this.objective.push('slay'); this.progress.push(0); this.pulse.push(0);
       this.portals.setColorAt(i, _c.setHex(0xffffff));
       this.frames.setColorAt(i, _c.setHex(0xffffff));
     }
@@ -166,6 +173,7 @@ export class Doors {
       const d = doors[i];
       if (d.x !== this.x[i] || d.z !== this.z[i] || d.type !== this.type[i]) changed = true;
       this.x[i] = d.x; this.z[i] = d.z; this.type[i] = d.type;
+      this.objective[i] = d.objective in EMBLEM ? d.objective : 'slay';
       this.progress[i] = progress[i] ?? 0;
     }
     this.wallZ = -roomDepth / 2;
@@ -249,6 +257,17 @@ export class Doors {
       const s = 1.05 * ease * (1 + this.pulse[i] * 0.3);
       ui.push(SPRITE.GLOW, x, CFG.ICON_Y + bob, this.wallZ + 0.4, s * 2.1, s * 2.1, 0.01, 0.01, 0.03, 0.85 * ease);
       ui.push(SPRITE.ATLAS, x, CFG.ICON_Y + bob, this.wallZ + 0.4, s, s, c[0] * 1.15, c[1] * 1.15, c[2] * 1.15, ease, 0, 0, 0, 0, 0, uv[0], uv[1], uv[2], uv[3]);
+      const emblem = EMBLEM[this.objective[i]];
+      if (emblem) {
+        // the objective of the chamber behind: its own emblem and colour on a dark, rimmed plate
+        const oc = rgb(OBJECTIVE_COLOR[this.objective[i]]);
+        const euv = this.atlas.icons[emblem];
+        const es = CFG.EMBLEM_SIZE * ease * (1 + this.pulse[i] * 0.3);
+        const ey = CFG.EMBLEM_Y + bob * 0.6;
+        ui.push(SPRITE.GLOW, x, ey, this.wallZ + 0.4, es * 2.4, es * 2.4, oc[0] * 0.5, oc[1] * 0.5, oc[2] * 0.5, 0.35 * ease, 1);
+        ui.push(SPRITE.PIP, x, ey, this.wallZ + 0.4, es * 1.5, es * 1.5, oc[0] * 0.16, oc[1] * 0.16, oc[2] * 0.16, 0.95 * ease);
+        ui.push(SPRITE.ATLAS, x, ey, this.wallZ + 0.4, es, es, oc[0] * 1.25, oc[1] * 1.25, oc[2] * 1.25, ease, 0, 0, 0, 0, 0, euv[0], euv[1], euv[2], euv[3]);
+      }
     }
     while (this.moteAcc >= 1) {
       this.moteAcc -= 1;

@@ -8,22 +8,28 @@
  *   - sliders for the master / music / effects volumes (the real settings),
  *   - an A/B switch between the designed (sample-based) sounds and the original synthesised fallbacks,
  *   - a stress button (60 hits + 20 kills + 6 Resonances in one second over boss music),
- *   - a peak meter after the master chain, and an offline measurement run (peak / loudness / DC per sound).
+ *   - a peak meter after the master chain, and an offline measurement run (peak / loudness / DC per sound),
+ *   - update 4: objective scenes with a simulated RunState.objective timeline (timer, braziers, shard), the five
+ *     new enemy kinds as events, wards, and a stress case of bombers + ultimates + timer + Resonance chain.
  *
  * window.__audiodemo exposes the same actions for scripted checks.
  */
 import { BOONS } from '@shared/data/boons.ts';
 import { ABILITY_BY_ID, BUFFS, CLASSES } from '@shared/data/classes.ts';
+import { ENEMIES, ENEMY_TUNING } from '@shared/data/enemies.ts';
+import { OBJECTIVE_TUNING } from '@shared/data/objectives.ts';
 import {
-  AFFIX_IDS, BIOME_IDS, BOSS_KINDS, CLASS_IDS, ELEMENT_IDS,
-  type BiomeId, type BossKind, type ClassId, type GameEvent, type RosterEntry, type RunPhase, type RunState,
+  AFFIX_IDS, BIOME_IDS, BOSS_KINDS, CLASS_IDS, ELEMENT_IDS, OBJECTIVE_KINDS,
+  type BiomeId, type BossKind, type ClassId, type GameEvent, type ObjectiveKind, type ObjectiveState, type RosterEntry, type RunPhase, type RunState,
 } from '@shared/types.ts';
 import { audioDebug, audioInternals, initAudio, type AudioDebug } from '../audio/index.ts';
 import { SAMPLES } from '../audio/manifest.ts';
 import {
-  BOSS_CUE_IDS, loadOfflineBank, renderAmbience, renderMusic, renderSfx, renderStinger, renderStress, renderStressTimed,
-  renderUltimateStress, SFX_CASES, STRESS, stressEvents, ultimateStressEvents, type RenderStats,
+  BOSS_CUE_IDS, HORDE_SEQUENCES, loadOfflineBank, objectiveStressEvents, renderAmbience, renderMusic, renderObjectiveStress, renderSequence,
+  renderSfx, renderStinger, renderStress, renderStressTimed, renderUltimateStress, SFX_CASES, STRESS, stressEvents, ultimateStressEvents,
+  type RenderStats,
 } from '../audio/offline.ts';
+import { HORDE_KINDS } from '../audio/sfx-horde.ts';
 import { abilitySoundTable, unmappedAbilities } from '../audio/sfx-abilities.ts';
 import { bus } from '../core/EventBus.ts';
 import { state, type Screen } from '../core/GameState.ts';
@@ -45,6 +51,13 @@ const DEMO = {
   ZONE_ID: 100,
   MAX_DEPTH: 6,
   DEFAULT_RENDER_S: 3,
+  // update 4
+  HORDE_ID: 200,
+  WARDED_ID: 260,
+  /** How often the simulated server sends the run state during an objective (ms), and its jitter (ms). */
+  RUN_STATE_MS: 250,
+  RUN_STATE_JITTER_MS: 60,
+  TIMELINE_SECONDS: 14,
 } as const;
 
 const CSS = `
@@ -79,6 +92,8 @@ let ownArt = 0;
 let depth = 0;
 let cleared = 0;
 let zoneId: number = DEMO.ZONE_ID;
+let objectiveKind: ObjectiveKind = 'slay';
+let timelineTimer = 0;
 const LEGENDARY_ID = BOONS.find((b) => b.rarity === 'legendary')?.id ?? 'keen_edge';
 
 function roster(): RosterEntry[] {
@@ -89,8 +104,19 @@ function roster(): RosterEntry[] {
   }));
 }
 
+/** A fresh objective state as the sim would start it. */
+function fakeObjective(kind: ObjectiveKind, timeLeft = 0): ObjectiveState {
+  return {
+    kind, progress: 0, timeLeft, bonus: true, status: 'active',
+    anchor: kind === 'defend' ? { x: 0, z: 0, r: OBJECTIVE_TUNING.DEFEND.RADIUS, hp: 1 } : null,
+    sites: kind === 'ritual' ? Array.from({ length: OBJECTIVE_TUNING.RITUAL.SITES }, (_unused, i) => ({ x: i * 4, z: 0, r: OBJECTIVE_TUNING.RITUAL.RADIUS, progress: 0, lit: false })) : [],
+    targets: kind === 'hunt' ? [DEMO.HORDE_ID + 50, DEMO.HORDE_ID + 51] : [],
+  };
+}
+
 function fakeRun(phase: RunPhase, chamberKind: RunState['chamberKind'], boss: BossKind): RunState {
   return {
+    objective: phase === 'combat' || phase === 'draft' || phase === 'doors' ? fakeObjective(chamberKind === 'combat' ? objectiveKind : 'slay') : null,
     phase, oath: 0, chamber, chamberKind, entered: 'boon', wave: 1, waveCount: 3,
     room: { seed: 1, biome, w: 30, d: 30, obstacles: [], hazards: [], spawns: [] },
     doors: [], doorProgress: [], bossId: chamberKind === 'combat' ? -1 : DEMO.BOSS_ID, draftPending: [], draftTime: 0, elapsed: 0,
@@ -99,13 +125,14 @@ function fakeRun(phase: RunPhase, chamberKind: RunState['chamberKind'], boss: Bo
   };
 }
 
-interface SceneDef { screen: Screen; phase?: RunPhase; kind?: RunState['chamberKind']; boss?: BossKind }
+interface SceneDef { screen: Screen; phase?: RunPhase; kind?: RunState['chamberKind']; boss?: BossKind; objective?: ObjectiveKind }
 
 const SCENES: Record<string, SceneDef> = {
   'silence (loading)': { screen: 'loading' },
   menu: { screen: 'menu' },
   lobby: { screen: 'lobby' },
   'game: combat': { screen: 'game', phase: 'combat', kind: 'combat' },
+  ...Object.fromEntries(OBJECTIVE_KINDS.filter((k) => k !== 'slay').map((k): [string, SceneDef] => [`game: ${k}`, { screen: 'game', phase: 'combat', kind: 'combat', objective: k }])),
   'game: elite': { screen: 'game', phase: 'combat', kind: 'elite' },
   'game: boss – Bone Regent': { screen: 'game', phase: 'combat', kind: 'boss', boss: 'regent' },
   'game: boss – Hex Matron': { screen: 'game', phase: 'combat', kind: 'boss', boss: 'matron' },
@@ -123,6 +150,8 @@ function scene(name: string, newChamber = true): void {
   const def = SCENES[name];
   if (!def) return;
   sceneName = name;
+  window.clearInterval(timelineTimer);
+  objectiveKind = def.objective ?? 'slay';
   const previous = state.run?.phase ?? null;
   if (newChamber) chamber++;
   state.conn.slot = DEMO.OWN_SLOT;
@@ -157,6 +186,100 @@ function setDepth(next: number): void {
 function fire(ev: GameEvent): void {
   bus.emit('game:event', ev);
 }
+
+/** Changes the live objective state and announces it like a run message from the server. */
+function patchObjective(patch: Partial<ObjectiveState>): void {
+  const run = state.run;
+  if (!run?.objective) return;
+  run.objective = { ...run.objective, ...patch };
+  bus.emit('state:run', { previousPhase: run.phase });
+}
+
+export interface TimelineResult { kind: ObjectiveKind; seconds: number; runStates: number; events: string[] }
+
+/**
+ * A whole chamber of objective `kind` in `seconds`, as the server would report it: the `start` event, run states
+ * every RUN_STATE_MS (with jitter, like a network) carrying timeLeft / progress / shard health / brazier progress,
+ * the milestones as `objective` events, and `done` at the end. `bonus` decides how it ends.
+ */
+function timeline(kind: ObjectiveKind, seconds: number = DEMO.TIMELINE_SECONDS, bonus = true): Promise<TimelineResult> {
+  return new Promise((resolve) => {
+    scene(`game: ${kind}`);
+    const run = state.run;
+    const timed = kind === 'survive' || kind === 'hunt' || kind === 'ritual';
+    const events: string[] = [];
+    const emit = (what: 'start' | 'site' | 'anchorHit' | 'bonusLost' | 'done', extra: { index?: number; bonus?: boolean } = {}): void => {
+      events.push(what);
+      fire({ e: 'objective', kind, what, ...extra });
+    };
+    if (run) run.objective = fakeObjective(kind, timed ? seconds : 0);
+    bus.emit('state:run', { previousPhase: 'doors' });
+    emit('start');
+    const started = performance.now();
+    let runStates = 0;
+    let lit = 0;
+    let lost = false;
+    let lastHit = 0;
+    const sites = OBJECTIVE_TUNING.RITUAL.SITES;
+    const step = (): void => {
+      const elapsed = (performance.now() - started) / 1000;
+      const p = Math.min(1, elapsed / seconds);
+      const o = state.run?.objective;
+      if (!o || o.kind !== kind) return; // the scene was changed under the timeline
+      if (kind === 'ritual') {
+        // braziers catch at 30 %, 55 % and 80 % of the chamber
+        const due = [0.3, 0.55, 0.8].filter((at) => p >= at).length;
+        while (lit < Math.min(sites, due)) {
+          o.sites[lit] = { ...o.sites[lit], progress: 1, lit: true };
+          emit('site', { index: lit });
+          lit++;
+        }
+      }
+      if (kind === 'defend') {
+        const hp = bonus ? 1 - p * 0.6 : Math.max(0, 1 - p * 1.6);
+        if (elapsed - lastHit >= OBJECTIVE_TUNING.DEFEND.ANCHOR_HIT_EVENT_SECONDS && hp > 0) { lastHit = elapsed; emit('anchorHit'); }
+        if (hp <= 0 && !lost) { lost = true; emit('bonusLost'); }
+        patchObjective({ progress: p, anchor: o.anchor ? { ...o.anchor, hp } : null, bonus: !lost });
+      } else if (kind === 'hunt' && !bonus) {
+        // the hunt takes longer than its timer: enrage at 70 %
+        const left = Math.max(0, seconds * 0.7 - elapsed);
+        if (left <= 0 && !lost) { lost = true; emit('bonusLost'); }
+        patchObjective({ progress: p, timeLeft: left, bonus: !lost });
+      } else {
+        patchObjective({ progress: kind === 'ritual' ? lit / sites : p, timeLeft: timed ? Math.max(0, seconds - elapsed) : 0, sites: o.sites });
+      }
+      runStates++;
+      if (p >= 1) {
+        window.clearInterval(timelineTimer);
+        patchObjective({ status: 'done', timeLeft: 0, progress: 1 });
+        emit('done', { bonus: bonus && !lost });
+        if (kind !== 'vault') fire({ e: 'chamberClear' });
+        resolve({ kind, seconds, runStates, events });
+      }
+    };
+    window.clearInterval(timelineTimer);
+    timelineTimer = window.setInterval(() => window.setTimeout(step, Math.random() * DEMO.RUN_STATE_JITTER_MS), DEMO.RUN_STATE_MS);
+  });
+}
+
+/** Timer ticks the audio module scheduled since the log was last read: which second, for when, and when it was asked. */
+export interface TickLogEntry { kind: ObjectiveKind; left: number; at: number; scheduledAt: number }
+const tickLog: TickLogEntry[] = [];
+let tickLogHooked = false;
+
+/** Records every `timerTick` the live engine schedules (scripted checks of the timer clock). */
+function hookTickLog(): void {
+  const engine = audioInternals();
+  if (!engine || tickLogHooked) return;
+  tickLogHooked = true;
+  const original = engine.sfx.timerTick;
+  engine.sfx.timerTick = (kind, left, t) => {
+    tickLog.push({ kind, left, at: t ?? engine.ctx.currentTime, scheduledAt: engine.ctx.currentTime });
+    original(kind, left, t);
+  };
+}
+
+const hordeAt = (kind: (typeof HORDE_KINDS)[number]): number => DEMO.HORDE_ID + HORDE_KINDS.indexOf(kind);
 
 const at = { x: 0, z: 0 };
 const own = DEMO.OWN_SLOT;
@@ -245,6 +368,80 @@ const GAME_EVENTS: [string, () => void][] = [
   ['progress: xp only', () => bus.emit('game:progress', { cls: ownClass, xp: 120, levelsGained: 0, level: 3, relics: [], featsReady: 0 })],
   ['progress: level up', () => bus.emit('game:progress', { cls: ownClass, xp: 480, levelsGained: 1, level: 4, relics: [], featsReady: 0 })],
   ['progress: 3 levels, relic rank-up, feat', () => bus.emit('game:progress', { cls: ownClass, xp: 2600, levelsGained: 3, level: 7, relics: [{ id: 'r', rank: 1, rankUp: false }, { id: 'r2', rank: 2, rankUp: true }], featsReady: 2 })],
+  // ---- update 4
+  ...HORDE_KINDS.map((kind): [string, () => void] => [`spawn ${kind}`, () => fire({ e: 'spawn', id: hordeAt(kind), kind, ...at, elite: false })]),
+  ...HORDE_KINDS.map((kind): [string, () => void] => [`kill ${kind}`, () => fire({ e: 'kill', id: hordeAt(kind), kind, ...at, by: own })]),
+  ['shaman cast "mend"', () => fire({ e: 'cast', who: { t: 'e', id: hordeAt('shaman') }, ability: 'mend', ...at, rot: 0 })],
+  ['shaman mend lands (mend event)', () => fire({ e: 'mend', id: hordeAt('shaman'), targets: [DEMO.ENEMY_ID, DEMO.SHIELD_ID] })],
+  ['shaman mend: cast, then lands', () => {
+    fire({ e: 'cast', who: { t: 'e', id: hordeAt('shaman') }, ability: 'mend', ...at, rot: 0 });
+    window.setTimeout(() => fire({ e: 'mend', id: hordeAt('shaman'), targets: [DEMO.ENEMY_ID] }), ENEMY_TUNING.SHAMAN.MEND_WINDUP * 1000);
+  }],
+  ['shaman mend: cast, interrupted half way (sfx.interrupt)', () => {
+    fire({ e: 'cast', who: { t: 'e', id: hordeAt('shaman') }, ability: 'mend', ...at, rot: 0 });
+    window.setTimeout(() => audioInternals()?.sfx.interrupt(hordeAt('shaman')), ENEMY_TUNING.SHAMAN.MEND_WINDUP * 500);
+  }],
+  ['shaman mend: cast, killed half way', () => {
+    fire({ e: 'cast', who: { t: 'e', id: hordeAt('shaman') }, ability: 'mend', ...at, rot: 0 });
+    window.setTimeout(() => fire({ e: 'kill', id: hordeAt('shaman'), kind: 'shaman', ...at, by: own }), ENEMY_TUNING.SHAMAN.MEND_WINDUP * 500);
+  }],
+  ['aegis dome up', () => fire({ e: 'dome', id: hordeAt('aegis'), on: true, r: ENEMY_TUNING.AEGIS.DOME_RADIUS })],
+  ['aegis dome down', () => fire({ e: 'dome', id: hordeAt('aegis'), on: false, r: ENEMY_TUNING.AEGIS.DOME_RADIUS })],
+  ['bomber cast "fuse"', () => fire({ e: 'cast', who: { t: 'e', id: hordeAt('bomber') }, ability: 'fuse', ...at, rot: 0 })],
+  ['bomber: fuse, then bursts (aoe + kill)', () => {
+    fire({ e: 'cast', who: { t: 'e', id: hordeAt('bomber') }, ability: 'fuse', ...at, rot: 0 });
+    fire({ e: 'telegraph', shape: 'circle', ...at, rot: 0, r: ENEMY_TUNING.BOMBER.BLAST_RADIUS, w: 0, dur: ENEMIES.bomber.windup, src: hordeAt('bomber') });
+    window.setTimeout(() => {
+      fire({ e: 'aoe', ...at, r: ENEMY_TUNING.BOMBER.BLAST_RADIUS, el: null, hostile: true });
+      fire({ e: 'kill', id: hordeAt('bomber'), kind: 'bomber', ...at, by: -1 });
+    }, ENEMIES.bomber.windup * 1000);
+  }],
+  ['bomber: slain, bursts after the delay', () => {
+    fire({ e: 'kill', id: hordeAt('bomber'), kind: 'bomber', ...at, by: own });
+    window.setTimeout(() => fire({ e: 'aoe', ...at, r: ENEMY_TUNING.BOMBER.BLAST_RADIUS, el: null, hostile: true }), ENEMY_TUNING.BOMBER.DEATH_BLAST_DELAY * 1000);
+  }],
+  ['bomber pack ×5 (staggered fuses)', () => {
+    for (let i = 0; i < 5; i++) {
+      window.setTimeout(() => {
+        const id = DEMO.HORDE_ID + 20 + i;
+        fire({ e: 'spawn', id, kind: 'bomber', ...at, elite: false });
+        fire({ e: 'cast', who: { t: 'e', id }, ability: 'fuse', ...at, rot: 0 });
+        window.setTimeout(() => {
+          fire({ e: 'aoe', ...at, r: ENEMY_TUNING.BOMBER.BLAST_RADIUS, el: null, hostile: true });
+          fire({ e: 'kill', id, kind: 'bomber', ...at, by: -1 });
+        }, ENEMIES.bomber.windup * 1000);
+      }, i * 110);
+    }
+  }],
+  ['necromancer cast "raise"', () => fire({ e: 'cast', who: { t: 'e', id: hordeAt('necromancer') }, ability: 'raise', ...at, rot: 0 })],
+  ['necromancer dies, six minions crumble', () => {
+    fire({ e: 'kill', id: hordeAt('necromancer'), kind: 'necromancer', ...at, by: own });
+    for (let i = 0; i < 6; i++) fire({ e: 'kill', id: DEMO.HORDE_ID + 30 + i, kind: 'minion', ...at, by: -1 });
+  }],
+  ['reaver cast "reaver_leap"', () => {
+    fire({ e: 'cast', who: { t: 'e', id: hordeAt('reaver') }, ability: 'reaver_leap', ...at, rot: 0 });
+    fire({ e: 'telegraph', shape: 'circle', ...at, rot: 0, r: ENEMY_TUNING.REAVER.LEAP_RADIUS, w: 0, dur: ENEMY_TUNING.REAVER.LEAP_AIR_TIME, src: hordeAt('reaver') });
+  }],
+  ...ELEMENT_IDS.flatMap((el, i): [string, () => void][] => [
+    [`spawn minion warded against ${el}`, () => fire({ e: 'spawn', id: DEMO.WARDED_ID + i, kind: 'minion', ...at, elite: false, ward: el })],
+    [`own ${el} hit on that warded minion (deflect)`, () => {
+      fire({ e: 'spawn', id: DEMO.WARDED_ID + i, kind: 'minion', ...at, elite: false, ward: el });
+      fire({ e: 'hit', target: { t: 'e', id: DEMO.WARDED_ID + i }, ...at, dmg: 22, crit: false, el, by: own });
+    }],
+  ]),
+  ['ally ember hit on a minion warded against ember (no deflect, no element)', () => {
+    fire({ e: 'spawn', id: DEMO.WARDED_ID, kind: 'minion', ...at, elite: false, ward: 'ember' });
+    fire({ e: 'hit', target: { t: 'e', id: DEMO.WARDED_ID }, ...at, dmg: 22, crit: false, el: 'ember', by: ally });
+  }],
+  ...OBJECTIVE_KINDS.filter((kind) => kind !== 'slay').map((kind): [string, () => void] => [`objective start: ${kind}`, () => fire({ e: 'objective', kind, what: 'start' })]),
+  ...[0, 1, 2].map((index): [string, () => void] => [`objective: brazier ${index + 1} lit`, () => fire({ e: 'objective', kind: 'ritual', what: 'site', index })]),
+  ['objective: shard hit', () => fire({ e: 'objective', kind: 'defend', what: 'anchorHit' })],
+  ['objective: shard shatters (bonus lost)', () => fire({ e: 'objective', kind: 'defend', what: 'bonusLost' })],
+  ['objective: hunt enrage (bonus lost)', () => fire({ e: 'objective', kind: 'hunt', what: 'bonusLost' })],
+  ['objective: ritual bonus lost', () => fire({ e: 'objective', kind: 'ritual', what: 'bonusLost' })],
+  ['objective done, bonus', () => fire({ e: 'objective', kind: 'survive', what: 'done', bonus: true })],
+  ['objective done, no bonus', () => fire({ e: 'objective', kind: 'survive', what: 'done', bonus: false })],
+  ['objective done: vault (reliquary opens)', () => fire({ e: 'objective', kind: 'vault', what: 'done', bonus: false })],
   ['draft pick (ui:pick)', () => bus.emit('ui:pick', { index: 0 })],
   ['ready on', () => bus.emit('ui:lobby', { ready: true })],
   ['ready off', () => bus.emit('ui:lobby', { ready: false })],
@@ -320,11 +517,33 @@ async function renderDepths(withSamples = true): Promise<RenderStats[]> {
   return out;
 }
 
+/** Update 4 additions: the timed horde sequences, every objective piece, the vault ambience, the objective stress. */
+async function renderUpdate4(withSamples = true): Promise<RenderStats[]> {
+  const o = { samples: withSamples };
+  if (withSamples) await loadOfflineBank();
+  const out: RenderStats[] = [];
+  for (const [name, events, seconds] of HORDE_SEQUENCES) out.push(await renderSequence(name, events, seconds, o));
+  out.push(await renderMusic('combat', 12, 1, o));
+  for (const pressure of [0, 0.6, 1]) out.push(await renderMusic('combat', 12, 1, { ...o, objective: 'survive', pressure }));
+  for (const pressure of [0, 0.8]) out.push(await renderMusic('combat', 12, 1, { ...o, objective: 'defend', pressure }));
+  for (const pressure of [0, 1]) out.push(await renderMusic('combat', 12, 1, { ...o, objective: 'hunt', pressure }));
+  for (const lit of [0, 1, 2, 3]) out.push(await renderMusic('combat', 12, 1, { ...o, objective: 'ritual', lit }));
+  out.push(await renderMusic('combat', 14, 1, { ...o, objective: 'vault' }));
+  for (const objective of OBJECTIVE_KINDS.filter((k) => k !== 'slay')) {
+    out.push(await renderMusic('combat', 12, 1, { ...o, objective, pressure: 1, lit: 3, depth: 5 }));
+  }
+  for (const b of ['flooded', 'forge'] as const) out.push(await renderMusic('combat', 10, 1, { ...o, objective: 'hunt', biome: b }));
+  out.push(await renderAmbience('vault', 14, o));
+  out.push(await renderObjectiveStress(undefined, o));
+  return out;
+}
+
 async function renderAll(withSamples = true): Promise<RenderStats[]> {
   const o = { samples: withSamples };
   if (withSamples) await loadOfflineBank();
   const out: RenderStats[] = await renderCases('', withSamples);
   out.push(...await renderDepths(withSamples));
+  out.push(...await renderUpdate4(withSamples));
   for (const name of ['menu', 'calm', 'combat', 'elite'] as const) out.push(await renderMusic(name, 12, 1, o));
   for (const boss of BOSS_KINDS) for (const phase of [1, 2, 3]) out.push(await renderMusic('boss', 10, phase, { ...o, boss }));
   for (const b of BIOME_IDS) out.push(await renderMusic('combat', 10, 1, { ...o, biome: b }));
@@ -335,9 +554,9 @@ async function renderAll(withSamples = true): Promise<RenderStats[]> {
 }
 
 function formatStats(stats: RenderStats[]): string {
-  const head = `${'sound'.padEnd(40)} ${'peak dBFS'.padStart(9)} ${'loud dB'.padStart(8)} ${'rms dB'.padStart(8)} ${'DC'.padStart(9)} ${'centroid'.padStart(9)}`;
+  const head = `${'sound'.padEnd(44)} ${'peak dBFS'.padStart(9)} ${'loud dB'.padStart(8)} ${'rms dB'.padStart(8)} ${'DC'.padStart(9)} ${'centroid'.padStart(9)} ${'rise s'.padStart(7)} ${'active s'.padStart(8)} ${'onsets'.padStart(6)}`;
   return [head, ...stats.map((s) =>
-    `${s.name.padEnd(40)} ${s.peakDb.toFixed(1).padStart(9)} ${s.loudDb.toFixed(1).padStart(8)} ${s.rmsDb.toFixed(1).padStart(8)} ${s.dc.toExponential(1).padStart(9)} ${`${s.centroidHz.toFixed(0)} Hz`.padStart(9)}`)].join('\n');
+    `${s.name.padEnd(44)} ${s.peakDb.toFixed(1).padStart(9)} ${s.loudDb.toFixed(1).padStart(8)} ${s.rmsDb.toFixed(1).padStart(8)} ${s.dc.toExponential(1).padStart(9)} ${`${s.centroidHz.toFixed(0)} Hz`.padStart(9)} ${s.riseS.toFixed(2).padStart(7)} ${s.activeS.toFixed(2).padStart(8)} ${String(s.onsets).padStart(6)}`)].join('\n');
 }
 
 // ------------------------------------------------------------------ page
@@ -469,6 +688,12 @@ function boot(): void {
   const depths = section(root, 'Depth of the descent (score: lower, denser, more dissonant per depth)', 'Pick a combat / elite / boss scene first; the running piece changes at its next bar line. "cleared" feeds the stinger variants.');
   for (let d = 0; d <= DEMO.MAX_DEPTH; d++) depths.append(button(`depth ${d}`, () => setDepth(d), `depth:${d}`));
   for (const n of [0, 1, 3]) depths.append(button(`cleared ${n}`, () => { cleared = n; if (state.run) state.run.cleared = n; paintActive(); }, `cleared:${n}`));
+  const objectives = section(root, 'Chamber objective (update 4): a whole chamber as the server would report it',
+    `Each button runs the objective in ${DEMO.TIMELINE_SECONDS} s: start stinger, the objective's piece of the score, run states every ${DEMO.RUN_STATE_MS} ms with network-like jitter (timer, shard health, braziers), the last 10 seconds ticked from the audio module's own clock, then "done". The "game: <objective>" scenes above only switch the score.`);
+  for (const kind of OBJECTIVE_KINDS.filter((k) => k !== 'slay')) {
+    objectives.append(button(`${kind} (bonus kept)`, () => { void timeline(kind, DEMO.TIMELINE_SECONDS, true); }));
+    if (kind === 'defend' || kind === 'hunt') objectives.append(button(`${kind} (bonus lost)`, () => { void timeline(kind, DEMO.TIMELINE_SECONDS, false); }));
+  }
   const cls = section(root, 'Own hero class (for local actions and weapon layers on hits)');
   for (const c of CLASS_IDS) cls.append(button(c, () => { ownClass = c; state.roster = roster(); paintActive(); }, `class:${c}`));
   for (const a of [0, 1]) cls.append(button(a === 0 ? 'secondary: standard' : 'secondary: art', () => { ownArt = a; state.roster = roster(); paintActive(); }, `art:${a}`));
@@ -533,6 +758,8 @@ function boot(): void {
     });
   }, '', 'warn'), stressOut);
 
+  stressRow.append(button('OBJECTIVE STRESS (6 bombers + 2 ultimates + timer + Resonance chain)', () => window.__audiodemo?.objectiveStress(), '', 'warn'));
+
   const measure = section(root, 'Offline measurements', 'Renders every sound, music state and ambience with an OfflineAudioContext at full volume and reports peak, loudest 400 ms, RMS and DC offset after the master chain. Takes a while.');
   const out = el('pre', '');
   out.id = 'audiodemo-measure';
@@ -546,7 +773,9 @@ function boot(): void {
   paintActive();
 
   window.__audiodemo = {
-    start: () => { bus.emit('ui:gesture'); scene(sceneName, false); },
+    start: () => { bus.emit('ui:gesture'); scene(sceneName, false); hookTickLog(); },
+    tickLog: () => { hookTickLog(); return tickLog.splice(0); },
+    now: () => audioInternals()?.ctx.currentTime ?? 0,
     debug: audioDebug,
     scene,
     scenes: Object.keys(SCENES),
@@ -568,6 +797,24 @@ function boot(): void {
       const engine = audioInternals();
       if (engine) for (const [when, play] of ultimateStressEvents()) window.setTimeout(() => play(engine.sfx), when * 1000);
     },
+    renderUpdate4,
+    renderSequences: async (withCurve = true) => {
+      await loadOfflineBank();
+      const out: RenderStats[] = [];
+      for (const [name, events, seconds] of HORDE_SEQUENCES) out.push(await renderSequence(name, events, seconds, { envelope: withCurve }));
+      // single cues whose shape over time matters
+      for (const name of ['horde.action.shaman.mend', 'horde.action.bomber.fuse', 'horde.action.necromancer.raise', 'horde.action.reaver.leap', 'horde.action.aegis.domeUp', 'horde.action.aegis.domeDown']) {
+        const play = SFX_CASES.find(([n]) => n === name)?.[1];
+        if (play) out.push(await renderSequence(name, [[0, play]], DEMO.DEFAULT_RENDER_S, { envelope: withCurve }));
+      }
+      return out;
+    },
+    timeline,
+    objectiveStress: () => {
+      const engine = audioInternals();
+      if (engine) for (const [when, play] of objectiveStressEvents()) window.setTimeout(() => play(engine.sfx), when * 1000);
+    },
+    interrupt: (id) => { audioInternals()?.sfx.interrupt(id); },
     loadOfflineBank,
   };
 }
@@ -576,6 +823,8 @@ declare global {
   interface Window {
     __audiodemo?: {
       start(): void;
+      tickLog(): TickLogEntry[];
+      now(): number;
       debug(): AudioDebug | null;
       scene(name: string, newChamber?: boolean): void;
       scenes: string[];
@@ -594,6 +843,11 @@ declare global {
       unmapped(): string[];
       abilityTable(): string[];
       ultimateStress(): void;
+      renderUpdate4(withSamples?: boolean): Promise<RenderStats[]>;
+      renderSequences(withCurve?: boolean): Promise<RenderStats[]>;
+      timeline(kind: ObjectiveKind, seconds?: number, bonus?: boolean): Promise<TimelineResult>;
+      objectiveStress(): void;
+      interrupt(id: number): void;
       loadOfflineBank: typeof loadOfflineBank;
     };
   }

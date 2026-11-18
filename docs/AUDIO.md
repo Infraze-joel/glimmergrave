@@ -172,6 +172,10 @@ The same record ships with the files as `client/public/assets/audio/credits.json
 | `zap.chain.1.mp3` | Kenney Digital Audio | `addons/kenney digital audio/zap_three_tone_down.ogg` | `185a77e7c6` |
 | `tex.void.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/space_engine_low_001.ogg` | `c094967fe9` |
 | `tex.fireLow.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/thruster_fire_003.ogg` | `c094967fe9` |
+| `hit.dull.1.mp3` | Kenney Impact Sounds | `addons/kenney impact sounds/impact_plate_light_000.ogg` | `999dd16848` |
+| `hit.dull.2.mp3` | Kenney Impact Sounds | `addons/kenney impact sounds/impact_plate_light_002.ogg` | `999dd16848` |
+| `zap.fall.1.mp3` | Kenney Digital Audio | `addons/kenney digital audio/high_down.ogg` | `185a77e7c6` |
+| `tex.spin.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/engine_circular_000.ogg` | `c094967fe9` |
 | `door.open.1.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/door_open_1.ogg` | `22eb79bb84` |
 | `door.open.2.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/door_open_2.ogg` | `22eb79bb84` |
 | `door.close.1.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/door_close_4.ogg` | `22eb79bb84` |
@@ -194,6 +198,9 @@ The same record ships with the files as `client/public/assets/audio/credits.json
 | `slime.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/slime_000.ogg` | `c094967fe9` |
 | `sub.drop.1.mp3` | Kenney Digital Audio | `addons/kenney digital audio/low_down.ogg` | `185a77e7c6` |
 | `bong.1.mp3` | Kenney Interface Sounds | `addons/kenney_interface_sounds/bong_001.wav` | `4596a49eaf` |
+| `lid.1.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/book_close.ogg` | `22eb79bb84` |
+| `pouch.1.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/handle_small_leather.ogg` | `22eb79bb84` |
+| `pouch.2.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/handle_small_leather_2.ogg` | `22eb79bb84` |
 | `bed.drone.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/space_engine_low_002.ogg` | `c094967fe9` |
 | `bed.rumble.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/space_engine_large_000.ogg` | `c094967fe9` |
 <!-- sources:end -->

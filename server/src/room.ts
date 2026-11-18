@@ -439,7 +439,7 @@ export class Room {
     this.ticks++;
     if (world.runVersion !== this.lastRunVersion) {
       this.broadcastRun();
-    } else if ((world.run.phase === 'draft' || world.run.phase === 'doors') && ++this.ticksSinceRun >= SERVER.RUN_BROADCAST_TICKS) {
+    } else if ((world.run.phase === 'draft' || world.run.phase === 'doors' || world.objectiveLive) && ++this.ticksSinceRun >= SERVER.RUN_BROADCAST_TICKS) {
       this.broadcastRun();
     }
     if (world.boonVersion !== this.lastBoonVersion) this.broadcastRoster();

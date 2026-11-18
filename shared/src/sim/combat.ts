@@ -2,12 +2,13 @@
 import { WORLD } from '../constants.ts';
 import { BOON_TUNING } from '../data/boons.ts';
 import { BACKSTAB, BUFFS, SMOKE, ULTIMATE } from '../data/classes.ts';
-import { STATUS } from '../data/enemies.ts';
+import { ENEMY_TUNING, STATUS } from '../data/enemies.ts';
 import { REACTION_TUNING, reactionOf } from '../data/reactions.ts';
 import { RELIC_TUNING } from '../data/relics.ts';
 import type { AbilitySlot, ElementId } from '../types.ts';
 import { angleDiff, angleTo, DEG } from './geom.ts';
 import { maxDashCharges } from './boons.ts';
+import { onHordeDeath } from './horde.ts';
 import { earn } from './meta.ts';
 import { rollShards } from './loot.ts';
 import type { Enemy, Hero } from './state.ts';
@@ -25,6 +26,7 @@ function vulnerability(e: Enemy): number {
   if (e.sunderTime > 0) v *= 1 + e.sunder;
   if (e.markTime > 0) v *= 1 + ULTIMATE.MARK_VULNERABILITY;
   if (e.armored) v *= 1 - AFFIX.ARMORED_REDUCTION;
+  if (e.domed) v *= 1 - ENEMY_TUNING.AEGIS.DOME_REDUCTION;
   return v;
 }
 
@@ -70,7 +72,18 @@ export function nearestEnemy(w: World, x: number, z: number, range: number, skip
 
 const noStatus = (e: Enemy): boolean => e.status === null;
 
+/**
+ * Warded enemies (update 4). An enemy warded against element X
+ *  - never carries X's status, whatever tries to apply it (hits, hazards, spreading statuses, bursts);
+ *  - is not detonated by X: a hit with X on it while it carries another status changes nothing;
+ *  - is untouched by any Resonance burst that consumed X or applied X (no damage, no status, no reaction effect,
+ *    a Void Arc does not leap to it).
+ * Plain damage of an X-infused hit is dealt as usual.
+ */
+export const wardedAgainst = (e: Enemy, el: ElementId): boolean => e.ward === el;
+
 export function setStatus(w: World, e: Enemy, el: ElementId, by: Hero | null, potency: number, jumped = false): void {
+  if (wardedAgainst(e, el)) return;
   const changed = e.status !== el;
   const lasting = by ? 1 + by.stats.catalyst : 1;
   e.status = el;
@@ -164,7 +177,8 @@ function blastEnemies(w: World, x: number, z: number, r: number, amount: number,
   }
 }
 
-export function killEnemy(w: World, e: Enemy, by: number): void {
+/** `quiet`: the enemy crumbles or bursts by itself and leaves nothing behind (no bomber death burst). */
+export function killEnemy(w: World, e: Enemy, by: number, quiet = false): void {
   if (e.dead) return;
   const status = e.status;
   const applier = status !== null ? w.hero(e.statusBy) : undefined;
@@ -195,6 +209,7 @@ export function killEnemy(w: World, e: Enemy, by: number): void {
   e.anim = 'death';
   e.animSeq++;
   w.emit({ e: 'kill', id: e.id, kind: e.kind, x: e.x, z: e.z, by });
+  if (e.kind === 'aegis' || e.kind === 'bomber' || e.kind === 'necromancer') onHordeDeath(w, e, quiet);
   if (!killer) return;
   killer.run.kills++;
   if (e.boss && e.kind !== 'champion') killer.run.bosses++;
@@ -215,7 +230,7 @@ export function killEnemy(w: World, e: Enemy, by: number): void {
     if (next) setStatus(w, next, status, applier, potency, true);
   }
   if (e.affix === 'volatile') {
-    w.blasts.push({ x: e.x, z: e.z, r: AFFIX.VOLATILE_RADIUS, t: AFFIX.VOLATILE_DELAY, damage: AFFIX.VOLATILE_DAMAGE * e.damageMul, by: e.id });
+    w.blasts.push({ x: e.x, z: e.z, r: AFFIX.VOLATILE_RADIUS, t: AFFIX.VOLATILE_DELAY, damage: AFFIX.VOLATILE_DAMAGE * e.damageMul, by: e.id, enemyDamage: 0 });
     w.emit({ e: 'telegraph', shape: 'circle', x: e.x, z: e.z, rot: 0, r: AFFIX.VOLATILE_RADIUS, w: 0, dur: AFFIX.VOLATILE_DELAY });
   }
   if (marker) {
@@ -258,6 +273,8 @@ function burst(w: World, x: number, z: number, a: ElementId, b: ElementId, h: He
     const dx = o.x - x;
     const dz = o.z - z;
     if (dx * dx + dz * dz > reach * reach) continue;
+    // Warded against either element of this burst: it passes the enemy by.
+    if (o.ward !== null && (o.ward === a || o.ward === b)) { burstHit.push(o); continue; }
     burstHit.push(o);
     o.resonanceCd = STATUS.RESONANCE.INTERNAL_COOLDOWN;
     if (o.armored) {
@@ -308,7 +325,7 @@ function burst(w: World, x: number, z: number, a: ElementId, b: ElementId, h: He
     let fromX = x;
     let fromZ = z;
     for (let jump = 0; jump < REACTION_TUNING.VOIDARC_JUMPS * twice; jump++) {
-      const next = nearestEnemy(w, fromX, fromZ, REACTION_TUNING.VOIDARC_RANGE, null, notInBurst);
+      const next = nearestEnemy(w, fromX, fromZ, REACTION_TUNING.VOIDARC_RANGE, null, arcTarget);
       if (!next) break;
       burstHit.push(next);
       fromX = next.x;
@@ -320,7 +337,8 @@ function burst(w: World, x: number, z: number, a: ElementId, b: ElementId, h: He
   }
 }
 
-const notInBurst = (e: Enemy): boolean => !burstHit.includes(e);
+/** Void Arc (storm + umbra) never leaps to an enemy that is warded against one of its two elements. */
+const arcTarget = (e: Enemy): boolean => !burstHit.includes(e) && e.ward !== 'storm' && e.ward !== 'umbra';
 
 function resonate(w: World, e: Enemy, el: ElementId, h: Hero, potency: number): void {
   const a = e.status as ElementId;
@@ -352,6 +370,7 @@ function resonate(w: World, e: Enemy, el: ElementId, h: Hero, potency: number): 
  * enemy burst (or was caught in a burst) within the internal cooldown, in which case the hit changes nothing.
  */
 export function applyElement(w: World, e: Enemy, el: ElementId, h: Hero, potency: number): void {
+  if (wardedAgainst(e, el)) return;
   if (e.status !== null && e.status !== el) {
     if (e.resonanceCd > SIM.EPS) return;
     resonate(w, e, el, h, potency);

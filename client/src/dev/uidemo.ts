@@ -15,9 +15,14 @@
  *                 #draft-legendary #draft-class #draft-5 #draft-sets #summary-win #summary-levelup #summary-fell
  *                 #summary-ascended #summary-loss #hub-<tab>-<new|mid|end> #hub-mastery-<class> #codex-classes
  *                 #codex-progress #wardrobe-<class>
+ *   Update 4      #obj-<kind>-<start|mid|lost|done|won> (kind: slay survive defend hunt ritual vault; also #obj-hunt-escort,
+ *                 #obj-defend-low, #obj-ritual-late, #obj-vault-open, #obj-<kind>-solo) #obj-act (act banner, then objective)
+ *                 #doors-obj #doors-obj-2 #doors-obj-vault #doors-obj-same #doors-obj-deep #draft-bonus #draft-bonus-event #draft-nobonus #draft-vault
+ *                 #ward #ward-own #foes #summary-objectives #codex-bestiary #codex-objectives #tip-enemy.<kind> #tip-ward
+ *                 #tip-objective #boss-doors (dead boss, descend / ascend doors: no boss bar)
  *   Query params  profile=new|mid|end (progression stage for every route; default mid)   lang=en|de   bg=noisy (busy backdrop for contrast checks)   panel=0 (hide the dev panel)
  *                 freeze (stop the fake tickers)   tips=1 (leave all tips unseen)
- *   window.__uidemo  { go, fire, error, audio, nextStep, intents, missing }  for scripted checks
+ *   window.__uidemo  { go, fire, patchRun, screen, error, audio, nextStep, intents, missing }  for scripted checks
  *                    missing() lists every data id without an English or German text (must be empty)
  *
  * The 3D hero preview is replaced by a flat placeholder painted on the canvas wherever 'ui:showcase' asks.
@@ -30,12 +35,13 @@ import { TALENT_TIERS, levelFromXp, xpForLevel } from '@shared/data/mastery.ts';
 import { DEFAULT_LOOK, LOOK, META_UPGRADES, PARAGON, REWARDS, defaultLooks } from '@shared/data/meta.ts';
 import { REACTIONS } from '@shared/data/reactions.ts';
 import { RELICS, rankFromShards, shardsForRank } from '@shared/data/relics.ts';
+import { OBJECTIVE_TUNING } from '@shared/data/objectives.ts';
 import { TUTORIAL_STEPS } from '@shared/data/tutorial.ts';
 import { ERROR_CODES } from '@shared/protocol.ts';
 import {
-  AFFIX_IDS, BIOME_IDS, BOSS_KINDS, CLASS_IDS, PF,
-  type BiomeId, type BoonOffer, type BoonStack, type ClassId, type GameEvent, type Hazard, type Look, type PlayerSnap,
-  type RoomLayout, type RosterEntry, type RunReward, type RunState,
+  AFFIX_IDS, BIOME_IDS, BOSS_KINDS, CLASS_IDS, ELEMENT_IDS, OBJECTIVE_KINDS, PF,
+  type BiomeId, type BoonOffer, type BoonStack, type ClassId, type Door, type DoorType, type GameEvent, type Hazard, type Look,
+  type ObjectiveKind, type ObjectiveState, type PlayerSnap, type RoomLayout, type RosterEntry, type RunReward, type RunState,
 } from '@shared/types.ts';
 import { bus, type ConnError, type EventMap } from '../core/EventBus.ts';
 import { resetSession, state, type Screen } from '../core/GameState.ts';
@@ -45,7 +51,7 @@ import { markTipSeen, resetMarks, resetTips, setMark } from '../ui/prefs.ts';
 import { artMark } from '../ui/progress.ts';
 import { HUB_TABS, ui, type CodexTab, type HubTab } from '../ui/store.ts';
 import { missingTexts } from '../ui/text.ts';
-import { TIP_IDS, type TipId } from '../ui/tips.ts';
+import { NEW_FOES, TIP_IDS, type TipId } from '../ui/tips.ts';
 
 const HUD_TICK_MS = 66;
 const RUN_TICK_MS = 250;
@@ -110,7 +116,7 @@ function room(biome: BiomeId, hazards = true): RoomLayout {
 function run(patch: Partial<RunState> = {}): RunState {
   return {
     phase: 'combat', oath: 2, chamber: 4, chamberKind: 'combat', entered: 'cursed', wave: 2, waveCount: 3, room: room('flooded', false),
-    bossKind: null, finalBoss: 'matron', rewards: [], tutorial: null, depth: 0, cleared: 0, chambersCleared: 4,
+    bossKind: null, finalBoss: 'matron', rewards: [], tutorial: null, depth: 0, cleared: 0, chambersCleared: 4, objective: null,
     doors: [], doorProgress: [], bossId: -1, draftPending: [], draftTime: RUN.DRAFT_TIMEOUT_SECONDS, elapsed: 437,
     stats: [
       { slot: 0, damage: 12480, kills: 61, resonances: 14, revives: 2, downs: 1, elites: 3, bosses: 1, ultimates: 4 },
@@ -317,6 +323,8 @@ function baseline(): void {
   ui.hubRelic = null;
   ui.progress = null;
   ui.oathBaseline = null;
+  ui.objectives = { done: 0, bonus: 0, tracked: false };
+  ui.lastObjective = null;
   stageProfile(DEFAULT_STAGE);
   Object.assign(state.profile, { cls: 'knight', looks: { ...defaultLooks(), knight: look(2, 1), mage: look(5, 2, true, false) } });
   // Badges for "new art" only show on the routes that are about them.
@@ -351,7 +359,7 @@ function training(step: string, progress = 0): void {
     chamber: 0, wave: 1, waveCount: 1, elapsed: 30 + index * 18, secondWinds: 0,
     phase: step === 'draft' ? 'draft' : step === 'door' ? 'doors' : 'combat',
     draftPending: step === 'draft' ? [0] : [], draftTime: 40,
-    doors: step === 'door' ? [{ x: 0, z: -12, type: 'boon' }] : [], doorProgress: step === 'door' ? [0.35] : [],
+    doors: step === 'door' ? [{ x: 0, z: -12, type: 'boon', objective: 'slay' }] : [], doorProgress: step === 'door' ? [0.35] : [],
     room: room('crypt', step === 'hazard'),
     tutorial: { step, index, total: TUTORIAL_STEPS.length, progress, marker },
   });
@@ -441,6 +449,16 @@ function tip(id: TipId): void {
     case 'descend': ROUTES['doors-deep'](); break;
     case 'affix': inGame({ entered: 'boon' }); fire({ e: 'spawn', id: 31, kind: 'warrior', ...at2, elite: true, affix: 'volatile' }); break;
     case 'set': solo(SET_BOONS); fire({ e: 'set', slot: 0, id: 'set_ember', tier: 2 }); break;
+    case 'enemy.shaman':
+    case 'enemy.aegis':
+    case 'enemy.bomber':
+    case 'enemy.necromancer':
+    case 'enemy.reaver':
+      inGame({ entered: 'boon', objective: objectiveState('slay', 'mid') });
+      fire({ e: 'spawn', id: 61, kind: id.slice('enemy.'.length) as (typeof NEW_FOES)[number], ...at2, elite: false });
+      break;
+    case 'ward': inGame({ entered: 'boon', chamber: 5 }); fire({ e: 'spawn', id: 62, kind: 'warrior', ...at2, elite: false, ward: 'storm' }); break;
+    case 'objective': ROUTES['doors-obj'](); break;
   }
   emitAll();
 }
@@ -485,6 +503,156 @@ function summary(
   bus.emit('state:profile');
 }
 
+
+// ------------------------------------------------------------------ update 4: objectives
+
+type ObjectiveStage = 'start' | 'mid' | 'lost' | 'done' | 'won';
+const OBJECTIVE_STAGES: readonly ObjectiveStage[] = ['start', 'mid', 'lost', 'done', 'won'];
+
+/** A plausible ObjectiveState for a kind at a stage (lost = bonus gone, done = complete without, won = with bonus). */
+function objectiveState(kind: ObjectiveKind, stage: ObjectiveStage): ObjectiveState {
+  const done = stage === 'done' || stage === 'won';
+  const bonus = stage !== 'lost' && stage !== 'done';
+  const k = stage === 'start' ? 0 : done ? 1 : stage === 'lost' ? 0.7 : 0.45;
+  const base: ObjectiveState = { kind, progress: k, timeLeft: 0, bonus, status: done ? 'done' : 'active', anchor: null, sites: [], targets: [] };
+  const tune = OBJECTIVE_TUNING;
+  switch (kind) {
+    case 'survive':
+      return { ...base, timeLeft: done ? 0 : Math.round(tune.SURVIVE.SECONDS * (1 - k)) };
+    case 'defend':
+      return { ...base, anchor: { x: 0, z: 0, r: tune.DEFEND.RADIUS, hp: stage === 'start' ? 1 : stage === 'mid' ? 0.72 : stage === 'won' ? 0.31 : 0 } };
+    case 'hunt':
+      return {
+        ...base, progress: stage === 'mid' ? 1 / 3 : stage === 'lost' ? 2 / 3 : k,
+        timeLeft: stage === 'start' ? tune.HUNT.SECONDS : stage === 'mid' ? 23 : 0,
+        targets: stage === 'start' ? [71, 72, 73] : stage === 'mid' ? [72, 73] : stage === 'lost' ? [73] : [],
+      };
+    case 'ritual': {
+      const fill = stage === 'start' ? [0, 0, 0] : stage === 'mid' ? [1, 0.55, 0] : stage === 'lost' ? [1, 1, 0.3] : [1, 1, 1];
+      return {
+        ...base, timeLeft: stage === 'start' ? tune.RITUAL.BONUS_SECONDS : stage === 'mid' ? 38 : 0,
+        sites: fill.map((progress, i) => ({ x: -8 + i * 8, z: i === 1 ? -6 : 4, r: tune.RITUAL.RADIUS, progress, lit: progress >= 1 })),
+      };
+    }
+    case 'vault':
+      return { ...base, bonus: false, progress: stage === 'start' ? 0 : done ? 1 : 0.6 };
+    default:
+      return { ...base, bonus: false };
+  }
+}
+
+/** A chamber with this objective at this stage, plus the event that leads to it. */
+function objectiveRoute(kind: ObjectiveKind, stage: ObjectiveStage, soloRun = false): void {
+  const patch: Partial<RunState> = {
+    chamber: kind === 'vault' ? 2 : 4, entered: kind === 'hunt' ? 'cursed' : 'boon', objective: objectiveState(kind, stage),
+    wave: kind === 'defend' && stage !== 'start' ? 2 : 1, waveCount: kind === 'defend' ? 3 : 1, elapsed: 437,
+  };
+  if (soloRun) solo(TRAINING_BOONS.slice(0, 2), patch);
+  else inGame(patch);
+  state.enemiesAlive = kind === 'vault' ? 0 : stage === 'done' || stage === 'won' ? 0 : 14;
+  state.players[0].hp = 87;
+  emitAll();
+  if (stage === 'start') fire({ e: 'objective', kind, what: 'start' });
+  if (stage === 'lost') fire({ e: 'objective', kind, what: 'bonusLost' });
+  if (stage === 'done' || stage === 'won') fire({ e: 'objective', kind, what: 'done', bonus: stage === 'won' });
+}
+
+const door = (x: number, type: DoorType, objective: ObjectiveKind): Door => ({ x, z: -10, type, objective });
+
+function objectiveDoors(doors: Door[], patch: Partial<RunState> = {}): void {
+  inGame({ phase: 'doors', chamber: 2, entered: 'boon', doors, doorProgress: doors.map((_, i) => (i === 0 ? 0.2 : 0.65)), ...patch });
+  state.players[2] = { ...state.players[2], hp: 34, state: 'alive', revive: 0 };
+  state.enemiesAlive = 0;
+  emitAll();
+}
+
+/** A draft that follows a chamber whose objective ended with / without its bonus. */
+function objectiveDraft(kind: ObjectiveKind, earned: boolean, offers: BoonOffer[]): void {
+  inGame({ phase: 'draft', draftPending: [0, 1, 2], draftTime: 32, entered: 'boon', chamber: 4, objective: objectiveState(kind, earned ? 'won' : 'done') });
+  state.enemiesAlive = 0;
+  state.draft = offers;
+  emitAll();
+}
+
+const OBJECTIVE_ROUTES: Record<string, () => void> = {
+  ...Object.fromEntries(OBJECTIVE_KINDS.flatMap((kind) => OBJECTIVE_STAGES.flatMap((stage): [string, () => void][] => [
+    [`obj-${kind}-${stage}`, () => objectiveRoute(kind, stage)],
+  ]))),
+  ...Object.fromEntries(OBJECTIVE_KINDS.map((kind): [string, () => void] => [`obj-${kind}-solo`, () => objectiveRoute(kind, 'mid', true)])),
+  'obj-hunt-escort': () => {
+    objectiveRoute('hunt', 'mid');
+    if (state.run?.objective) { state.run.objective.targets = []; state.run.objective.progress = 0.8; }
+    state.enemiesAlive = 5;
+    emitAll();
+  },
+  'obj-defend-low': () => {
+    objectiveRoute('defend', 'mid');
+    if (state.run?.objective?.anchor) state.run.objective.anchor.hp = 0.18;
+    emitAll();
+    fire({ e: 'objective', kind: 'defend', what: 'anchorHit' });
+  },
+  'obj-ritual-late': () => {
+    // An older server without a ritual timer: the HUD counts the bonus limit itself from the start event.
+    objectiveRoute('ritual', 'mid');
+    if (state.run?.objective) state.run.objective.timeLeft = 0;
+    if (state.run) state.run.elapsed -= 20;
+    fire({ e: 'objective', kind: 'ritual', what: 'start' });
+    if (state.run) state.run.elapsed += 20;
+    emitAll();
+    fire({ e: 'objective', kind: 'ritual', what: 'site', index: 0 });
+  },
+  'obj-vault-open': () => objectiveRoute('vault', 'mid'),
+  'obj-act': () => {
+    // New act and a special objective at once: the act is announced first, the objective follows.
+    inGame({ chamber: 0, depth: 1, cleared: 1, chambersCleared: 8, entered: 'descend', wave: 1, waveCount: 1, room: room('crypt'), objective: objectiveState('ritual', 'start') });
+    fire({ e: 'objective', kind: 'ritual', what: 'start' });
+    fire({ e: 'wave', wave: 1, waveCount: 1 });
+  },
+  'doors-obj': () => objectiveDoors([door(-6, 'boon', 'defend'), door(6, 'cursed', 'hunt')]),
+  'doors-obj-2': () => objectiveDoors([door(-6, 'blessing', 'ritual'), door(6, 'boon', 'survive')]),
+  'doors-obj-vault': () => objectiveDoors([door(-6, 'boon', 'vault'), door(6, 'cursed', 'slay')]),
+  'doors-obj-same': () => objectiveDoors([door(6, 'boon', 'survive'), door(-6, 'boon', 'slay')]),
+  'doors-obj-deep': () => objectiveDoors([door(-6, 'descend', 'ritual'), door(6, 'ascend', 'slay')],
+    { chamber: 7, chamberKind: 'boss', cleared: 1, chambersCleared: 8, entered: 'boss', bossKind: 'matron' }),
+  'boss-doors': () => {
+    // The boss is dead but its last health value is still in the state: the bar must be gone.
+    ROUTES['doors-deep']();
+    if (state.run) state.run.bossKind = 'matron';
+    state.bossHp = 0;
+    emitAll();
+  },
+  'draft-bonus': () => objectiveDraft('hunt', true, [...DRAFT, { id: 'duo_shatter', level: 1 }]),
+  'draft-nobonus': () => objectiveDraft('hunt', false, [...DRAFT]),
+  'draft-bonus-event': () => {
+    // A server that clears `run.objective` before the draft: the mark then rests on the `done` event alone.
+    objectiveRoute('ritual', 'mid');
+    fire({ e: 'objective', kind: 'ritual', what: 'done', bonus: true });
+    setRun(run({ phase: 'draft', draftPending: [0, 1, 2], draftTime: 32, entered: 'boon', chamber: 4, objective: null }));
+    state.enemiesAlive = 0;
+    state.draft = [...DRAFT, { id: 'duo_shatter', level: 1 }];
+    emitAll();
+  },
+  'draft-vault': () => objectiveDraft('vault', false, [{ id: 'encore', level: 1 }, { id: 'infuse_storm_dash', level: 1 }, { id: 'iron_heart', level: 2 }, { id: 'echo', level: 1 }]),
+  ward: () => { inGame({ entered: 'boon', chamber: 5, objective: objectiveState('slay', 'mid') }); ELEMENT_IDS.forEach((ward, i) => fire({ e: 'spawn', id: 80 + i, kind: 'warrior', x: 2, z: -1, elite: false, ward })); },
+  'ward-own': () => { solo(TRAINING_BOONS.slice(0, 1), { chamber: 5, objective: objectiveState('slay', 'mid') }); fire({ e: 'spawn', id: 80, kind: 'minion', x: 2, z: -1, elite: false, ward: 'ember' }); },
+  foes: () => {
+    inGame({ entered: 'boon', chamber: 5, objective: objectiveState('slay', 'mid') });
+    NEW_FOES.forEach((kind, i) => fire({ e: 'spawn', id: 90 + i, kind, x: 2, z: -1, elite: false }));
+    fire({ e: 'dome', id: 91, on: true, r: 4.5 });
+    fire({ e: 'mend', id: 90, targets: [12, 13] });
+  },
+  'summary-objectives': () => {
+    ui.objectives = { done: 5, bonus: 3, tracked: true };
+    summary({ phase: 'victory', chamber: 7, chamberKind: 'boss', elapsed: 754, bossKind: 'matron', cleared: 1, chambersCleared: 8 },
+      [reward(0, 261, 372, ['storm_coil']), reward(1, 237, 340), reward(2, 237, 340, ['whetstone']), reward(3, 237, 340)], { oathBaseline: 2 });
+  },
+  'summary-objectives-fell': () => {
+    ui.objectives = { done: 9, bonus: 1, tracked: true };
+    summary({ phase: 'defeat', chamber: 3, chamberKind: 'elite', elapsed: 1722, depth: 1, cleared: 1, chambersCleared: 11, oath: 3 },
+      [reward(0, 544, 910, ['whetstone', 'phoenix']), reward(1, 498, 860, ['tome']), reward(2, 498, 860), reward(3, 498, 860)], { oathBaseline: 3 });
+  },
+};
+
 const ROUTES: Record<string, () => void> = {
   loading: () => { setScreen('loading'); bus.emit('assets:progress', { loaded: 23, total: 37 }); },
   'loading-error': () => {
@@ -527,7 +695,7 @@ const ROUTES: Record<string, () => void> = {
   },
   doors: () => {
     inGame({
-      phase: 'doors', doors: [{ x: -6, z: -10, type: 'blessing' }, { x: 6, z: -10, type: 'cursed' }], doorProgress: [0.2, 0.65],
+      phase: 'doors', doors: [{ x: -6, z: -10, type: 'blessing', objective: 'slay' }, { x: 6, z: -10, type: 'cursed', objective: 'slay' }], doorProgress: [0.2, 0.65],
     });
     state.players[2] = { ...state.players[2], hp: 34, state: 'alive', revive: 0 };
     state.enemiesAlive = 0;
@@ -601,7 +769,7 @@ const ROUTES: Record<string, () => void> = {
   wardrobe: () => { setScreen('menu'); ui.wardrobeCls = state.profile.cls; ui.page = 'wardrobe'; emitAll(); },
   'wardrobe-mage': () => { setScreen('menu'); ui.wardrobeCls = 'mage'; ui.page = 'wardrobe'; emitAll(); },
   'wardrobe-lobby': () => { ROUTES.lobby(); ui.page = 'wardrobe'; emitAll(); },
-  ...Object.fromEntries((['elements', 'classes', 'combat', 'hazards', 'enemies', 'doors', 'boons', 'progress'] as CodexTab[]).map((tab): [string, () => void] =>
+  ...Object.fromEntries((['elements', 'classes', 'combat', 'objectives', 'hazards', 'bestiary', 'doors', 'boons', 'progress'] as CodexTab[]).map((tab): [string, () => void] =>
     [`codex-${tab}`, () => { setScreen('menu'); ui.codexTab = tab; ui.page = 'codex'; emitAll(); }])),
   'pause-codex': () => { inGame(); ui.pause = true; ui.page = 'codex'; emitAll(); },
   'strip-0': () => solo([{ id: 'keen_edge', level: 1 }]),
@@ -686,7 +854,7 @@ const ROUTES: Record<string, () => void> = {
   'doors-deep': () => {
     inGame({
       phase: 'doors', chamber: 7, chamberKind: 'boss', cleared: 1, chambersCleared: 8, entered: 'boss',
-      doors: [{ x: -6, z: -10, type: 'descend' }, { x: 6, z: -10, type: 'ascend' }], doorProgress: [0.55, 0.1],
+      doors: [{ x: -6, z: -10, type: 'descend', objective: 'slay' }, { x: 6, z: -10, type: 'ascend', objective: 'slay' }], doorProgress: [0.55, 0.1],
     });
     state.players[2] = { ...state.players[2], hp: 34, state: 'alive', revive: 0 };
     state.enemiesAlive = 0;
@@ -738,6 +906,8 @@ const ROUTES: Record<string, () => void> = {
   'hub-reliquary-unknown': () => { hub('reliquary', 'mid'); ui.hubRelic = 'compass'; bus.emit('state:profile'); },
   'hub-mastery-news': () => { stageProfile('mid'); resetMarks(); hub('mastery', 'mid', 'mage'); },
   'hub-lobby': () => { ROUTES.lobby(); ui.hubTab = 'mastery'; ui.page = 'armory'; emitAll(); },
+
+  ...OBJECTIVE_ROUTES,
 
   error: () => { setScreen('menu'); emitAll(); bus.emit('net:error', { error: 'room_not_found', fatal: true }); },
   reconnecting: () => { inGame(); state.conn.status = 'reconnecting'; state.conn.pingMs = 312; emitAll(); },
@@ -827,6 +997,18 @@ const EVENTS: [string, () => void][] = [
   ['zone end', () => fire({ e: 'zoneEnd', id: 3, ...at, sprung: false })],
   ['mark', () => fire({ e: 'mark', id: 7, dur: 8 })],
   ['door descend', () => fire({ e: 'doorChosen', type: 'descend' })],
+  ...OBJECTIVE_KINDS.flatMap((kind): [string, () => void][] => [
+    [`obj ${kind} start`, () => fire({ e: 'objective', kind, what: 'start' })],
+    [`obj ${kind} done+`, () => fire({ e: 'objective', kind, what: 'done', bonus: true })],
+    [`obj ${kind} done`, () => fire({ e: 'objective', kind, what: 'done', bonus: false })],
+  ]),
+  ['obj bonus lost', () => fire({ e: 'objective', kind: state.run?.objective?.kind ?? 'defend', what: 'bonusLost' })],
+  ['obj site', () => fire({ e: 'objective', kind: 'ritual', what: 'site', index: 1 })],
+  ['obj anchor hit', () => fire({ e: 'objective', kind: 'defend', what: 'anchorHit' })],
+  ...NEW_FOES.map((kind): [string, () => void] => [`spawn ${kind}`, () => fire({ e: 'spawn', id: 60, kind, ...at, elite: false })]),
+  ...ELEMENT_IDS.map((ward): [string, () => void] => [`ward ${ward}`, () => fire({ e: 'spawn', id: 61, kind: 'warrior', ...at, elite: false, ward })]),
+  ['dome on', () => fire({ e: 'dome', id: 60, on: true, r: 4.5 })],
+  ['mend', () => fire({ e: 'mend', id: 60, targets: [7, 8] })],
   ['door ascend', () => fire({ e: 'doorChosen', type: 'ascend' })],
   ...Object.values(CLASSES).flatMap((def): [string, () => void][] => [
     [`${def.id} art`, () => fire({ e: 'cast', who: { t: 'p', id: 1 }, ability: def.arts[0]?.id ?? def.secondary.id, ...at, rot: 0 })],
@@ -940,6 +1122,13 @@ function startTickers(): void {
     if (state.screen !== 'game' || !r || params.get('freeze') !== null) return;
     r.elapsed += RUN_TICK_MS / 1000;
     if (r.phase === 'draft') r.draftTime = Math.max(0, r.draftTime - RUN_TICK_MS / 1000);
+    const o = r.objective;
+    if (r.phase === 'combat' && o && o.status === 'active') {
+      // Objective timers run down and the measures creep, so the tracker can be watched live.
+      if (o.timeLeft > 0) o.timeLeft = Math.max(0, o.timeLeft - RUN_TICK_MS / 1000);
+      if (o.kind === 'survive' || o.kind === 'vault') o.progress = Math.min(1, o.progress + 0.004);
+      for (const site of o.sites) if (!site.lit && site.progress > 0) site.progress = Math.min(0.98, site.progress + 0.006);
+    }
     if (r.phase === 'doors') r.doorProgress = r.doorProgress.map((p, i) => (i === 1 ? (p + 0.04) % 1 : p));
     if (r.phase === 'draft' || r.phase === 'doors') bus.emit('state:run', { previousPhase: r.phase });
   }, RUN_TICK_MS);
@@ -1071,6 +1260,10 @@ declare global {
       resetTips(): void;
       /** Data ids without an English or German text, and German texts whose numbers drifted. Must be empty. */
       missing(): string[];
+      /** Changes fields of the fake run and announces it (scripted checks of live HUD states). */
+      patchRun(patch: Partial<RunState>): void;
+      /** Switches the screen without resetting the session (e.g. game -> summary at the end of a scripted run). */
+      screen(screen: Screen): void;
       /** Every `ui:*` intent emitted so far, as "name payload". */
       intents: string[];
       routes: string[];
@@ -1106,6 +1299,8 @@ function boot(): void {
     nextStep,
     resetTips,
     missing: missingTexts,
+    patchRun: (patch) => { if (state.run) { setRun({ ...state.run, ...patch }); bus.emit('state:hud'); } },
+    screen: (screen) => { setScreen(screen); emitAll(); },
     intents: intentLog,
     routes: Object.keys(ROUTES),
     errors: CONN_ERRORS,

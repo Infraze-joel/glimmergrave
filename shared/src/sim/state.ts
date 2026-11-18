@@ -286,7 +286,9 @@ export interface EnemyAttack {
     // matron
     | 'ring' | 'spiral' | 'beam' | 'blasts' | 'wisp'
     // stalker
-    | 'fan' | 'spear' | 'leap' | 'trap' | 'frenzy';
+    | 'fan' | 'spear' | 'leap' | 'trap' | 'frenzy'
+    // update 4: shaman (mend, bolt), bomber (fuse), necromancer (raise), reaver (pounce)
+    | 'mend' | 'bolt' | 'fuse' | 'raise' | 'pounce';
   t: number;
   /** Shape origin / centre. */
   x: number;
@@ -428,6 +430,29 @@ export interface Enemy {
   statusWeaken: number;
   /** Bit per hero slot that has already struck this enemy (ambush talent). */
   struckBy: number;
+  // update 4
+  /** Warded: immune to this element's status and to Resonance bursts that consume or apply it. */
+  ward: ElementId | null;
+  /** Defend objective: goes for the bell shard instead of the heroes while it stands. */
+  siege: boolean;
+  /** Hunt objective: a marked target; `enraged` once the hunt timer ran out (snapshot flag EF.ENRAGED). */
+  marked: boolean;
+  enraged: boolean;
+  /** Aegis: its ward dome is up; seconds until a dropped dome is raised again. */
+  domeOn: boolean;
+  domeCd: number;
+  /** Stands inside the dome of another aegis this tick (takes less damage). */
+  domed: boolean;
+  /** Cooldown of the kind's special: shaman mend, necromancer raise, reaver leap. */
+  specialCd: number;
+  /** Id of the necromancer that raised this minion (it crumbles with its master), or -1. */
+  master: number;
+  /** Reaver in the air: where the leap started (it flies in a straight line to the announced circle). */
+  leapFromX: number;
+  leapFromZ: number;
+  leapTime: number;
+  /** Times a shaman has mended this enemy (at most AI.SHAMAN.MAX_MENDS, so no fight can be healed into a stalemate). */
+  mends: number;
 }
 
 /** A lasting ground effect of a hero ability (zone / trap shapes). */
@@ -456,6 +481,8 @@ export interface PendingBlast {
   t: number;
   damage: number;
   by: number;
+  /** Damage to enemies inside (a bomber's burst); 0 = heroes only. */
+  enemyDamage: number;
 }
 
 export interface Projectile {

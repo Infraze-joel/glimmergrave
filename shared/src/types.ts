@@ -244,7 +244,7 @@ export interface ObjectiveState {
   kind: ObjectiveKind;
   /** 0..1 towards completion (time survived, waves cleared, targets slain, braziers lit). */
   progress: number;
-  /** Seconds left on the objective's timer (survive, hunt), else 0. */
+  /** Seconds left on the objective's timer (survive, hunt, ritual bonus), else 0. */
   timeLeft: number;
   /** The bonus condition can still be met / was met (see OBJECTIVES[kind].bonus). False once it is lost. */
   bonus: boolean;
@@ -401,6 +401,10 @@ export interface RunState {
   chambersCleared: number;
   /** Objective of the current chamber; null in the lobby and when the run is over. */
   objective: ObjectiveState | null;
+  /** Special objectives (every kind but `slay`) completed in this run, across all depths. */
+  objectivesDone: number;
+  /** How many of them were completed with their bonus. */
+  objectiveBonuses: number;
   /** Guided training session state, or null in a normal run. */
   tutorial: TutorialState | null;
 }
@@ -478,6 +482,8 @@ export type GameEvent =
   | { e: 'objective'; kind: ObjectiveKind; what: 'start' | 'site' | 'anchorHit' | 'bonusLost' | 'done'; index?: number; bonus?: boolean }
   /** An aegis raised (`on`) or lost its ward dome of radius `r`; enemies inside take far less damage. */
   | { e: 'dome'; id: number; on: boolean; r: number }
+  /** A hero's elemental hit did nothing because the enemy is warded against `el` (at most one per enemy per second). */
+  | { e: 'warded'; id: number; el: ElementId; x: number; z: number; by: number }
   /** A shaman healed these enemies. */
   | { e: 'mend'; id: number; targets: number[] }
   /** The party went one depth deeper. */

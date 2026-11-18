@@ -36,7 +36,9 @@ const SKEL_CLIPS = ['Idle', 'Idle_Combat', 'Running_A', 'Running_C', 'Walking_D_
   'Death_A', 'Death_A_Pose', 'Death_C_Skeletons', 'Death_C_Pose', 'Spawn_Ground_Skeletons', 'Skeletons_Awaken_Floor',
   'Taunt', 'Taunt_Longer', 'Block', 'Dodge_Forward',
   // update 2: Hex Matron channel + Ossuary Stalker leap
-  'Spellcasting', 'Jump_Start', 'Jump_Idle', 'Jump_Land', '2H_Ranged_Shooting'];
+  'Spellcasting', 'Jump_Start', 'Jump_Idle', 'Jump_Land', '2H_Ranged_Shooting',
+  // update 4: aegis shield stance and bash, reaver twin-blade cut
+  'Blocking', 'Block_Attack', 'Dualwield_Melee_Attack_Slice'];
 
 const DUNGEON = ['floor_tile_large', 'floor_tile_small', 'floor_tile_small_broken_A', 'floor_tile_small_broken_B',
   'floor_tile_small_decorated', 'floor_tile_small_weeds_A', 'floor_tile_small_weeds_B', 'floor_tile_large_rocks',

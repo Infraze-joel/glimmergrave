@@ -56,10 +56,10 @@ export const ENEMIES: Record<EnemyKind, EnemyDef> = {
   regent: { kind: 'regent', hp: 2300, speed: 3.3, radius: 1.1, scale: 2.2, damage: 31, attackRange: 4.4, windup: 0.9, cooldown: 1.5, spawnTime: 2.4, cost: 0, minChamber: 0, poise: 0 },
   // attackRange of the two ranged bosses = the distance they try to keep; damage = their basic projectile.
   matron: { kind: 'matron', hp: 2200, speed: 2.7, radius: 0.9, scale: 1.9, damage: 14, attackRange: 9, windup: 0.9, cooldown: 1.5, spawnTime: 2.4, cost: 0, minChamber: 0, poise: 0 },
-  shaman: { kind: 'shaman', hp: 70, speed: 3.0, radius: 0.42, scale: 1.0, damage: 10, attackRange: 11, windup: 0.9, cooldown: 2.8, spawnTime: 1.0, cost: 4, minChamber: 2, poise: 12 },
-  aegis: { kind: 'aegis', hp: 170, speed: 2.6, radius: 0.55, scale: 1.15, damage: 14, attackRange: 2.2, windup: 0.75, cooldown: 2.2, spawnTime: 1.2, cost: 5, minChamber: 3, poise: 35 },
+  shaman: { kind: 'shaman', hp: 70, speed: 3.0, radius: 0.42, scale: 1.0, damage: 10, attackRange: 11, windup: 0.9, cooldown: 2.8, spawnTime: 1.0, cost: 3, minChamber: 2, poise: 12 },
+  aegis: { kind: 'aegis', hp: 170, speed: 2.6, radius: 0.55, scale: 1.15, damage: 14, attackRange: 2.2, windup: 0.75, cooldown: 2.2, spawnTime: 1.2, cost: 4, minChamber: 3, poise: 35 },
   bomber: { kind: 'bomber', hp: 34, speed: 5.2, radius: 0.4, scale: 0.9, damage: 26, attackRange: 1.8, windup: 0.8, cooldown: 0, spawnTime: 0.8, cost: 2, minChamber: 1, poise: 0 },
-  necromancer: { kind: 'necromancer', hp: 95, speed: 2.8, radius: 0.42, scale: 1.05, damage: 0, attackRange: 12, windup: 1.3, cooldown: 7, spawnTime: 1.1, cost: 5, minChamber: 4, poise: 18 },
+  necromancer: { kind: 'necromancer', hp: 95, speed: 2.8, radius: 0.42, scale: 1.05, damage: 0, attackRange: 12, windup: 1.3, cooldown: 7, spawnTime: 1.1, cost: 4, minChamber: 4, poise: 18 },
   reaver: { kind: 'reaver', hp: 62, speed: 4.6, radius: 0.42, scale: 1.0, damage: 15, attackRange: 1.7, windup: 0.4, cooldown: 1.0, spawnTime: 0.9, cost: 3, minChamber: 2, poise: 5 },
   stalker: { kind: 'stalker', hp: 2500, speed: 3.9, radius: 0.85, scale: 1.8, damage: 15, attackRange: 10, windup: 0.85, cooldown: 1.4, spawnTime: 2.2, cost: 0, minChamber: 0, poise: 0 },
 };

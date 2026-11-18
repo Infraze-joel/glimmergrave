@@ -12,20 +12,30 @@
  *   screen game, draft/doors -> calm
  *   victory / defeat         -> stinger, then the menu bed under the summary
  * Ambience and the tint of the score follow run.room.biome; boss chambers switch the reverb to the hall.
+ *
+ * Update 4: a combat chamber with a special objective (RunState.objective) plays that objective's variation of
+ * the combat piece, a vault replaces the biome's ambience, and the last seconds of an objective timer are
+ * ticked from the module's own clock (objective-clock.ts), which RunState.objective.timeLeft only anchors.
  */
 import { BOON_BY_ID } from '@shared/data/boons.ts';
 import { CLASSES, secondaryOf } from '@shared/data/classes.ts';
 import { STATUS } from '@shared/data/enemies.ts';
-import { BOSS_KINDS, ELEMENT_IDS, type BossKind, type ClassId, type ElementId, type EnemyKind, type GameEvent } from '@shared/types.ts';
+import { OBJECTIVE_TUNING } from '@shared/data/objectives.ts';
+import {
+  BOSS_KINDS, ELEMENT_IDS,
+  type BossKind, type ClassId, type ElementId, type EnemyKind, type GameEvent, type ObjectiveKind, type ObjectiveState,
+} from '@shared/types.ts';
 import { bus } from '../core/EventBus.ts';
 import { selfRoster, state } from '../core/GameState.ts';
 import { settings } from '../core/Settings.ts';
-import { createAmbience, type Ambience } from './ambience.ts';
+import { createAmbience, type Ambience, type SceneId } from './ambience.ts';
 import { createGraph, MIX, setLevel, type AudioGraph } from './engine.ts';
 import { createMusic, MUSIC, type Music, type MusicState } from './music.ts';
+import { createObjectiveClock } from './objective-clock.ts';
 import { createBank, type Bank, type BankStats } from './samples.ts';
 import { createSfx, type Sfx } from './sfx.ts';
 import { abilityInfo } from './sfx-abilities.ts';
+import { OBJECTIVE_SFX, TIMED_OBJECTIVES } from './sfx-objectives.ts';
 
 const CONFIG = {
   /** A server 'cast' for the own hero is ignored when the local action already made the sound this recently. */
@@ -48,6 +58,10 @@ const CONFIG = {
   /** A click this soon after the profile changed is the purchase that changed it (same task, in practice 0 ms). */
   PURCHASE_CLICK_MS: 80,
   SET_ID_PREFIX: 'set_',
+  /** hunt: the score's pressure stays just below "enraged" until the timer has really run out. */
+  HUNT_PRESSURE_MAX: 0.99,
+  /** An `objective` start event this recent belongs to the chamber whose run state arrives now (s). */
+  OBJECTIVE_START_GRACE_S: 2,
 } as const;
 
 /** What a click on a progression page bought, read from how the profile changed. */
@@ -79,6 +93,20 @@ const lastResonance = { at: -1, el: null as ElementId | null };
 let combo = 0;
 /** What is known about living enemies from 'spawn' events (kind decides hit / cast timbres). */
 const enemies = new Map<number, EnemyKind>();
+/** Element each warded enemy shrugs off (`spawn.ward`). */
+const wards = new Map<number, ElementId>();
+/** The objective timer's own clock and what this chamber's objective has done so far. */
+const clock = createObjectiveClock(OBJECTIVE_SFX.TIMER_SECONDS);
+const chamberObjective = {
+  kind: null as ObjectiveKind | null,
+  /** Longest time the timer has shown in this chamber: the score's pressure is measured against it. */
+  timerTotal: 0,
+  /** Braziers reported lit by `objective` events (the run state may arrive a moment later). */
+  sites: new Set<number>(),
+  enraged: false,
+  /** Audio time of the last `objective` start event. */
+  startedAt: -Infinity,
+};
 
 type AudioContextCtor = typeof AudioContext;
 
@@ -129,12 +157,94 @@ function bossOfRun(): BossKind {
   return asBoss(run?.bossKind) ?? run?.finalBoss ?? 'regent';
 }
 
+/** The objective of the chamber on screen, or null (lobby, summary, a run state from before update 4). */
+function objectiveNow(): ObjectiveState | null {
+  return state.screen === 'game' ? state.run?.objective ?? null : null;
+}
+
+function resetObjective(kind: ObjectiveKind | null): void {
+  chamberObjective.kind = kind;
+  chamberObjective.timerTotal = 0;
+  chamberObjective.sites.clear();
+  chamberObjective.enraged = false;
+  clock.stop();
+}
+
+/** Braziers burning: what the events have told so far, or what the run state says, whichever is ahead. */
+function sitesLit(o: ObjectiveState): number {
+  return Math.max(chamberObjective.sites.size, o.sites.filter((site) => site.lit).length);
+}
+
+/**
+ * Follows RunState.objective: hands the score the objective and how far it has come, and anchors the timer clock.
+ * Called for every run state and after every `objective` event.
+ */
+function updateObjective(e: Engine): void {
+  const run = state.run;
+  const o = objectiveNow();
+  const fighting = o !== null && run?.phase === 'combat';
+  if (!o || !fighting) {
+    clock.stop();
+    e.music.setObjective(null);
+    return;
+  }
+  if (o.kind !== chamberObjective.kind) resetObjective(o.kind);
+  const active = o.status === 'active';
+  // survive is timed whatever happened to the bonus; for hunt and ritual the timer is the bonus condition
+  const timed = active && o.timeLeft > 0 && TIMED_OBJECTIVES.includes(o.kind) && (o.kind === 'survive' || o.bonus);
+  if (timed) clock.sync(e.ctx.currentTime, o.timeLeft, o.kind);
+  else clock.stop();
+  chamberObjective.timerTotal = Math.max(chamberObjective.timerTotal, o.timeLeft);
+  const ran = chamberObjective.timerTotal > 0 ? 1 - o.timeLeft / chamberObjective.timerTotal : 0;
+  let pressure = 0;
+  if (o.kind === 'survive') pressure = active ? ran : 1;
+  else if (o.kind === 'hunt') pressure = chamberObjective.enraged || !o.bonus ? 1 : Math.min(CONFIG.HUNT_PRESSURE_MAX, ran);
+  else if (o.kind === 'defend') pressure = o.anchor ? 1 - o.anchor.hp : 1;
+  e.music.setObjective(o.kind, pressure, sitesLit(o));
+}
+
+/** Sounds the timer ticks that fall due (called from the scheduler interval). */
+function tickObjective(e: Engine): void {
+  for (const tick of clock.due(e.ctx.currentTime)) e.sfx.timerTick(tick.kind, tick.left, tick.at);
+}
+
+function onObjective(e: Engine, ev: Extract<GameEvent, { e: 'objective' }>): void {
+  const o = objectiveNow();
+  switch (ev.what) {
+    case 'start':
+      resetObjective(ev.kind);
+      chamberObjective.startedAt = e.ctx.currentTime;
+      e.sfx.objectiveStart(ev.kind);
+      break;
+    case 'site': {
+      chamberObjective.sites.add(ev.index ?? chamberObjective.sites.size);
+      const total = o && o.sites.length > 0 ? o.sites.length : OBJECTIVE_TUNING.RITUAL.SITES;
+      e.sfx.siteLit(o ? sitesLit(o) : chamberObjective.sites.size, total);
+      break;
+    }
+    case 'anchorHit': e.sfx.anchorHit(o?.anchor?.hp ?? 1); break;
+    case 'bonusLost':
+      if (ev.kind === 'defend') e.sfx.anchorShatter();
+      else if (ev.kind === 'hunt') { chamberObjective.enraged = true; e.sfx.huntEnrage(); } else e.sfx.bonusLost();
+      if (ev.kind !== 'survive') clock.stop();
+      break;
+    case 'done':
+      clock.stop();
+      e.sfx.objectiveDone(ev.kind, ev.bonus === true);
+      break;
+  }
+  updateObjective(e);
+}
+
 function updateScene(e: Engine): void {
   const run = state.run;
   const inGame = state.screen === 'game';
   const biome = inGame ? run?.room?.biome ?? 'crypt' : null;
-  e.ambience.setBiome(biome);
+  // a vault is a room of its own, whatever biome it lies in
+  const scene: SceneId | null = biome && run?.objective?.kind === 'vault' ? 'vault' : biome;
+  e.ambience.setBiome(scene);
   if (biome) e.music.setBiome(biome);
+  updateObjective(e);
   e.graph.setSpace(inGame && run?.chamberKind === 'boss' ? 'hall' : 'room');
   e.music.setBossKind(bossOfRun());
   e.music.setDepth(inGame ? run?.depth ?? 0 : 0);
@@ -173,6 +283,7 @@ function start(): void {
       if (e.ctx.state !== 'running') return;
       e.music.schedule();
       e.ambience.schedule();
+      tickObjective(e);
     }), MUSIC.TICK_MS);
     updateScene(engine);
   } catch (err) {
@@ -203,7 +314,7 @@ function kindOfEnemy(id: number): EnemyKind | null {
 }
 
 function onCast(e: Engine, ev: Extract<GameEvent, { e: 'cast' }>): void {
-  if (ev.who.t === 'e') { e.sfx.enemyCast(ev.ability, kindOfEnemy(ev.who.id)); return; }
+  if (ev.who.t === 'e') { e.sfx.enemyCast(ev.ability, kindOfEnemy(ev.who.id), ev.who.id); return; }
   const own = ev.who.id === state.conn.slot;
   const now = e.ctx.currentTime;
   if (ev.ability === 'dash') {
@@ -282,8 +393,11 @@ function onHit(e: Engine, ev: Extract<GameEvent, { e: 'hit' }>): void {
   const now = e.ctx.currentTime;
   const splash = ev.el !== null && ev.el === lastResonance.el && now - lastResonance.at < CONFIG.SPLASH_WINDOW_S;
   const burn = ev.el === 'ember' && !ev.crit && ev.dmg <= STATUS.BURN.DPS * CONFIG.TICK_DAMAGE_FACTOR;
+  // a warded enemy shrugs the element off: no element colour on the hit, and the own hero hears that it did nothing
+  const warded = ev.el !== null && wards.get(ev.target.id) === ev.el;
+  if (warded && ev.el !== null && ev.by === own && !splash) e.sfx.wardDeflect(ev.el);
   e.sfx.hit({
-    dmg: ev.dmg, crit: ev.crit, el: ev.el, own: ev.by === own,
+    dmg: ev.dmg, crit: ev.crit, el: warded ? null : ev.el, own: ev.by === own,
     shielded: ev.dmg <= 0,
     boss: kind === 'champion' || asBoss(kind) !== null || ev.target.id === state.run?.bossId,
     weapon: classOfSlot(ev.by),
@@ -297,8 +411,9 @@ function onGameEvent(ev: GameEvent): void {
     switch (ev.e) {
       case 'hit': onHit(e, ev); break;
       case 'kill':
-        e.sfx.kill(ev.kind, ev.by === own);
+        e.sfx.kill(ev.kind, ev.by === own, ev.id);
         enemies.delete(ev.id);
+        wards.delete(ev.id);
         break;
       case 'resonance':
         lastResonance.at = e.ctx.currentTime;
@@ -314,8 +429,9 @@ function onGameEvent(ev: GameEvent): void {
       case 'revived': e.sfx.revived(ev.slot === own); break;
       case 'shieldBreak': e.sfx.shieldBreak(); break;
       case 'spawn':
-        if (enemies.size >= CONFIG.MAX_TRACKED_ENEMIES) enemies.clear();
+        if (enemies.size >= CONFIG.MAX_TRACKED_ENEMIES) { enemies.clear(); wards.clear(); }
         enemies.set(ev.id, ev.kind);
+        if (ev.ward) wards.set(ev.id, ev.ward);
         e.sfx.spawn(ev.kind, ev.elite, ev.elite ? ev.affix ?? null : null);
         break;
       case 'wave': e.sfx.wave(); break;
@@ -339,6 +455,9 @@ function onGameEvent(ev: GameEvent): void {
         e.sfx.descend(ev.depth);
         e.music.setDepth(ev.depth);
         break;
+      case 'objective': onObjective(e, ev); break;
+      case 'dome': e.sfx.dome(ev.on); break;
+      case 'mend': e.sfx.mendRelease(ev.id, ev.targets.length); break;
       case 'set':
         e.sfx.setBonus(ev.tier, ELEMENT_IDS.find((el) => ev.id === `${CONFIG.SET_ID_PREFIX}${el}`) ?? null, ev.slot === own);
         break;
@@ -373,6 +492,9 @@ function onRun(previousPhase: string | null): void {
     const run = state.run;
     if (!run || run.chamber !== lastChamber) {
       enemies.clear();
+      wards.clear();
+      // an `objective` start event may have arrived before this run state: keep what it set up
+      if (e.ctx.currentTime - chamberObjective.startedAt > CONFIG.OBJECTIVE_START_GRACE_S) resetObjective(null);
       lastChamber = run?.chamber ?? -1;
     }
     if (run && (run.phase === 'victory' || run.phase === 'defeat') && previousPhase !== run.phase) playStinger(e, run.phase);
@@ -489,6 +611,14 @@ export interface AudioDebug {
   fallbacks: number;
   /** Output peak of the last analyser window, 0..1. */
   peak: number;
+  /** Update 4: objective the score follows (null = plain combat), seconds left by the timer clock (null = no timer), its re-anchors. */
+  objective: string | null;
+  /** RunState.depth the score has been given (0..DEPTH.MAX). */
+  depth: number;
+  timer: number | null;
+  timerResyncs: number;
+  /** Enemy channels (mend, fuse, raise, leap) sounding now. */
+  channels: number;
 }
 
 /** Dev / test hook: the live engine's state, or null before the first gesture. */
@@ -500,6 +630,8 @@ export function audioDebug(): AudioDebug | null {
     piece: engine.music.key(), biome: engine.ambience.biome(), space: engine.graph.space(), samples: engine.bank.stats(),
     voices: sfx.voices, liveNodes: engine.graph.live.count, mixNodes: sfx.mixNodes, designed: sfx.designed, fallbacks: sfx.fallbacks,
     peak: engine.graph.meter(),
+    objective: engine.music.objective(), depth: engine.music.depth(), timer: clock.left(engine.ctx.currentTime), timerResyncs: clock.resyncs(),
+    channels: engine.sfx.hordeChannels(),
   };
 }
 

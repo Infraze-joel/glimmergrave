@@ -35,6 +35,8 @@ export interface BotOptions {
   missChance?: number;
   /** After a final boss: take the `descend` door while the depth is below this (default 0 = always ascend). */
   descendTo?: number;
+  /** Door choice: prefer a door with a special objective over the usual boon / blessing preference (tests, soaks). */
+  preferObjectives?: boolean;
 }
 
 const BOT = {
@@ -65,6 +67,15 @@ const BOT = {
   ULT_READY: 0.995, ULT_PACK: 3, ULT_SELF_RANGE: 0.6, ULT_LOW_HP: 0.5, RAGE_RANGE: 4.5, BANNER_BOSS_RANGE: 8,
   /** Secondaries by shape: fractions of the ability's reach at which the bot uses it. */
   LUNGE_REACH: 0.8, FAN_REACH: 0.7, SHOT_REACH: 0.8, LEAP_MIN: 2.5, ZONE_REACH: 0.95, ZONE_HEAL_HP: 0.7, TRAP_MIN: 2,
+  /**
+   * Update 4. Target choice: an enemy of these kinds is preferred as if it stood this many metres closer; so are
+   * hunt targets and whatever threatens the bell shard (within SHARD_THREAT of its edge).
+   */
+  FOCUS: { shaman: 5, necromancer: 6, aegis: 3, bomber: 1.5 }, HUNT_FOCUS: 8, SHARD_FOCUS: 6, SHARD_THREAT: 3.2,
+  /** Without a target the bot waits this far from the shard's edge; it stands this close to a reliquary. */
+  SHARD_STAND: 1.6, VAULT_STAND: 0.7,
+  /** Ritual: the bot holds this fraction of its circle's radius and steps back in when it is pushed further out. */
+  SITE_HOLD: 0.62, SITE_STEP: 0.6,
   TUTORIAL_DASH_LEAD_SECONDS: 0.2, TUTORIAL_STAND: { x: 0, z: 1.5 }, TUTORIAL_HAZARD_STANDOFF: 1.8, TUTORIAL_STORM_DASH_RANGE: 3.6, TUTORIAL_CLOSE_RANGE: 3,
 } as const;
 
@@ -128,6 +139,7 @@ export class BotBrain {
   private hazardTele: Tele = { shape: 'circle', x: 0, z: 0, rot: 0, r: 0, w: 0, seen: -1e9, lands: 0, until: 0, src: -1 };
   private art = 0;
   private descendTo: number;
+  private preferObjectives: boolean;
 
   constructor(slot: number, cls: ClassId, seed = 1, opts: BotOptions = {}) {
     this.slot = slot;
@@ -136,6 +148,7 @@ export class BotBrain {
     this.reactionTicks = Math.round((opts.reaction ?? BOT.REACTION_SECONDS) / TICK_DT);
     this.missChance = opts.missChance ?? BOT.MISS_CHANCE;
     this.descendTo = opts.descendTo ?? 0;
+    this.preferObjectives = opts.preferObjectives === true;
     this.strafeDir = this.rng.chance(0.5) ? 1 : -1;
   }
 
@@ -223,6 +236,12 @@ export class BotBrain {
       n++;
     }
     const want = n > 0 && hp / n < BOT.LOW_PARTY_HP ? 'blessing' : 'boon';
+    if (this.preferObjectives) {
+      // A special objective first (of the wanted door type if both doors have one), never behind a cursed door.
+      let special = doors.findIndex((d) => d.objective !== 'slay' && d.type === want);
+      if (special < 0) special = doors.findIndex((d) => d.objective !== 'slay' && d.type !== 'cursed');
+      if (special >= 0) return special;
+    }
     let index = doors.findIndex((d) => d.type === want);
     if (index < 0) index = doors.findIndex((d) => d.type !== 'cursed');
     return index < 0 ? 0 : index;
@@ -413,9 +432,15 @@ export class BotBrain {
     const sec = secondaryOf(def, this.art);
     const ult = def.ultimate;
 
-    // Target: nearest enemy that can be hit.
+    // Target: the nearest enemy that can be hit, with a head start for supports (shaman, necromancer, aegis),
+    // marked hunt targets and whatever is hacking at the bell shard.
+    const objective = view.run.objective;
+    const shard = objective && objective.kind === 'defend' && objective.anchor && objective.anchor.hp > 0 ? objective.anchor : null;
+    const marks = objective && objective.kind === 'hunt' ? objective.targets : null;
+    const focus: Partial<Record<string, number>> = BOT.FOCUS;
     let target: EnemySnap | null = null;
     let targetD = Infinity;
+    let targetScore = Infinity;
     let close = 0;
     let cx = 0;
     let cz = 0;
@@ -424,7 +449,10 @@ export class BotBrain {
       const d = Math.hypot(e.x - me.x, e.z - me.z);
       if (d < 6) { close++; cx += e.x; cz += e.z; }
       if (e.anim === 'spawn') continue;
-      if (d < targetD) { targetD = d; target = e; }
+      let score = d - (focus[e.kind] ?? 0);
+      if (marks && marks.includes(e.id)) score -= BOT.HUNT_FOCUS;
+      if (shard && Math.hypot(e.x - shard.x, e.z - shard.z) <= shard.r + ENEMIES[e.kind].attackRange + BOT.SHARD_THREAT && ENEMIES[e.kind].attackRange < BOT.RANGED_MIN) score -= BOT.SHARD_FOCUS;
+      if (score < targetScore) { targetScore = score; targetD = d; target = e; }
     }
     const lowHp = me.hp < me.maxHp * 0.35;
 
@@ -531,6 +559,32 @@ export class BotBrain {
       }
     }
 
+    // Objectives: wait at the shard, hold a brazier circle, open the reliquary.
+    if (objective && objective.status === 'active') {
+      if (objective.kind === 'vault' && objective.anchor) {
+        const a = objective.anchor;
+        const d = Math.hypot(a.x - me.x, a.z - me.z);
+        if (d > a.r + BOT.VAULT_STAND) { mx = (a.x - me.x) / d; mz = (a.z - me.z) / d; } else { mx = 0; mz = 0; }
+      } else if (shard && !target) {
+        const d = Math.hypot(shard.x - me.x, shard.z - me.z);
+        if (d > shard.r + BOT.SHARD_STAND) { mx = (shard.x - me.x) / d; mz = (shard.z - me.z) / d; }
+      } else if (objective.kind === 'ritual') {
+        const site = this.ritualSite(view, objective.sites);
+        if (site) {
+          const hold = site.r * BOT.SITE_HOLD;
+          const d = Math.hypot(site.x - me.x, site.z - me.z);
+          const len = Math.hypot(mx, mz);
+          if (d > hold) {
+            mx = (site.x - me.x) / d;
+            mz = (site.z - me.z) / d;
+          } else if (len > 0.01 && Math.hypot(me.x + (mx / len) * BOT.SITE_STEP - site.x, me.z + (mz / len) * BOT.SITE_STEP - site.z) > hold) {
+            mx = 0;
+            mz = 0;
+          }
+        }
+      }
+    }
+
     // Revive a fallen ally when possible.
     let ally: PlayerSnap | null = null;
     let allyD = Infinity;
@@ -607,6 +661,27 @@ export class BotBrain {
     if (wantUlt && (this.lastButtons & BTN.ULTIMATE) === 0) cmd.buttons |= BTN.ULTIMATE;
     else if (wantSecondary && (this.lastButtons & BTN.SECONDARY) === 0) cmd.buttons |= BTN.SECONDARY;
     if (wantDash && (this.lastButtons & BTN.DASH) === 0) cmd.buttons |= BTN.DASH;
+  }
+
+  /**
+   * The brazier this bot lights: the living heroes spread over the unlit circles in slot order, so a party lights
+   * several at once and doubles up as circles are finished.
+   */
+  private ritualSite(view: BotView, sites: readonly { x: number; z: number; r: number; lit: boolean }[]): { x: number; z: number; r: number } | null {
+    let rank = 0;
+    for (const p of view.players) {
+      if (p.slot < this.slot && p.state === 'alive' && (p.flags & PF.CONNECTED) !== 0) rank++;
+    }
+    let unlit = 0;
+    for (const s of sites) if (!s.lit) unlit++;
+    if (unlit === 0) return null;
+    let want = rank % unlit;
+    for (const s of sites) {
+      if (s.lit) continue;
+      if (want === 0) return s;
+      want--;
+    }
+    return null;
   }
 
   /** Is this the moment for the equipped secondary? Decided by the ability's shape, so every variant is covered. */

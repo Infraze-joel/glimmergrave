@@ -10,7 +10,8 @@ import { META_UPGRADES, PARAGON, paragonEffective, type ParagonDef } from '@shar
 import { MOD_KEYS, type Mods } from '@shared/data/mods.ts';
 import { REACTIONS, type ReactionDef } from '@shared/data/reactions.ts';
 import { RELICS, RELIC_TUNING, rankScale, type RelicDef } from '@shared/data/relics.ts';
-import { AFFIX_IDS, CLASS_IDS, DOOR_TYPES, ELEMENT_IDS, type AffixId } from '@shared/types.ts';
+import { OBJECTIVES } from '@shared/data/objectives.ts';
+import { AFFIX_IDS, CLASS_IDS, DOOR_TYPES, ELEMENT_IDS, ENEMY_KINDS, OBJECTIVE_KINDS, type AffixId } from '@shared/types.ts';
 import { formatInt, formatNum, hasKey, LANGS, t, textIn, tx } from './i18n.ts';
 
 const PERCENT = 100;
@@ -123,6 +124,8 @@ export const paragonBody = (def: ParagonDef, rank: number): string =>
 
 // ------------------------------------------------------------------ coverage check
 
+/** Foes with a first-encounter tip (kept in step with tips.ts NEW_FOES; text.ts must not import the HUD). */
+const NEW_FOE_KINDS = ['shaman', 'aegis', 'bomber', 'necromancer', 'reaver'] as const;
 const NUMBERS = /\d+(?:[.,]\d+)?/g;
 const numbersOf = (text: string): string => (text.match(NUMBERS) ?? []).map((n) => n.replace(',', '.')).sort().join(' ');
 
@@ -163,6 +166,14 @@ export function missingTexts(): string[] {
   for (const def of PARAGON) { keys.push(`paragon.${def.id}.name`); mirrored.push(`paragon.${def.id}.body`); }
   for (const key of MOD_KEYS) keys.push(`mod.${key}`);
   for (const type of DOOR_TYPES) keys.push(`door.${type}.name`, `door.${type}.desc`, `toast.door.${type}`, `toast.door.${type}Sub`);
+  // update 4: every objective (name, goal, codex detail, bonus and what the HUD says when it is lost) and every enemy kind
+  for (const kind of OBJECTIVE_KINDS) {
+    mirrored.push(`objective.${kind}.name`, `objective.${kind}.goal`);
+    keys.push(`objective.${kind}.detail`);
+    if (OBJECTIVES[kind].bonus !== '') { mirrored.push(`objective.${kind}.bonus`); keys.push(`objective.lost.${kind}`); }
+  }
+  for (const kind of ENEMY_KINDS) keys.push(`enemy.${kind}.name`, `enemy.${kind}.desc`, `enemy.${kind}.tip`);
+  for (const kind of NEW_FOE_KINDS) keys.push(`tip.enemy.${kind}.body`);
 
   const out: string[] = [];
   const names = /\.name$/;
