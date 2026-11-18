@@ -30,3 +30,4 @@ Deferred items. Promote one into a milestone before working on it.
 - [ ] Ground aim marker in the 3D scene to go with the reticle cursor.
 - [ ] Other players' relic and talent counts on lobby cards (needs `RosterEntry` fields).
 - [ ] German settings row for the aim cursor only fits at a small font size.
+- [ ] The dead final boss's empty health bar stays on screen while the descend / ascend doors are open.
