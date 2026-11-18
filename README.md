@@ -272,13 +272,13 @@ Bibliotheken: MIT (three, ws, vite, …), Cinzel: SIL Open Font License.
 | Prüfung | Ergebnis |
 |---|---|
 | Frische Installation (`npm ci` in neuem Klon), Typprüfung, Lint | fehlerfrei |
-| Unit- und Integrationstests (`npm test`) | 508 Tests in 30 Dateien bestanden |
+| Unit- und Integrationstests (`npm test`) | 509 Tests in 30 Dateien bestanden |
 | – Protokoll, Bewegung, Fähigkeiten, Status/Resonance, Boons, Draft, Gegner, Telegraph-Fairness, Director, Determinismus | enthalten |
 | – Server mit echten WebSocket-Clients: Erstellen/Beitreten/Wiederbeitritt, ungültiger Code, voller Raum, falsche Version, kaputte/zu große Nachrichten, Ratenlimit, Host-Wechsel, Abbruch im Run, Ablauf der Frist, Rückkehr zur Lobby | enthalten |
 | – Zwei Bots spielen einen ganzen Run, auch mit 150 ± 50 ms Latenz | bestanden |
 | Browser-Tests gegen den Produktions-Build (`npm run test:e2e`), Seite und WebSocket auf derselben Adresse | 20 Tests bestanden |
 | – Update 4: eine „Ausharren"-Kammer zeigt ihr Ziel, zählt herunter und meldet den verlorenen Bonus (eigener Server mit festgelegtem Ziel) | enthalten |
-| – Update 4 im Server: jedes Ziel mit gewonnenem und verlorenem Bonus, jedes Gegnerverhalten samt Konter, Schutzzeichen, Türregeln, Bots | 65 eigene Tests |
+| – Update 4 im Server: jedes Ziel mit gewonnenem und verlorenem Bonus, jedes Gegnerverhalten samt Konter, Schutzzeichen, Türregeln, Bots | 66 eigene Tests |
 | – Update 3: Spielstand von vor Update 3 behält Glimmer und Upgrades; Meisterschaft schaltet Alternative und Talent frei, der Server begrenzt sie pro Klasse; ein beendeter Run zahlt Glimmer und Erfahrung und verbucht sie | enthalten |
 | – Update 3 im Server: jede Klasse, Alternative und jedes Ultimate, Umbra und alle sechs Reaktionen, neue Boons, Sets, Talente, Relikte, Abstieg, Belohnungen, Elite-Eigenschaften | 110 eigene Tests |
 | – Modelle und Sounds werden nur mit Inhaltsversion (`?v=…`) geladen; ein Browser mit einer älteren Modelldatei im Cache lädt die neue Version trotzdem (Fehler `missing prop skel_quiver` nach dem ersten Deploy von Update 2, lokal nachgestellt) | enthalten |

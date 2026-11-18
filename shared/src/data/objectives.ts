@@ -49,6 +49,13 @@ export const OBJECTIVE_TUNING = {
     /** Each extra hero in the same circle adds this much speed. */
     EXTRA_HERO_SPEED: 0.35,
     BONUS_SECONDS: 60, SPAWN_INTERVAL: 6, BUDGET_FRACTION: 0.4,
+    /**
+     * A ritual must always end, even for a party that cannot hold a circle (a hero away from the keyboard, a
+     * room that is too hot). Once the bonus time has passed the braziers stop cooling, and from
+     * OVERTIME_SPREAD_SECONDS after that the fire spreads by itself: unlit braziers fill at OVERTIME_SPREAD_RATE
+     * of the normal speed with nobody inside (heroes still speed it up).
+     */
+    OVERTIME_SPREAD_SECONDS: 30, OVERTIME_SPREAD_RATE: 0.5,
   },
   /** Vault: draft choices added on top of the normal count; the draft guarantees rare or better; healing. */
   /** A living hero within OPEN_RADIUS_PAD of the reliquary's edge (anchor.r + pad from its centre) opens it. */

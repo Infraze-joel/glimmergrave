@@ -380,6 +380,36 @@ describe('ritual', () => {
     expect(w.getRunState()).toMatchObject({ objectivesDone: 1, objectiveBonuses: 1 });
   });
 
+  it('always ends: after the bonus time the braziers stop cooling, then the fire spreads by itself', () => {
+    const { w } = begin('ritual', ['knight', 'mage'], 1);
+    const far = { x: 0, z: w.room.d / 2 - 1 };
+    const keepAway = (ticks: number): void => {
+      for (let i = 0; i < ticks && w.run.phase === 'combat'; i++) {
+        // Nobody ever stands in a circle; the heroes just stay alive.
+        for (const h of w.heroes) { h.invuln = 1; h.body.x = far.x; h.body.z = far.z; }
+        w.step();
+      }
+    };
+    const sites = state(w).sites;
+    place(w, 0, sites[0]!.x, sites[0]!.z);
+    run(w, seconds(3));
+    const warmed = state(w).sites[0]!.progress;
+    expect(warmed).toBeGreaterThan(0);
+    keepAway(seconds(T.RITUAL.BONUS_SECONDS));
+    expect(state(w).bonus).toBe(false);
+    const cooled = state(w).sites[0]!.progress;
+    expect(cooled).toBeLessThan(warmed);
+    // Overtime before the spread: nothing cools any further, nothing fills.
+    keepAway(seconds(T.RITUAL.OVERTIME_SPREAD_SECONDS - 5));
+    expect(state(w).sites[0]!.progress).toBeCloseTo(cooled, 5);
+    expect(state(w).sites[1]!.progress).toBe(0);
+    // The spread lights every brazier without a hero in it, and the chamber ends.
+    const perBrazier = (T.RITUAL.SECONDS_TO_LIGHT * (1 + OBJECTIVE.RITUAL_SECONDS_PER_EXTRA_HERO)) / T.RITUAL.OVERTIME_SPREAD_RATE;
+    keepAway(seconds(perBrazier + 6));
+    expect(w.run.phase).not.toBe('combat');
+    expect(w.getRunState()).toMatchObject({ objectivesDone: 1, objectiveBonuses: 0 });
+  });
+
   it('more heroes in one circle are faster (a party needs longer per brazier); too slow loses the bonus but not the chamber', () => {
     const { w } = begin('ritual', ['knight', 'mage'], 1);
     const sites = state(w).sites;

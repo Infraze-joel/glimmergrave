@@ -275,8 +275,12 @@ export function stepObjective(w: World, obj: ObjectiveRun): void {
           const dz = h.body.z - site.z;
           if (dx * dx + dz * dz <= site.r * site.r) inside++;
         }
-        if (inside > 0) site.progress = Math.min(1, site.progress + rate * (1 + T.RITUAL.EXTRA_HERO_SPEED * (inside - 1)));
-        else site.progress = Math.max(0, site.progress - rate * T.RITUAL.DECAY);
+        // Overtime (bonus time over): no cooling; later the fire spreads on its own so the chamber always ends.
+        const overtime = obj.time - T.RITUAL.BONUS_SECONDS;
+        const spread = overtime >= T.RITUAL.OVERTIME_SPREAD_SECONDS ? rate * T.RITUAL.OVERTIME_SPREAD_RATE : 0;
+        if (inside > 0) site.progress = Math.min(1, site.progress + spread + rate * (1 + T.RITUAL.EXTRA_HERO_SPEED * (inside - 1)));
+        else if (overtime < 0) site.progress = Math.max(0, site.progress - rate * T.RITUAL.DECAY);
+        else site.progress = Math.min(1, site.progress + spread);
         if (site.progress >= 1 - SIM.EPS) {
           site.progress = 1;
           site.lit = true;

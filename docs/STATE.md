@@ -2,7 +2,7 @@
 
 - Phase: release candidate for update 4 "Objectives and the Horde" on branch `update-4`, which contains
   update 3 (`update-3`, spec `docs/milestones/update-3.md`). Spec: `docs/milestones/update-4.md`. Quality gate
-  passed locally: typecheck, lint, 508 unit/integration tests, 20 browser tests on the production build.
+  passed locally: typecheck, lint, 509 unit/integration tests, 20 browser tests on the production build.
 - Last session: update 3 (seven classes, ultimates, umbra and reactions, mastery, Ascension, relics, Chronicle,
   endless descent, aim cursor), then update 4 (objectives, five enemy kinds, wards), each as a contract plus
   four work streams (sim/server, render, UI, audio) and an integration pass with live bot sessions.

@@ -42,3 +42,4 @@ Deferred items. Promote one into a milestone before working on it.
       but not the reward.
 - [ ] Next from the engagement list: in-run merchant and risk events, build-defining boons, daily seed and
       bounties, leaderboards (needs accounts).
+- [x] A ritual chamber could go on without end for a party that never held a circle; the fire now spreads by itself in overtime (found in a live bot session with an idle hero).
