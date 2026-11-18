@@ -19,7 +19,7 @@ const SRC = resolve(process.argv[2] ?? '../audio-src');
 const OUT = resolve('client/public/assets/audio');
 const MANIFEST = resolve('client/src/audio/manifest.ts');
 const DOC = resolve('docs/AUDIO.md');
-/** Update 3 budget for the whole sample set. */
+/** Budget for the whole sample set (since update 3). */
 const BUDGET_BYTES = 900 * 1024;
 
 /** key -> repository folder, folder of the audio inside it, upstream URL and the licence file to verify. */
@@ -141,6 +141,10 @@ const GROUPS = [
   ['zap.chain', 'magic', 2, [['dig', 'zap_three_tone_down.ogg']]],
   ['tex.void', 'bed', 2, [['sci', 'space_engine_low_001.ogg', { seg: [0.5, 1.4], rate: 22050 }]]],
   ['tex.fireLow', 'bed', 2, [['sci', 'thruster_fire_003.ogg', { seg: [0.6, 3.0], rate: 22050 }]]],
+  // update 4: a dull plate for warded hits and shard chips, a falling tone for the aegis dome, a spinning hum
+  ['hit.dull', 'impact', 2, imp('plate_light', [0, 2])],
+  ['zap.fall', 'magic', 2, [['dig', 'high_down.ogg']]],
+  ['tex.spin', 'bed', 2, [['sci', 'engine_circular_000.ogg', { seg: [0.5, 1.9], rate: 22050 }]]],
   // ---------------------------------------------------------------- tier 3: run flow
   ['door.open', 'flow', 3, [['rpg', 'door_open_1.ogg'], ['rpg', 'door_open_2.ogg']]],
   ['door.close', 'flow', 3, [['rpg', 'door_close_4.ogg']]],
@@ -157,6 +161,9 @@ const GROUPS = [
   // update 3: the descent's sub drop, the Chronicle's gong
   ['sub.drop', 'big', 3, [['dig', 'low_down.ogg']]],
   ['bong', 'flow', 3, [['ifc', 'bong_001.wav']]],
+  // update 4: the reliquary's lid and the pouches inside the vault
+  ['lid', 'flow', 3, [['rpg', 'book_close.ogg']]],
+  ['pouch', 'flow', 3, [['rpg', 'handle_small_leather.ogg'], ['rpg', 'handle_small_leather_2.ogg']]],
   // ---------------------------------------------------------------- tier 4: ambience beds (crossfaded at runtime)
   ['bed.drone', 'bed', 4, [['sci', 'space_engine_low_002.ogg', { seg: [0.3, 3.6], rate: 22050 }]]],
   ['bed.rumble', 'bed', 4, [['sci', 'space_engine_large_000.ogg', { seg: [0.3, 3.6], rate: 22050 }]]],

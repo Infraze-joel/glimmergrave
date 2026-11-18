@@ -11,8 +11,13 @@
  * Voices are layered and filtered (detuned saws through moving low-passes, formant "choir", vibrato leads);
  * drums and bells use samples when they are decoded and fall back to synthesis otherwise.
  * Victory / defeat are one-shot stingers.
+ *
+ * Update 4: a combat chamber with a special objective plays that objective's variation instead of the combat
+ * piece (`setObjective`): survive = a relentless pulse whose tempo and density tighten with the timer, defend =
+ * an anchored drone on the tonic under half-time drums, hunt = a driving ostinato, ritual = a sparse frame that
+ * gains a layer per lit brazier, vault = sparse and warm, in the relative major, no drums.
  */
-import type { BiomeId, BossKind } from '@shared/types.ts';
+import type { BiomeId, BossKind, ObjectiveKind } from '@shared/types.ts';
 import { MIX, midiToHz, noise, panned, tone, type AudioGraph, type NoiseOpts, type ToneOpts } from './engine.ts';
 import type { SampleGroup } from './manifest.ts';
 import { VOICES, type Player, type VoiceOpts } from './samples.ts';
@@ -61,7 +66,29 @@ const V: Chord = { root: 4, sharp7: true };
 const VI: Chord = { root: 5 };
 const VII: Chord = { root: 6 };
 
-type TrackKey = 'menu' | 'calm' | 'combat' | 'elite' | `boss:${BossKind}`;
+/** Objectives with a piece of their own (`slay` is the combat piece). */
+export type SpecialObjective = Exclude<ObjectiveKind, 'slay'>;
+type TrackKey = 'menu' | 'calm' | 'combat' | 'elite' | `boss:${BossKind}` | `obj:${SpecialObjective}`;
+
+/** What the objective pieces follow while they play. */
+export interface ObjectiveMusic {
+  /** 0..1: how far the timer has run down (survive, hunt), how damaged the shard is (defend). */
+  pressure: number;
+  /** ritual: braziers burning. */
+  lit: number;
+}
+
+export const OBJECTIVE_MUSIC = {
+  /** Braziers beyond this add no further layer. */
+  LIT_MAX: 3,
+  /** survive: beats per minute at the start and gained by the end of the timer. */
+  SURVIVE_BPM: 116,
+  SURVIVE_BPM_GAIN: 20,
+  HUNT_BPM: 130,
+  HUNT_BPM_ENRAGED: 138,
+  RITUAL_BPM: 104,
+  RITUAL_BPM_PER_SITE: 4,
+} as const;
 
 const PROGRESSION: Record<TrackKey, Chord[]> = {
   menu: [I, I, VI, VI, IV, IV, I, I, III, III, VII, VII, IV, IV, V, V],
@@ -73,6 +100,14 @@ const PROGRESSION: Record<TrackKey, Chord[]> = {
   'boss:matron': [I, I, VI, V, I, IV, V, V, I, III, VI, V, IV, I, V, V],
   // barely any harmony: tonic pedal with tritone-laden neighbours
   'boss:stalker': [I, I, I, II, I, I, VI, II, I, I, I, II, IV, IV, II, II],
+  // one chord per two bars: nothing may distract from the pulse
+  'obj:survive': [I, I, I, I, VI, VI, I, I, IV, IV, I, I, VI, VI, V, V],
+  // the bass never leaves the tonic (pedal); only the colour above it moves
+  'obj:defend': [I, I, VI, VI, I, I, IV, IV, I, I, III, III, IV, IV, I, I],
+  'obj:hunt': [I, I, I, II, I, I, VII, VII, I, I, I, II, VI, VI, V, V],
+  'obj:ritual': [I, I, IV, IV, I, I, VI, VII, I, I, IV, IV, VI, VII, I, I],
+  // F, B flat and C: the relative major, I-IV-V in F. The only piece of the score that is at peace
+  'obj:vault': [III, III, VI, VI, VII, VII, III, III, VI, VI, III, III, VII, VII, III, III],
 };
 
 /** Semitones above TONIC for `offset` scale steps above the chord root, `octave` octaves up. */
@@ -120,6 +155,10 @@ const MATRON_MELODY: [number, number, number][][] = [
 /** Stalker: bone ostinato accents per 16th (0 = rest, 1 = ghost, 2 = accent) and its hunting motifs. */
 const STALKER_BONES = [2, 0, 1, 1, 0, 2, 0, 1, 2, 0, 1, 0, 2, 1, 0, 1];
 const STALKER_PULSE = [0, 3, 6, 10, 12];
+/** Hunt: the ostinato in scale steps above the chord root (the second degree is flattened: Phrygian). */
+const HUNT_OSTINATO = [0, 0, 7, 0, 1, 0, 7, 0, 0, 0, 7, 0, 3, 2, 1, 0];
+/** Ritual: one note per burning brazier, D-F-A above the tonic two octaves up. */
+const BRAZIER_NOTES = [0, 3, 7];
 const STALKER_MOTIFS: (number | null)[][] = [
   [0, _, 1, _, 0, _, _, 6, _, _, 0, _, _, _, _, _],
   [0, _, 2, _, 1, _, 0, _, _, _, _, _, 6, _, 0, _],
@@ -414,6 +453,8 @@ interface StepCtx {
   section: number;
   phase: number;
   tint: Tint;
+  /** State of the chamber's objective (only the objective pieces read it). */
+  obj: ObjectiveMusic;
 }
 
 interface TrackDef {
@@ -421,7 +462,7 @@ interface TrackDef {
   /** Steps per bar and per beat (16 / 4 = common time, 12 / 3 = compound time). */
   steps: number;
   stepsPerBeat: number;
-  bpm(phase: number): number;
+  bpm(phase: number, obj: ObjectiveMusic): number;
   step(c: StepCtx): void;
 }
 
@@ -675,7 +716,148 @@ const DEFS: Record<TrackKey, TrackDef> = {
       }
     },
   },
+  // -------------------------------------------------------------- survive: a relentless pulse that tightens
+  'obj:survive': {
+    gain: 1.12, steps: 16, stepsPerBeat: 4,
+    bpm: (_phase, obj) => OBJECTIVE_MUSIC.SURVIVE_BPM + OBJECTIVE_MUSIC.SURVIVE_BPM_GAIN * obj.pressure,
+    step({ kit, bar, s, t, sd, barLen, chord, tint, obj }) {
+      const p = obj.pressure;
+      const idx = bar * 16 + s;
+      // four on the floor, and a clock: tick on the off-beat, tock a third lower
+      if (s % 4 === 0) kit.kick(t, 0.3 + 0.04 * p);
+      if (s % 4 === 2) kit.bone(t, s % 8 === 2 ? 1.6 : 1.3, 0.045 + 0.02 * p);
+      if (s === 4 || s === 12) kit.snare(t, 0.14 + 0.05 * p);
+      // the pulse: eighths on the root, sixteenths once half the time is gone
+      if (s % 2 === 0 || p > 0.5) {
+        kit.bass(t, note(chord, s % 8 === 6 ? 7 : 0, 0), sd * 0.9, s % 4 === 0 ? 0.16 : 0.1 + 0.03 * p, 320 + 500 * p);
+      }
+      if (s % 2 === 0) kit.hat(t, 0.035);
+      else if (rnd(idx, 31) < 0.2 + 0.7 * p) kit.hat(t, 0.022);
+      // the last quarter: a snare roll into every second bar
+      if (p > 0.75 && bar % 2 === 1 && s >= 12) kit.snare(t, 0.06 + 0.03 * (s - 12));
+      if (tint.anvil && s === 6) kit.anvil(t, 0.04);
+      if (tint.drip && s === 10 && bar % 2 === 0) kit.drop(t, note(chord, 4, 3), 0.04);
+      if (s === 0) {
+        kit.pad(t, chordPad(chord, 1), barLen, 0.02, 800 + 900 * p);
+        if (bar % 4 === 0) kit.war(t, 0.1 + 0.06 * p);
+        if (p > 0.4) kit.tremolo(t, [note(chord, 0, 2), note(chord, 4, 2)], barLen, 0.005 + 0.01 * p);
+      }
+      if (p > 0.6 && bar % 4 >= 2) {
+        const step = PHRASES[Math.floor(rnd(bar, 7) * PHRASES.length)][s];
+        if (step !== null) kit.lead(t, note(chord, step, 2), sd * 1.6, 0.045, 1900);
+      }
+    },
+  },
+  // -------------------------------------------------------------- defend: anchored on the tonic
+  'obj:defend': {
+    gain: 0.66, steps: 16, stepsPerBeat: 4,
+    bpm: () => 100,
+    step({ kit, bar, s, t, sd, barLen, chord, tint, obj }) {
+      if (s === 0) {
+        // the anchor: tonic and fifth held under everything, whatever the chord
+        kit.drone(t, TONIC, barLen, 0.11);
+        kit.drone(t, TONIC + 7, barLen, 0.05);
+        kit.pad(t, chordPad(chord, 1), barLen, 0.022, 800);
+        if (bar % 2 === 0) kit.bell(t, TONIC + 2 * OCTAVE, 0.06); // the shard rings
+        if (bar % 4 === 2) kit.choir(t, [TONIC + 2 * OCTAVE, TONIC + 2 * OCTAVE + 7], barLen * 2, 0.011, 'oo');
+        // a wounded shard: the fifth above it starts to shake
+        if (obj.pressure > 0.5) kit.tremolo(t, [TONIC + 2 * OCTAVE + 7], barLen, 0.004 + 0.012 * (obj.pressure - 0.5));
+      }
+      // half time: the back beat falls on three
+      if (s === 0 || s === 10) kit.kick(t, 0.3);
+      if (s === 8) kit.snare(t, 0.16);
+      if (s === 8 && bar % 2 === 1) kit.war(t, 0.1, 0.9);
+      if (s % 4 === 2) kit.hat(t, 0.03);
+      if (s === 0 || s === 6 || s === 10) kit.bass(t, TONIC, sd * 2.4, 0.15, 300);
+      if (tint.anvil && s === 14) kit.anvil(t, 0.04);
+      if (tint.drip && s === 6 && bar % 2 === 1) kit.drop(t, note(chord, 4, 3), 0.04);
+      if (bar % 4 >= 2 && s === 0) kit.wail(t, note(chord, bar % 4 === 2 ? 4 : 2, 2), barLen * 0.9, 0.045);
+    },
+  },
+  // -------------------------------------------------------------- hunt: a driving ostinato
+  'obj:hunt': {
+    gain: 1.1, steps: 16, stepsPerBeat: 4,
+    bpm: (_phase, obj) => (obj.pressure >= 1 ? OBJECTIVE_MUSIC.HUNT_BPM_ENRAGED : OBJECTIVE_MUSIC.HUNT_BPM),
+    step({ kit, bar, s, t, sd, barLen, chord, tint, obj }) {
+      const enraged = obj.pressure >= 1;
+      const off = HUNT_OSTINATO[s];
+      const flat = ((chord.root + off) % SCALE.length) === 1 ? 1 : 0;
+      kit.pluck(t, note(chord, off, 1) - flat, s % 4 === 0 ? 0.075 : 0.05);
+      if (s % 2 === 0) kit.bass(t, note(chord, off, 0) - flat, sd * 0.9, s % 4 === 0 ? 0.15 : 0.1, 380 + 240 * obj.pressure);
+      if (s % 4 === 0) kit.kick(t, 0.31);
+      if (s === 14 && bar % 2 === 1) kit.kick(t, 0.22);
+      if (s === 4 || s === 12) kit.snare(t, 0.17);
+      // a gallop on the toms
+      if (s % 4 === 3) kit.tom(t, FILL_TOMS[(s >> 2) % FILL_TOMS.length] - OCTAVE, 0.07);
+      kit.hat(t, s % 2 === 0 ? 0.04 : 0.022);
+      if (tint.anvil && s === 10) kit.anvil(t, 0.04);
+      if (tint.drip && s === 6 && bar % 2 === 0) kit.drop(t, note(chord, 4, 3), 0.04);
+      if (s === 0) kit.pad(t, [note(chord, 0, 1), note(chord, 4, 1)], barLen, 0.016, 900);
+      // the horn: a call every four bars, root then up a fourth
+      if (bar % 4 === 0 && s === 0) kit.lead(t, note(chord, 0, 2), sd * 3, 0.05, 2000);
+      if (bar % 4 === 0 && s === 4) kit.lead(t, note(chord, 3, 2), sd * 6, 0.05, 2000);
+      if (enraged) {
+        if (s === 3 || s === 11) kit.stab(t, [note(chord, 0, 2), note(chord, 0, 2) + 6], 0.04);
+        if (s === 0 && bar % 2 === 0) kit.tremolo(t, [note(chord, 0, 2) + 6], barLen * 2, 0.012);
+      }
+    },
+  },
+  // -------------------------------------------------------------- ritual: one layer per burning brazier
+  'obj:ritual': {
+    gain: 0.8, steps: 16, stepsPerBeat: 4,
+    bpm: (_phase, obj) => OBJECTIVE_MUSIC.RITUAL_BPM + OBJECTIVE_MUSIC.RITUAL_BPM_PER_SITE * Math.min(OBJECTIVE_MUSIC.LIT_MAX, obj.lit),
+    step({ kit, bar, s, t, sd, barLen, chord, section, tint, obj }) {
+      const lit = Math.min(OBJECTIVE_MUSIC.LIT_MAX, obj.lit);
+      // the frame, always: drone, a hand drum, bones
+      if (s === 0) {
+        kit.drone(t, TONIC, barLen, 0.09);
+        kit.pad(t, chordPad(chord, 1), barLen, 0.018, 700 + 250 * lit);
+        // every burning brazier is a bell note in the bar that opens a phrase
+        if (bar % 4 === 0) for (let i = 0; i < lit; i++) kit.glass(t + i * sd * 2, TONIC + 2 * OCTAVE + BRAZIER_NOTES[i], 0.07);
+      }
+      if (s === 0 || s === 6 || s === 10) kit.tom(t, TONIC + OCTAVE, s === 0 ? 0.11 : 0.07);
+      if (s % 4 === 2) kit.bone(t, 1.1 + 0.2 * (bar % 2), 0.035);
+      if (tint.anvil && s === 14) kit.anvil(t, 0.04);
+      if (tint.drip && s === 6 && bar % 2 === 1) kit.drop(t, note(chord, 4, 3), 0.04);
+      if (lit >= 1 && s % 2 === 0) {
+        const arp = (section + bar) % 2 === 0 ? ARP_A : ARP_B;
+        kit.glass(t, note(chord, arp[(s / 2) % arp.length], 2), 0.04);
+      }
+      if (lit >= 2) {
+        if (s % 4 === 0) kit.kick(t, 0.28);
+        if (BASS_A[s] === 1) kit.bass(t, note(chord, s === 10 ? 7 : 0, 0), sd * 1.6, 0.15, 380);
+        if (s % 2 === 0) kit.hat(t, 0.035);
+      }
+      if (lit >= OBJECTIVE_MUSIC.LIT_MAX) {
+        if (s === 4 || s === 12) kit.snare(t, 0.16);
+        if (s === 0 && bar % 2 === 0) kit.choir(t, chordPad(chord, 2), barLen * 2, 0.012, 'ah');
+        if (bar % 4 >= 2) {
+          const step = PHRASES[Math.floor(rnd(bar, 7) * PHRASES.length)][s];
+          if (step !== null) kit.lead(t, note(chord, step, 2), sd * 1.8, 0.045, 1900);
+        }
+      }
+    },
+  },
+  // -------------------------------------------------------------- vault: sparse and warm
+  'obj:vault': {
+    gain: 0.85, steps: 16, stepsPerBeat: 4,
+    bpm: () => 66,
+    step({ kit, bar, s, t, barLen, chord }) {
+      const idx = bar * 16 + s;
+      if (s === 0) {
+        kit.pad(t, chordPad(chord, 1), barLen, 0.03, 900);
+        kit.drone(t, note(chord, 0, 0), barLen, 0.07);
+      }
+      if (s % 4 === 0 && rnd(idx, 4) >= 0.25) kit.pluck(t, note(chord, ARP_A[(s / 4 + bar) % ARP_A.length], 2), 0.06);
+      // glints, like coins catching the light
+      if (s % 2 === 0 && rnd(idx, 41) < 0.1) kit.glass(t, note(chord, BELL_STEPS[Math.floor(rnd(idx, 42) * BELL_STEPS.length)], 3), 0.03);
+      if (bar % 4 === 3 && s === 8) kit.bell(t, note(chord, 4, 2), 0.035);
+    },
+  },
 };
+
+/** Pieces without a beat: the depth overlay leaves its pulse out of them. */
+const NO_DRIVE: ReadonlySet<TrackKey> = new Set<TrackKey>(['calm', 'obj:vault']);
 
 interface Track {
   key: TrackKey;
@@ -703,6 +885,8 @@ export function createMusic(g: AudioGraph, player: Player | null = null) {
   let bossKind: BossKind = 'regent';
   let biome: BiomeId = 'crypt';
   let depth = 0;
+  let objective: SpecialObjective | null = null;
+  const obj: ObjectiveMusic = { pressure: 0, lit: 0 };
 
   const tint = (): Tint => TINTS[biome];
 
@@ -718,7 +902,8 @@ export function createMusic(g: AudioGraph, player: Player | null = null) {
     }
   };
 
-  const keyOf = (state: Exclude<MusicState, 'none'>): TrackKey => (state === 'boss' ? `boss:${bossKind}` : state);
+  const keyOf = (state: Exclude<MusicState, 'none'>): TrackKey =>
+    (state === 'boss' ? `boss:${bossKind}` : state === 'combat' && objective ? `obj:${objective}` : state);
 
   /** Crossfades to another state. No-op when it is already playing. */
   const setState = (next: MusicState, fade: number = MUSIC.CROSSFADE): void => {
@@ -759,7 +944,7 @@ export function createMusic(g: AudioGraph, player: Player | null = null) {
     });
     for (const track of tracks) {
       const def = DEFS[track.key];
-      const sd = 60 / def.bpm(bossPhase) / def.stepsPerBeat;
+      const sd = 60 / def.bpm(bossPhase, obj) / def.stepsPerBeat;
       if (track.next < now - MUSIC.MAX_LAG) {
         const missed = Math.ceil((now - track.next) / sd);
         track.step += missed;
@@ -773,10 +958,10 @@ export function createMusic(g: AudioGraph, player: Player | null = null) {
         const c: StepCtx = {
           kit: track.kit, bar, s, t: track.next, sd, barLen: sd * def.steps,
           chord: PROGRESSION[track.key][bar % MUSIC.BARS_PER_CYCLE],
-          section: Math.floor(bar / MUSIC.BARS_PER_CYCLE) % 2, phase: bossPhase, tint: tint(),
+          section: Math.floor(bar / MUSIC.BARS_PER_CYCLE) % 2, phase: bossPhase, tint: tint(), obj,
         };
         def.step(c);
-        if (track.pitch.depth > 0) depthLayer(c, track.pitch.depth, def.steps, def.stepsPerBeat, track.key !== 'calm');
+        if (track.pitch.depth > 0) depthLayer(c, track.pitch.depth, def.steps, def.stepsPerBeat, !NO_DRIVE.has(track.key));
         track.next += sd;
         track.step++;
       }
@@ -790,6 +975,20 @@ export function createMusic(g: AudioGraph, player: Player | null = null) {
   /** Which final boss the 'boss' state plays for. Takes effect on the next setState('boss'). */
   const setBossKind = (kind: BossKind): void => {
     bossKind = kind;
+  };
+
+  /**
+   * The objective of the chamber (null or 'slay' = the plain combat piece) and what its piece should follow.
+   * A change of kind while the combat state plays crossfades to the other piece; `pressure` and `lit` are read
+   * by the running piece step by step, so tempo and layers move without a seam.
+   */
+  const setObjective = (kind: ObjectiveKind | null, pressure = 0, lit = 0): void => {
+    const next = kind === null || kind === 'slay' ? null : kind;
+    obj.pressure = Math.min(1, Math.max(0, pressure));
+    obj.lit = Math.max(0, Math.floor(lit));
+    if (next === objective) return;
+    objective = next;
+    if (current === 'combat') setState('combat');
   };
 
   /** How deep the party is (RunState.depth). Running tracks follow at their next bar line. */
@@ -864,7 +1063,8 @@ export function createMusic(g: AudioGraph, player: Player | null = null) {
   };
 
   return {
-    setState, schedule, setBossPhase, setBossKind, setBiome, setDepth, stinger,
+    setState, schedule, setBossPhase, setBossKind, setBiome, setDepth, setObjective, stinger,
+    objective: (): SpecialObjective | null => objective,
     depth: (): number => depth,
     state: (): MusicState => current,
     key: (): string | null => currentKey,

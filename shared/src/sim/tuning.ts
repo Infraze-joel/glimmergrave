@@ -52,6 +52,8 @@ export const SIM = {
   ECHO_DELAY: 0.1,
   /** Chill, Wither and other cuts never reduce an enemy's speed or damage by more than this. */
   MAX_CUT: 0.9,
+  /** A warded enemy announces a nullified element (`warded` event) at most once per this many seconds. */
+  WARDED_EVENT_SECONDS: 1,
   /** Bosses are held by Shatter for this long (they cannot be stunned). */
   BOSS_STAGGER_SECONDS: 0.35,
 } as const;
@@ -87,6 +89,13 @@ export const META = {
 } as const;
 
 export const AI = {
+  // ---- update 4: the five new kinds (numbers both sides must know live in ENEMY_TUNING).
+  // SHAMAN.MAX_MENDS: an enemy can be mended this often in its life, so healing never outlasts a weak party.
+  SHAMAN: { BAND: 1.5, BOLT_TELEGRAPH_WIDTH: 0.8, BOLT_RANGE: 16, FIRST_MEND: 2.5, MEND_APPROACH: 0.8, MEND_SOON: 1.5, MAX_MENDS: 2 },
+  AEGIS: { ARC_DEG: 100, REACH_BONUS: 0.7 },
+  BOMBER: { RETARGET_SECONDS: 3 },
+  NECROMANCER: { BAND: 1.5, FIRST_RAISE: 2, RING_MIN: 1.4, RING_MAX: 2.6 },
+  REAVER: { ARC_DEG: 90, REACH_BONUS: 0.7, FIRST_LEAP: 1, LEAP_RECOVER: 0.35, FOCUS_SECONDS: 5, WALL_MARGIN: 0.8 },
   RETARGET_SECONDS: 1.2,
   /** A new target must be this much closer (fraction) to steal aggro. */
   STICKINESS: 0.75,
@@ -226,6 +235,29 @@ export const TUTORIAL = {
   OBSTACLES: [{ x: 9, z: -2.5, r: 0.9 }, { x: 9, z: 3, r: 0.9 }],
 } as const;
 
+/** Chamber objectives: what the sim needs beyond OBJECTIVE_TUNING (data/objectives.ts). */
+export const OBJECTIVE = {
+  /** Survive / ritual: no new group rises while the living enemies cost more than this many regular waves. */
+  MAX_ALIVE_BUDGET: 1.1,
+  /** Survive / ritual: seconds before the first group. */
+  FIRST_SPAWN: 1.5,
+  /** Placement of the shard, the braziers and the reliquary: free space to obstacles, hazards, walls, spawns, doors. */
+  OBSTACLE_GAP: 1.2, HAZARD_GAP: 0.8, WALL_GAP: 1.5, SPAWN_GAP: 5, DOOR_GAP: 2,
+  /** Braziers keep this much free ground between their circles; attempts before the gap is halved. */
+  SITE_GAP: 5, PLACE_ATTEMPTS: 120,
+  /** The shard and the reliquary stand near the middle of the room: random offset up to this many metres. */
+  CENTRE_SCATTER: 3,
+  /** Hunt: the marked elites are tougher than ordinary elites; kinds they are drawn from. */
+  HUNT_HP_MUL: 3,
+  HUNT_KINDS: ['warrior', 'mage', 'reaver', 'archer'],
+  /** Defend: kinds that can be sent against the shard (their attacks are areas that can cover it). */
+  SIEGE_KINDS: ['minion', 'warrior', 'bomber', 'mage'],
+  /** Ritual: a brazier takes this much longer to light per additional hero in the party (SECONDS_TO_LIGHT is the solo time). */
+  RITUAL_SECONDS_PER_EXTRA_HERO: 1,
+  /** Vault: seconds a living hero has to stand within OBJECTIVE_TUNING.VAULT.OPEN_RADIUS_PAD of the reliquary's edge; its size. */
+  VAULT_HOLD_SECONDS: 1.5, VAULT_RADIUS: 0.9,
+} as const;
+
 export const DIRECTOR = {
   ROOM_W_MIN: 26, ROOM_W_MAX: 38, ROOM_D_MIN: 20, ROOM_D_MAX: 28,
   BOSS_ROOM_W: 40, BOSS_ROOM_D: 30,
@@ -251,9 +283,15 @@ export const DIRECTOR = {
   BUDGET_BASE: 15, BUDGET_PER_CHAMBER: 2.1,
   WAVES_EARLY: 3, WAVES_LATE: 4, WAVES_LATE_FROM_CHAMBER: 2,
   ELITE_WAVES: 2, ELITE_ESCORT_BUDGET: 0.45, ELITE_REINFORCE_BUDGET: 0.6,
-  KIND_WEIGHT: { minion: 5, warrior: 2.2, archer: 2.2, mage: 1.4 },
+  KIND_WEIGHT: { minion: 5, warrior: 2.2, archer: 2.2, mage: 1.4, shaman: 0.8, aegis: 0.6, bomber: 1.3, necromancer: 0.6, reaver: 1.1 },
   /** Caps on simultaneously spawned ranged enemies per wave: base + per hero. */
   ARCHER_CAP_BASE: 2, ARCHER_CAP_PER_HERO: 1, MAGE_CAP_BASE: 1, MAGE_CAP_PER_HERO: 0.5,
+  /** Update 4, per wave: base + per hero (floored). */
+  BOMBER_CAP_BASE: 1, BOMBER_CAP_PER_HERO: 1, REAVER_CAP_BASE: 1, REAVER_CAP_PER_HERO: 0.5,
+  /** At most one aegis, one necromancer and one shaman ALIVE per this many heroes (rounded up), counting what already stands. */
+  HEROES_PER_AEGIS: 2, HEROES_PER_NECROMANCER: 2, HEROES_PER_SHAMAN: 2,
+  /** Support kinds (shaman, aegis, necromancer) never take more than this share of a wave's budget. */
+  SUPPORT_BUDGET_SHARE: 0.4,
   /** Extra enemy damage per additional hero (parties share the pressure and can revive each other). */
   DAMAGE_PER_EXTRA_PLAYER: 0.15,
   CLEAR_DELAY: 0.8,

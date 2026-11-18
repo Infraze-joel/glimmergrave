@@ -16,6 +16,7 @@ import { setIcon, setPips, setTint } from './hud3.ts';
 import { formatBoon, formatList, maxBoonLevel, roman, t } from './i18n.ts';
 import type { IconName } from './icons.ts';
 import { abilityIcon, abilityName, boonIcon, boonTint, nameOf } from './model.ts';
+import { draftUpgrade } from './objective.ts';
 import { reactionName, setName } from './text.ts';
 import { ui, UI_CONFIG } from './store.ts';
 import type { View } from './view.ts';
@@ -130,6 +131,9 @@ export function createDraft(): DraftView {
     waitText,
   );
   const title = h('h2', { class: 'gg-draft-title' }, t('draft.title'));
+  // Shown when the chamber's objective bonus (or a vault) upgraded this draft.
+  const bonusText = h('span');
+  const bonusMark = h('p', { class: 'gg-draft-bonus', 'data-testid': 'draft-bonus', 'data-source': '' }, icon('star'), bonusText);
   const rerollCount = h('b', { class: 'gg-reroll-count gg-num' });
   const rerollBtn = h('button', {
     class: 'gg-btn gg-cut gg-btn--small gg-reroll', type: 'button', 'data-testid': 'draft-reroll', 'data-rerolls': '0',
@@ -137,7 +141,7 @@ export function createDraft(): DraftView {
   }, key('R'), icon('reroll'), h('span', null, t('draft.reroll')), rerollCount);
   const foot = h('div', { class: 'gg-draft-foot' }, rerollBtn, hint);
   const el = h('section', { class: 'gg-draft', 'aria-label': t('draft.title') },
-    h('header', { class: 'gg-draft-head' }, title, sub, timer),
+    h('header', { class: 'gg-draft-head' }, title, sub, bonusMark, timer),
     cards,
     foot,
     wait,
@@ -271,6 +275,11 @@ export function createDraft(): DraftView {
     show(foot, choosing);
     show(title, choosing);
     show(sub, choosing);
+    const upgrade = choosing ? draftUpgrade(run) : null;
+    show(bonusMark, upgrade !== null);
+    bonusMark.dataset.source = upgrade ?? '';
+    if (upgrade) setText(bonusText, t(upgrade === 'vault' ? 'draft.bonus.vault' : 'draft.bonus'));
+    toggle(el, 'has-bonus', upgrade !== null);
     show(wait, !choosing);
     toggle(el, 'is-waiting', !choosing);
     // Reroll: only for heroes who own Insight; disabled once the run's rerolls are spent or a card is picked.

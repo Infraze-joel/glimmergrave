@@ -2,6 +2,7 @@
 import { XP_REWARDS } from '../data/mastery.ts';
 import { META_INDEX, META_UPGRADES, REWARDS, sanitizeMeta } from '../data/meta.ts';
 import { emptyMods, type Mods } from '../data/mods.ts';
+import { OBJECTIVE_TUNING } from '../data/objectives.ts';
 import type { MetaStats } from './state.ts';
 
 export function emptyMeta(): MetaStats {
@@ -94,10 +95,14 @@ export interface Earnings {
 
 export const emptyEarnings = (): Earnings => ({ glimmer: 0, xp: 0, cursedGlimmer: 0, cursedXp: 0 });
 
-export type EarnKind = 'chamber' | 'elite' | 'boss';
+/** `bonus`: an objective's bonus condition was met; `vault`: the hoard of a sealed vault (both pay Glimmer only). */
+export type EarnKind = 'chamber' | 'elite' | 'boss' | 'bonus' | 'vault';
 
-const GLIMMER_OF: Record<EarnKind, number> = { chamber: REWARDS.PER_CHAMBER_CLEARED, elite: REWARDS.PER_ELITE_SLAIN, boss: REWARDS.BOSS_SLAIN };
-const XP_OF: Record<EarnKind, number> = { chamber: XP_REWARDS.PER_CHAMBER_CLEARED, elite: XP_REWARDS.PER_ELITE_SLAIN, boss: XP_REWARDS.BOSS_SLAIN };
+const GLIMMER_OF: Record<EarnKind, number> = {
+  chamber: REWARDS.PER_CHAMBER_CLEARED, elite: REWARDS.PER_ELITE_SLAIN, boss: REWARDS.BOSS_SLAIN,
+  bonus: OBJECTIVE_TUNING.BONUS_GLIMMER, vault: OBJECTIVE_TUNING.VAULT.GLIMMER,
+};
+const XP_OF: Record<EarnKind, number> = { chamber: XP_REWARDS.PER_CHAMBER_CLEARED, elite: XP_REWARDS.PER_ELITE_SLAIN, boss: XP_REWARDS.BOSS_SLAIN, bonus: 0, vault: 0 };
 
 export function earn(e: Earnings, kind: EarnKind, depth: number, cursed: boolean): void {
   const g = GLIMMER_OF[kind] * (1 + REWARDS.DEPTH_BONUS * depth);

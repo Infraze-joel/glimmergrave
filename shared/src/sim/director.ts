@@ -3,11 +3,19 @@ import { depthScale, NET, oathScale, RUN, TICK_DT, WORLD } from '../constants.ts
 import { BOON_TUNING } from '../data/boons.ts';
 import { ULTIMATE } from '../data/classes.ts';
 import { RELIC_TUNING } from '../data/relics.ts';
-import { ENEMIES, type EnemyDef } from '../data/enemies.ts';
-import { BOSS_KINDS, type BiomeId, type BossKind, type Door, type DoorType, type EnemyKind, type Hazard, type Obstacle, type RoomLayout } from '../types.ts';
+import { ENEMIES, ENEMY_TUNING, type EnemyDef } from '../data/enemies.ts';
+import { OBJECTIVE_TUNING } from '../data/objectives.ts';
+import {
+  BOSS_KINDS, ELEMENT_IDS,
+  type BiomeId, type BossKind, type Door, type DoorType, type ElementId, type EnemyKind, type Hazard, type ObjectiveKind, type Obstacle, type RoomLayout,
+} from '../types.ts';
 import { applyBoon, generateDraft } from './boons.ts';
 import { grantShield, healHero, killEnemy, reviveHero } from './combat.ts';
 import { livingEnemies, spawnEnemy } from './enemies.ts';
+import { SUPPORT_KINDS } from './horde.ts';
+import {
+  beginObjective, draftBonus, finishObjective, isEndless, rollDoorObjectives, setWaveProgress, stepObjective, type ObjectiveRun,
+} from './objectives.ts';
 import { earn, emptyEarnings, glimmerReward, xpReward, type Earnings } from './meta.ts';
 import { rollShards } from './loot.ts';
 import { clearZones } from './zones.ts';
@@ -15,13 +23,17 @@ import { placeHero } from './players.ts';
 import type { Rng } from './rng.ts';
 import type { DraftOptions, Hero } from './state.ts';
 import { stepTutorial } from './tutorial.ts';
-import { BIOME, DIRECTOR, META, SIM } from './tuning.ts';
+import { BIOME, DIRECTOR, META, OBJECTIVE, SIM } from './tuning.ts';
 import type { World } from './world.ts';
 
 export interface QueuedSpawn {
   kind: EnemyKind;
   elite: boolean;
   herald?: boolean;
+  /** Update 4: warded against an element, sent against the bell shard, a marked hunt target. */
+  ward?: ElementId;
+  siege?: boolean;
+  marked?: boolean;
 }
 
 export interface DirectorState {
@@ -44,12 +56,18 @@ export interface DirectorState {
   bossSlain: boolean;
   /** What the party has earned so far (depth bonus already applied to every payment). */
   earnings: Earnings;
+  /** Bookkeeping of the current chamber's objective (null in the lobby, the sandbox and the training session). */
+  obj: ObjectiveRun | null;
+  /** Vaults the party has entered at the current depth. */
+  vaults: number;
+  /** Tools / tests: objective forced onto the first door of every choice (and the chamber a run starts in). */
+  pin: ObjectiveKind | null;
 }
 
 export const createDirector = (): DirectorState => ({
   manual: false, queue: [], spawnTimer: 0, waveTimer: 0, waveDelay: 0, clearTimer: 0,
   biomes: ['crypt', 'flooded', 'forge'], herald: 'matron', preDraft: false, chambersCleared: 0, elitesSlain: 0, bossSlain: false,
-  earnings: emptyEarnings(),
+  earnings: emptyEarnings(), obj: null, vaults: 0, pin: null,
 });
 
 /** Test / tooling overrides of the seeded run plan. */
@@ -58,6 +76,12 @@ export interface RunOverrides {
   herald?: BossKind;
   /** Biomes of act 2 and act 3. */
   biomes?: [BiomeId, BiomeId];
+  /**
+   * Objective of the chamber the run starts in (if it is a combat chamber) and of the first door of every later
+   * choice, wherever the rolling rules allow it. The other door is rolled as usual. `slay` pins every door: a
+   * classic run without special objectives.
+   */
+  objective?: ObjectiveKind;
 }
 
 /** Draws the final boss, the herald and the biome order from the run seed. Always consumes the same random numbers. */
@@ -69,6 +93,7 @@ export function planRun(w: World, o: RunOverrides = {}): void {
   const others = BOSS_KINDS.filter((k) => k !== w.run.finalBoss);
   w.director.herald = o.herald !== undefined && o.herald !== w.run.finalBoss ? o.herald : (others[Math.floor(heraldRoll * others.length)] as BossKind);
   w.director.biomes = ['crypt', ...(o.biomes ?? (flip ? ['flooded', 'forge'] as const : ['forge', 'flooded'] as const))];
+  w.director.pin = o.objective ?? null;
 }
 
 /**
@@ -345,33 +370,61 @@ export function waveBudget(chamber: number, partySize: number): number {
   return (DIRECTOR.BUDGET_BASE + DIRECTOR.BUDGET_PER_CHAMBER * chamber) * (1 + RUN.COUNT_PER_EXTRA_PLAYER * (partySize - 1));
 }
 
-/** Picks enemy kinds until the budget is spent, honouring minChamber and the ranged caps. */
-export function composeWave(rng: Rng, chamber: number, budget: number, partySize: number, room: number, biome: BiomeId = 'crypt'): EnemyKind[] {
-  const bias = BIOME.KIND_BIAS[biome];
+/**
+ * Enemies per kind that already stand (or wait in the spawn queue) when a group is composed. Aegis, necromancers
+ * and shamans are always counted; the timed groups of survive / ritual chambers count every capped kind, so the
+ * ranged enemies of many small groups cannot pile up.
+ */
+export type Standing = Partial<Record<EnemyKind, number>>;
+const NO_SUPPORT: Standing = {};
+
+/**
+ * Picks enemy kinds until the budget is spent, honouring minChamber and the caps: ranged kinds, bombers and
+ * reavers per wave; at most one aegis, one necromancer and one shaman ALIVE per two heroes (`standing` counts
+ * those already in the room). Support kinds (shaman, aegis, necromancer) take at most SUPPORT_BUDGET_SHARE of the
+ * budget and a wave never consists of them alone.
+ */
+export function composeWave(rng: Rng, chamber: number, budget: number, partySize: number, room: number, biome: BiomeId = 'crypt', standing: Standing = NO_SUPPORT): EnemyKind[] {
+  const bias: Partial<Record<EnemyKind, number>> = BIOME.KIND_BIAS[biome];
+  const weight: Partial<Record<EnemyKind, number>> = DIRECTOR.KIND_WEIGHT;
   const kinds: EnemyKind[] = [];
-  const counts: Record<string, number> = { archer: 0, mage: 0 };
-  const caps: Record<string, number> = {
+  const counts: Partial<Record<EnemyKind, number>> = {
+    archer: standing.archer ?? 0, mage: standing.mage ?? 0, bomber: standing.bomber ?? 0, reaver: standing.reaver ?? 0,
+    aegis: standing.aegis ?? 0, necromancer: standing.necromancer ?? 0, shaman: standing.shaman ?? 0,
+  };
+  const caps: Partial<Record<EnemyKind, number>> = {
     archer: Math.floor(DIRECTOR.ARCHER_CAP_BASE + DIRECTOR.ARCHER_CAP_PER_HERO * partySize),
     mage: Math.floor(DIRECTOR.MAGE_CAP_BASE + DIRECTOR.MAGE_CAP_PER_HERO * partySize),
+    bomber: Math.floor(DIRECTOR.BOMBER_CAP_BASE + DIRECTOR.BOMBER_CAP_PER_HERO * partySize),
+    reaver: Math.floor(DIRECTOR.REAVER_CAP_BASE + DIRECTOR.REAVER_CAP_PER_HERO * partySize),
+    aegis: Math.ceil(partySize / DIRECTOR.HEROES_PER_AEGIS),
+    necromancer: Math.ceil(partySize / DIRECTOR.HEROES_PER_NECROMANCER),
+    shaman: Math.ceil(partySize / DIRECTOR.HEROES_PER_SHAMAN),
   };
   let left = budget;
+  let supportLeft = budget * DIRECTOR.SUPPORT_BUDGET_SHARE;
+  const options: EnemyDef[] = [];
+  const weights: number[] = [];
   while (kinds.length < room) {
-    const options: EnemyDef[] = [];
+    options.length = 0;
+    weights.length = 0;
     for (const def of Object.values(ENEMIES)) {
       if (def.cost <= 0 || def.cost > left + SIM.EPS || def.minChamber > chamber) continue;
       const cap = caps[def.kind];
       if (cap !== undefined && (counts[def.kind] ?? 0) >= cap) continue;
+      if (SUPPORT_KINDS.has(def.kind) && def.cost > supportLeft + SIM.EPS) continue;
       options.push(def);
+      weights.push((weight[def.kind] ?? 1) * (bias[def.kind] ?? 1));
     }
     if (options.length === 0) break;
-    const pick = options[rng.weighted(options.map((def) => {
-      const kind = def.kind as keyof typeof DIRECTOR.KIND_WEIGHT;
-      return (DIRECTOR.KIND_WEIGHT[kind] ?? 1) * (bias[kind] ?? 1);
-    }))] as EnemyDef;
+    const pick = options[rng.weighted(weights)] as EnemyDef;
     kinds.push(pick.kind);
     left -= pick.cost;
+    if (SUPPORT_KINDS.has(pick.kind)) supportLeft -= pick.cost;
     if (counts[pick.kind] !== undefined) counts[pick.kind] = (counts[pick.kind] ?? 0) + 1;
   }
+  // A group cut short by the enemy cap must still contain somebody who fights.
+  if (kinds.length > 0 && kinds.every((k) => SUPPORT_KINDS.has(k))) kinds[kinds.length - 1] = 'minion';
   return kinds;
 }
 
@@ -415,7 +468,11 @@ function setScaling(w: World): void {
   w.affixed = w.run.depth >= RUN.DEPTH.AFFIX_FROM_DEPTH || w.run.oath >= RUN.DEPTH.AFFIX_FROM_OATH;
 }
 
-export function enterChamber(w: World, index: number, entered: DoorType): void {
+/**
+ * Enters chamber `index`. `objective` is what the door promised; only combat chambers of a normal run can have a
+ * special one (elite and boss chambers are always `slay`).
+ */
+export function enterChamber(w: World, index: number, entered: DoorType, objective: ObjectiveKind = 'slay'): void {
   const kind = RUN.CHAMBERS[index] ?? 'boss';
   const run = w.run;
   run.chamber = index;
@@ -424,7 +481,10 @@ export function enterChamber(w: World, index: number, entered: DoorType): void {
   run.phase = 'combat';
   run.wave = 0;
   run.bossKind = bossOfChamber(index, run.finalBoss, w.director.herald);
+  const goal: ObjectiveKind = kind === 'combat' ? objective : 'slay';
+  // Survive, ritual and vault have no waves (waveCount 0; `wave` counts the groups sent); a hunt is one wave.
   run.waveCount = kind === 'boss' ? 1 : kind === 'elite' ? (run.bossKind === 'champion' ? DIRECTOR.ELITE_WAVES : DIRECTOR.HERALD_WAVES)
+    : isEndless(goal) ? 0 : goal === 'hunt' ? 1
     : index >= DIRECTOR.WAVES_LATE_FROM_CHAMBER ? DIRECTOR.WAVES_LATE : DIRECTOR.WAVES_EARLY;
   run.doors = [];
   run.doorProgress = [];
@@ -459,18 +519,73 @@ export function enterChamber(w: World, index: number, entered: DoorType): void {
   dir.waveTimer = 0;
   dir.waveDelay = DIRECTOR.FIRST_WAVE_DELAY;
   dir.clearTimer = 0;
+  if (goal === 'vault') dir.vaults++;
+  dir.obj = beginObjective(w, goal);
   w.runVersion++;
+}
+
+const ALWAYS_COUNTED: ReadonlySet<EnemyKind> = new Set<EnemyKind>(['aegis', 'necromancer', 'shaman']);
+
+/** Capped kinds alive or about to rise: the three support kinds, or every kind when `all` (timed groups). */
+function standingKinds(w: World, all: boolean): Standing {
+  const standing: Standing = {};
+  for (const e of w.enemies) {
+    if (!e.dead && !e.summoned && (all || ALWAYS_COUNTED.has(e.kind))) standing[e.kind] = (standing[e.kind] ?? 0) + 1;
+  }
+  for (const q of w.director.queue) if (all || ALWAYS_COUNTED.has(q.kind)) standing[q.kind] = (standing[q.kind] ?? 0) + 1;
+  return standing;
+}
+
+/** Share of the rank and file that is warded in the current chamber (0 before WARD.FROM_CHAMBER). */
+export function wardShare(chamber: number, depth: number): number {
+  const W = ENEMY_TUNING.WARD;
+  return chamber < W.FROM_CHAMBER ? 0 : Math.min(W.MAX_SHARE, W.SHARE + W.SHARE_PER_DEPTH * depth);
+}
+
+/** Moves `count` random entries of `pool` to its front (partial shuffle with the run's generator). */
+function drawToFront<T>(rng: Rng, pool: T[], count: number): void {
+  for (let i = 0; i < count; i++) {
+    const j = rng.int(i, pool.length - 1);
+    const t = pool[i] as T;
+    pool[i] = pool[j] as T;
+    pool[j] = t;
+  }
+}
+
+/**
+ * Queues a group of rank-and-file enemies. From WARD.FROM_CHAMBER on a share of it is warded against a random
+ * element each — never the whole group. In a `defend` chamber ATTACKER_SHARE of it is sent against the shard.
+ */
+function queueGroup(w: World, kinds: readonly EnemyKind[], elite: boolean): void {
+  const group: QueuedSpawn[] = kinds.map((kind) => ({ kind, elite }));
+  const share = wardShare(w.run.chamber, w.run.depth);
+  if (share > 0 && group.length > 1) {
+    const warded = Math.min(group.length - 1, Math.round(group.length * share));
+    const pool = [...group];
+    drawToFront(w.rng, pool, warded);
+    for (let i = 0; i < warded; i++) (pool[i] as QueuedSpawn).ward = w.rng.pick(ELEMENT_IDS);
+  }
+  const obj = w.director.obj;
+  if (obj && obj.kind === 'defend' && obj.anchorHp > 0) {
+    const able = group.filter((q) => (OBJECTIVE.SIEGE_KINDS as readonly EnemyKind[]).includes(q.kind));
+    const siege = Math.min(able.length, Math.round(group.length * OBJECTIVE_TUNING.DEFEND.ATTACKER_SHARE));
+    drawToFront(w.rng, able, siege);
+    for (let i = 0; i < siege; i++) (able[i] as QueuedSpawn).siege = true;
+  }
+  for (const q of group) w.director.queue.push(q);
 }
 
 function startWave(w: World): void {
   const run = w.run;
   const dir = w.director;
+  setWaveProgress(w, run.wave);
   run.wave++;
   dir.waveTimer = 0;
   dir.waveDelay = DIRECTOR.WAVE_DELAY;
   const room = Math.max(0, WORLD.MAX_ENEMIES - livingEnemies(w));
   const budget = waveBudget(run.chamber, w.partySize) * depthScale(run.depth).count;
   const biome = w.room.biome;
+  const standing = standingKinds(w, false);
   if (run.chamberKind === 'boss') {
     dir.queue.push({ kind: run.finalBoss, elite: false });
   } else if (run.chamberKind === 'elite') {
@@ -478,13 +593,35 @@ function startWave(w: World): void {
     if (run.wave === 1) {
       dir.queue.push(champion ? { kind: 'champion', elite: false } : { kind: run.bossKind as EnemyKind, elite: false, herald: true });
       const escort = budget * (champion ? DIRECTOR.ELITE_ESCORT_BUDGET : DIRECTOR.HERALD_ESCORT_BUDGET);
-      for (const kind of composeWave(w.rng, run.chamber, escort, w.partySize, room - 1, biome)) dir.queue.push({ kind, elite: true });
+      queueGroup(w, composeWave(w.rng, run.chamber, escort, w.partySize, room - 1, biome, standing), true);
     } else {
-      for (const kind of composeWave(w.rng, run.chamber, budget * DIRECTOR.ELITE_REINFORCE_BUDGET, w.partySize, room, biome)) dir.queue.push({ kind, elite: w.cursed });
+      queueGroup(w, composeWave(w.rng, run.chamber, budget * DIRECTOR.ELITE_REINFORCE_BUDGET, w.partySize, room, biome, standing), w.cursed);
     }
+  } else if (dir.obj && dir.obj.kind === 'hunt') {
+    // The marked elites rise first, their escort after them.
+    const kinds = (OBJECTIVE.HUNT_KINDS as readonly EnemyKind[]).filter((k) => ENEMIES[k].minChamber <= run.chamber);
+    const marks = Math.min(dir.obj.targetsTotal, room);
+    for (let i = 0; i < marks; i++) dir.queue.push({ kind: w.rng.pick(kinds), elite: true, marked: true });
+    queueGroup(w, composeWave(w.rng, run.chamber, budget * OBJECTIVE_TUNING.HUNT.ESCORT_BUDGET_FRACTION, w.partySize, room - marks, biome, standing), w.cursed);
   } else {
-    for (const kind of composeWave(w.rng, run.chamber, budget, w.partySize, room, biome)) dir.queue.push({ kind, elite: w.cursed });
+    queueGroup(w, composeWave(w.rng, run.chamber, budget, w.partySize, room, biome, standing), w.cursed);
   }
+  w.emit({ e: 'wave', wave: run.wave, waveCount: run.waveCount });
+  w.runVersion++;
+}
+
+/** Survive / ritual: the next timed group, unless the room is already full enough. */
+function sendGroup(w: World, fraction: number): void {
+  const run = w.run;
+  const budget = waveBudget(run.chamber, w.partySize) * depthScale(run.depth).count;
+  let standingCost = 0;
+  for (const e of w.enemies) if (!e.dead) standingCost += Math.max(1, e.def.cost);
+  if (standingCost >= budget * OBJECTIVE.MAX_ALIVE_BUDGET) return;
+  const room = Math.max(0, WORLD.MAX_ENEMIES - livingEnemies(w));
+  const kinds = composeWave(w.rng, run.chamber, budget * fraction, w.partySize, room, w.room.biome, standingKinds(w, true));
+  if (kinds.length === 0) return;
+  queueGroup(w, kinds, w.cursed);
+  run.wave++;
   w.emit({ e: 'wave', wave: run.wave, waveCount: run.waveCount });
   w.runVersion++;
 }
@@ -500,7 +637,10 @@ function spawnQueued(w: World, q: QueuedSpawn): void {
   } else {
     point = findSpawnPoint(w, def.radius);
   }
-  const e = spawnEnemy(w, q.kind, point.x, point.z, { elite: q.elite, herald: q.herald === true });
+  const e = spawnEnemy(w, q.kind, point.x, point.z, {
+    elite: q.elite, herald: q.herald === true, ward: q.ward, siege: q.siege === true, marked: q.marked === true,
+    hpMul: q.marked === true ? OBJECTIVE.HUNT_HP_MUL : 1,
+  });
   if (e && e.boss) {
     w.run.bossId = e.id;
     w.runVersion++;
@@ -524,10 +664,12 @@ function openDraft(w: World): void {
   const run = w.run;
   const cursed = run.entered === 'cursed';
   run.draftPending = [];
+  // A met bonus (or a vault) makes the draft richer: more choices and a rare or better among them.
+  const bonus = draftBonus(w.director.obj);
   for (const h of w.heroes) {
     offer(w, h, {
-      choices: (cursed ? BOON_TUNING.CURSED_DRAFT_CHOICES : RUN.DRAFT_CHOICES) + h.meta.foresight,
-      guaranteeRare: cursed,
+      choices: (cursed ? BOON_TUNING.CURSED_DRAFT_CHOICES : RUN.DRAFT_CHOICES) + h.meta.foresight + bonus.choices,
+      guaranteeRare: cursed || bonus.rare,
       guaranteeInfusion: run.chamber === 0 && run.depth === 0,
     });
   }
@@ -590,6 +732,8 @@ export function finishRun(w: World, phase: 'victory' | 'defeat'): void {
   run.draftPending = [];
   run.doors = [];
   run.doorProgress = [];
+  run.objective = null;
+  w.director.obj = null;
   w.projectiles.length = 0;
   clearZones(w);
   w.runVersion++;
@@ -598,6 +742,7 @@ export function finishRun(w: World, phase: 'victory' | 'defeat'): void {
 function chamberCleared(w: World): void {
   const run = w.run;
   const dir = w.director;
+  if (dir.obj) finishObjective(w, dir.obj);
   dir.chambersCleared++;
   run.chambersCleared = dir.chambersCleared;
   earn(dir.earnings, 'chamber', run.depth, w.cursed);
@@ -646,7 +791,11 @@ function openDoors(w: World): void {
     types = pool;
   }
   const spots = doorPositions(w.room, types.length);
-  run.doors = types.map((type, i): Door => ({ x: (spots[i] as { x: number }).x, z: (spots[i] as { z: number }).z, type }));
+  // What waits behind each door: a descend door leads to the first chamber of the next depth.
+  const objectives = rollDoorObjectives(w, types, run.chamberKind === 'boss' ? 0 : run.chamber + 1, w.director.pin ?? undefined);
+  run.doors = types.map((type, i): Door => ({
+    x: (spots[i] as { x: number }).x, z: (spots[i] as { z: number }).z, type, objective: objectives[i] ?? 'slay',
+  }));
   run.doorProgress = types.map(() => 0);
   run.phase = 'doors';
   w.runVersion++;
@@ -706,7 +855,7 @@ function stepDoors(w: World): void {
   w.emit({ e: 'doorChosen', type: door.type });
   if (door.type === 'ascend') finishRun(w, 'victory');
   else if (door.type === 'descend') descend(w);
-  else enterChamber(w, w.run.chamber + 1, door.type);
+  else enterChamber(w, w.run.chamber + 1, door.type, door.objective);
 }
 
 /** One depth deeper: everyone stands up and is healed, the chamber sequence starts over with a new plan. */
@@ -719,6 +868,7 @@ function descend(w: World): void {
     healHero(w, h, h.maxHp * RUN.DEPTH.HEAL_FRACTION);
   }
   w.emit({ e: 'descend', depth: run.depth });
+  w.director.vaults = 0;
   enterChamber(w, 0, 'descend');
 }
 
@@ -732,7 +882,7 @@ function stepCombat(w: World): void {
     const boss = w.enemies.find((e) => e.id === run.bossId);
     if (!boss || boss.dead) {
       // The final boss is dead: its host crumbles with it.
-      for (const e of w.enemies) if (!e.dead) killEnemy(w, e, -1);
+      for (const e of w.enemies) if (!e.dead) killEnemy(w, e, -1, true);
       // The run goes on: a draft, then the doors to go deeper or to ascend.
       dir.bossSlain = true;
       run.cleared++;
@@ -741,6 +891,25 @@ function stepCombat(w: World): void {
       chamberCleared(w);
       return;
     }
+  }
+
+  const obj = dir.obj;
+  if (obj && !obj.complete) {
+    stepObjective(w, obj);
+    if (obj.spawnTimer > 0) obj.spawnTimer -= dt;
+  }
+  if (obj && obj.complete) {
+    // Survive, ritual, vault: the objective ended the fight. Whatever still stands crumbles, then the chamber is cleared.
+    if (w.run.objective && w.run.objective.status !== 'done') {
+      dir.queue.length = 0;
+      for (const e of w.enemies) if (!e.dead) killEnemy(w, e, -1, true);
+      w.blasts.length = 0;
+      finishObjective(w, obj);
+      dir.clearTimer = 0;
+    }
+    dir.clearTimer += dt;
+    if (dir.clearTimer >= DIRECTOR.CLEAR_DELAY) chamberCleared(w);
+    return;
   }
 
   dir.waveTimer += dt;
@@ -753,6 +922,14 @@ function stepCombat(w: World): void {
     return;
   }
   dir.spawnTimer = 0;
+  if (obj && isEndless(obj.kind)) {
+    if (obj.kind === 'vault' || obj.spawnTimer > 0) return;
+    const T = obj.kind === 'survive' ? OBJECTIVE_TUNING.SURVIVE : OBJECTIVE_TUNING.RITUAL;
+    obj.spawnTimer = T.SPAWN_INTERVAL;
+    sendGroup(w, T.BUDGET_FRACTION);
+    return;
+  }
+  if (obj && obj.kind === 'hunt' && run.wave >= 1) obj.targetsSpawned = true;
   let alive = 0;
   let waveAlive = 0;
   for (const e of w.enemies) {

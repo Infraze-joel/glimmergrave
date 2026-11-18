@@ -14,7 +14,8 @@ import * as enemyData from '@shared/data/enemies.ts';
 import { ENEMY_TUNING } from '@shared/data/enemies.ts';
 import { REWARDS } from '@shared/data/meta.ts';
 import { HAZARD_TIMING } from '@shared/sim/hazards.ts';
-import { AFFIX_IDS, BOSS_KINDS, CLASS_IDS, DOOR_TYPES, ELEMENT_IDS, type EnemyKind, type Hazard } from '@shared/types.ts';
+import { OBJECTIVES, OBJECTIVE_TUNING } from '@shared/data/objectives.ts';
+import { AFFIX_IDS, BOSS_KINDS, CLASS_IDS, DOOR_TYPES, ELEMENT_IDS, OBJECTIVE_KINDS, type EnemyKind, type Hazard, type ObjectiveKind } from '@shared/types.ts';
 import { h, icon } from './dom.ts';
 import { enemyHealth, enemyName, highlight, phaseThresholds, resonanceParams, statusParams } from './elements.ts';
 import { setIcon, setTint } from './hud3.ts';
@@ -27,16 +28,19 @@ import { boonIcon, boonTint } from './model.ts';
 import { pageHead } from './pages.ts';
 import { richEl } from './rich.ts';
 import { ui, type CodexTab } from './store.ts';
+import { FOE_ICON, NEW_FOES, foeParams } from './tips.ts';
+import { OBJECTIVE_ICON, hasBonus, objectiveBonus, objectiveGoal, objectiveName } from './objective.ts';
 import type { View } from './view.ts';
 
 const PERCENT = 100;
-const TABS: readonly CodexTab[] = ['elements', 'classes', 'combat', 'hazards', 'enemies', 'doors', 'boons', 'progress'];
+const TABS: readonly CodexTab[] = ['elements', 'classes', 'combat', 'objectives', 'hazards', 'bestiary', 'doors', 'boons', 'progress'];
 const TAB_ICON: Record<CodexTab, IconName> = {
-  elements: 'element', classes: 'users', combat: 'combat', hazards: 'spikes', enemies: 'elite', doors: 'door', boons: 'boon', progress: 'ascension',
+  elements: 'element', classes: 'users', combat: 'combat', objectives: 'hunt', hazards: 'spikes', bestiary: 'skull', doors: 'door', boons: 'boon',
+  progress: 'ascension',
 };
 const HAZARD_KINDS: readonly Hazard['kind'][] = ['spikes', 'vent', 'frost'];
 const FOES: readonly EnemyKind[] = ['minion', 'warrior', 'archer', 'mage'];
-const ENEMY_ICON: Partial<Record<EnemyKind, IconName>> = { minion: 'skull', warrior: 'defense', archer: 'crossbow', mage: 'nova', ...BOSS_ICON };
+const ENEMY_ICON: Partial<Record<EnemyKind, IconName>> = { minion: 'skull', warrior: 'defense', archer: 'crossbow', mage: 'nova', ...FOE_ICON, ...BOSS_ICON };
 const CATEGORIES: readonly BoonCategory[] = ['infusion', 'offense', 'defense', 'mobility', 'element', 'resonance', 'kinship', 'ultimate', 'class', 'duo'];
 /** Oath levels listed one by one; the endless ones above follow a rule that one sentence explains. */
 const NAMED_OATHS = RUN.OATH.length - 1;
@@ -265,43 +269,105 @@ function enemyTipParams(kind: EnemyKind): Params {
     const [a, b] = phaseThresholds({ kind, name: '', herald: false });
     return { a: Math.round((a ?? 0) * PERCENT), b: Math.round((b ?? 0) * PERCENT) };
   }
-  return {};
+  return foeParams(kind);
+}
+
+/** First chamber (1-based) an enemy kind may appear in, or null when it is there from the start. */
+function firstChamber(kind: EnemyKind): number | null {
+  const def = (enemyData.ENEMIES as Partial<typeof enemyData.ENEMIES>)[kind];
+  return def && def.minChamber > 0 ? def.minChamber + 1 : null;
 }
 
 function enemyCard(kind: EnemyKind): HTMLElement {
   const hp = enemyHealth(kind);
   const boss = (BOSS_KINDS as readonly string[]).includes(kind);
+  const from = boss || kind === 'champion' ? null : firstChamber(kind);
   return h('article', { class: `gg-enemy-card gg-cut${boss ? ' is-boss' : kind === 'champion' ? ' is-elite' : ''}`, 'data-enemy': kind },
     h('span', { class: 'gg-enemy-icon' }, icon(ENEMY_ICON[kind] ?? 'skull')),
     h('div', { class: 'gg-enemy-main' },
       h('div', { class: 'gg-enemy-top' },
         h('h4', null, enemyName(kind)),
+        from !== null ? h('span', { class: 'gg-enemy-from gg-num' }, t('codex.bestiary.from', { n: from })) : null,
         hp !== null ? h('span', { class: 'gg-enemy-hp gg-num' }, icon('heart'), t('codex.enemies.health', { n: formatInt(hp) })) : null,
       ),
-      h('p', null, t(`enemy.${kind}.desc` as I18nKey)),
+      h('p', null, t(`enemy.${kind}.desc` as I18nKey, enemyTipParams(kind))),
       h('p', { class: 'gg-enemy-tip' }, h('b', null, t('codex.enemies.beat')), ' ', t(`enemy.${kind}.tip` as I18nKey, enemyTipParams(kind))),
     ),
   );
 }
 
-function enemiesTab(): HTMLElement[] {
+function bestiaryTab(): HTMLElement[] {
   const heraldHp = heraldHealthPercent();
   const heraldNote = heraldHp !== null ? [h('p', { class: 'gg-codex-note' }, t('enemy.herald.desc', { hp: heraldHp }))] : [];
-  const foes = h('div', { class: 'gg-codex-enemies' });
+  const foes = h('div', { class: 'gg-codex-enemies', 'data-group': 'core' });
   for (const kind of FOES) foes.append(enemyCard(kind));
-  const bosses = h('div', { class: 'gg-codex-enemies' });
+  const special = h('div', { class: 'gg-codex-enemies', 'data-group': 'special' });
+  for (const kind of NEW_FOES) special.append(enemyCard(kind));
+  const bosses = h('div', { class: 'gg-codex-enemies', 'data-group': 'bosses' });
   bosses.append(enemyCard('champion'));
   for (const kind of BOSS_KINDS) bosses.append(enemyCard(kind));
   return [
-    heading(t('codex.enemies.foes'), 'skull'),
+    richEl('p', 'gg-codex-intro', t('codex.bestiary.intro')),
+    heading(t('codex.bestiary.core'), 'skull'),
     foes,
-    h('p', { class: 'gg-codex-note' }, t('codex.enemies.elite', {
-      hp: pctMore(ENEMY_TUNING.ELITE_HP_MUL), dmg: pctMore(ENEMY_TUNING.ELITE_DAMAGE_MUL),
-    })),
+    heading(t('codex.bestiary.special'), 'warning'),
+    special,
+    h('p', { class: 'gg-codex-note' }, t('codex.bestiary.rule')),
+    h('div', { class: 'gg-codex-grid gg-codex-grid--wide' },
+      card('warded', t('codex.bestiary.ward.title'), t('codex.bestiary.ward.body', { n: ENEMY_TUNING.WARD.FROM_CHAMBER + 1 }), 'gg-codex-ward'),
+      card('elite', t('chamber.elite'), t('codex.enemies.elite', {
+        hp: pctMore(ENEMY_TUNING.ELITE_HP_MUL), dmg: pctMore(ENEMY_TUNING.ELITE_DAMAGE_MUL),
+      })),
+    ),
     heading(t('codex.enemies.bosses'), 'boss'),
     h('p', { class: 'gg-codex-lead' }, t('codex.enemies.final')),
     bosses,
     ...heraldNote,
+  ];
+}
+
+/** Numbers quoted in the "how it works" text of an objective, from OBJECTIVE_TUNING. */
+function objectiveParams(kind: ObjectiveKind): Params {
+  const tune = OBJECTIVE_TUNING;
+  switch (kind) {
+    case 'survive': return { a: tune.SURVIVE.SECONDS, b: tune.SURVIVE.MAX_SECONDS };
+    case 'defend': return { share: Math.round(tune.DEFEND.ATTACKER_SHARE * PERCENT), r: formatNum(tune.DEFEND.REPAIR_RADIUS) };
+    case 'hunt':
+      return { n: tune.HUNT.TARGETS, t: tune.HUNT.SECONDS, dmg: pctMore(tune.HUNT.ENRAGE_DAMAGE_MUL), spd: pctMore(tune.HUNT.ENRAGE_SPEED_MUL) };
+    case 'ritual': return { n: tune.RITUAL.SITES, t: formatNum(tune.RITUAL.SECONDS_TO_LIGHT), x: Math.round(tune.RITUAL.EXTRA_HERO_SPEED * PERCENT) };
+    case 'vault':
+      return { hp: Math.round(tune.VAULT.HEAL_FRACTION * PERCENT), n: tune.VAULT.EXTRA_CHOICES, max: tune.MAX_VAULTS_PER_DEPTH };
+    default: return {};
+  }
+}
+
+function objectivesTab(): HTMLElement[] {
+  const cards = h('div', { class: 'gg-codex-objectives' });
+  for (const kind of OBJECTIVE_KINDS) {
+    const from = OBJECTIVES[kind].minChamber > 0 ? OBJECTIVES[kind].minChamber + 1 : null;
+    cards.append(h('article', { class: 'gg-objective-card gg-cut', 'data-objective': kind, 'data-testid': `codex-objective-${kind}` },
+      h('span', { class: 'gg-objective-icon' }, icon(OBJECTIVE_ICON[kind])),
+      h('div', { class: 'gg-objective-main' },
+        h('div', { class: 'gg-objective-top' },
+          h('h4', null, objectiveName(kind)),
+          from !== null ? h('span', { class: 'gg-enemy-from gg-num' }, t('codex.bestiary.from', { n: from })) : null,
+        ),
+        h('p', { class: 'gg-objective-goal' }, objectiveGoal(kind)),
+        h('p', null, t(`objective.${kind}.detail`, objectiveParams(kind))),
+        hasBonus(kind)
+          ? h('p', { class: 'gg-objective-bonus' }, icon('star'), h('b', null, `${t('objective.bonus')}:`), ' ',
+            kind === 'ritual' ? `${objectiveBonus(kind)} (${OBJECTIVE_TUNING.RITUAL.BONUS_SECONDS} s)` : objectiveBonus(kind))
+          : h('p', { class: 'gg-objective-bonus is-none' }, t('codex.objectives.noBonus')),
+      ),
+    ));
+  }
+  return [
+    richEl('p', 'gg-codex-intro', t('codex.objectives.intro')),
+    cards,
+    h('div', { class: 'gg-codex-grid gg-codex-grid--wide' },
+      card('star', t('codex.objectives.bonus.title'), t('codex.objectives.bonus.body', { n: OBJECTIVE_TUNING.BONUS_EXTRA_CHOICES, g: OBJECTIVE_TUNING.BONUS_GLIMMER }), 'gg-codex-bonus'),
+      card('door', t('codex.doors.title'), t('codex.objectives.doors')),
+    ),
   ];
 }
 
@@ -460,7 +526,8 @@ function progressTab(): HTMLElement[] {
 }
 
 const BUILDERS: Record<CodexTab, () => HTMLElement[]> = {
-  elements: elementsTab, classes: classesTab, combat: combatTab, hazards: hazardsTab, enemies: enemiesTab, doors: doorsTab, boons: boonsTab,
+  elements: elementsTab, classes: classesTab, combat: combatTab, objectives: objectivesTab, hazards: hazardsTab, bestiary: bestiaryTab, doors: doorsTab,
+  boons: boonsTab,
   progress: progressTab,
 };
 

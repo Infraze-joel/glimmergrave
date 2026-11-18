@@ -18,7 +18,7 @@ describe('boss pool', () => {
   const plan = (seed: number, classes: ClassId[] = ['knight']): { final: BossKind; herald: string; first: BossKind } => {
     const w = new World();
     classes.forEach((cls, slot) => w.addPlayer(slot, cls, `P${slot}`));
-    w.start(0, seed);
+    w.start(0, seed, 0, { objective: 'slay' });
     return { final: w.run.finalBoss, herald: w.director.herald, first: w.getRunState().finalBoss };
   };
 
@@ -55,7 +55,7 @@ describe('boss pool', () => {
     // Overrides (tests / tools) cannot break the rule either.
     const w = new World();
     w.addPlayer(0, 'knight', 'A');
-    w.start(0, 5, 0, { finalBoss: 'stalker', herald: 'stalker' });
+    w.start(0, 5, 0, { finalBoss: 'stalker', herald: 'stalker', objective: 'slay' });
     expect(w.run.finalBoss).toBe('stalker');
     expect(w.director.herald).not.toBe('stalker');
   });
@@ -65,7 +65,7 @@ describe('boss pool', () => {
     for (const final of BOSS_KINDS) {
       const w = new World();
       w.addPlayer(0, 'knight', 'A');
-      w.start(0, 77, 0, { finalBoss: final });
+      w.start(0, 77, 0, { finalBoss: final, objective: 'slay' });
       const herald = w.director.herald;
       for (let chamber = 0; chamber < RUN.CHAMBERS.length; chamber++) {
         const state = w.getRunState();

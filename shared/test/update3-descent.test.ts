@@ -19,7 +19,8 @@ const LAST = RUN.CHAMBERS.length - 1;
 const start = (classes: ClassId[], loadouts: unknown[] = [], seed = 5, oath = 0): World => {
   const w = new World();
   classes.forEach((cls, slot) => expect(w.addPlayer(slot, cls, `P${slot}`, loadouts[slot])).toBe(true));
-  expect(w.start(oath, seed)).toBe(true);
+  // Classic chambers only: the descent and its rewards are tested here (objectives: update4-*.test.ts).
+  expect(w.start(oath, seed, 0, { objective: 'slay' })).toBe(true);
   return w;
 };
 const doorOf = (w: World, type: string): number => w.getRunState().doors.findIndex((d) => d.type === type);

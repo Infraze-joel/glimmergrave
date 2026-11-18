@@ -12,7 +12,7 @@
  * the first run), --quiet, --meta max (every bot claims all permanent upgrades and a mastered class: level 10, the
  * art, the first talent of every tier; default: none), --descend [N] (after a final boss take the descend door,
  * always or until depth N; default: ascend), --tutorial (one bot plays the training session instead of a run;
- * implies --create --bots 1).
+ * implies --create --bots 1), --objectives (prefer doors with a special objective).
  */
 import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
@@ -38,6 +38,8 @@ export interface BotClientOptions {
   loadout?: Loadout;
   /** After a final boss: take the `descend` door while the depth is below this (default 0 = ascend at once). */
   descendTo?: number;
+  /** Door choice: prefer doors with a special objective. */
+  preferObjectives?: boolean;
   /** Host only: start once this many players are connected and everyone else is ready. */
   startWhenPlayers?: number;
   /** Host only: oath level to set. */
@@ -161,7 +163,7 @@ export class BotClient {
     };
     this.inbound = new DelayLine(opts.latencyMs ?? 0, opts.jitterMs ?? 0, rand);
     this.outbound = new DelayLine(opts.latencyMs ?? 0, opts.jitterMs ?? 0, rand);
-    this.brain = new BotBrain(0, opts.cls, opts.seed ?? 1, { descendTo: opts.descendTo });
+    this.brain = new BotBrain(0, opts.cls, opts.seed ?? 1, { descendTo: opts.descendTo, preferObjectives: opts.preferObjectives });
   }
 
   private log(line: string): void {
@@ -293,7 +295,7 @@ export class BotClient {
         this.reconnects = 0;
         this.seq = 0;
         this.maxAck = 0;
-        this.brain = new BotBrain(msg.slot, this.opts.cls, this.opts.seed ?? 1, { descendTo: this.opts.descendTo });
+        this.brain = new BotBrain(msg.slot, this.opts.cls, this.opts.seed ?? 1, { descendTo: this.opts.descendTo, preferObjectives: this.opts.preferObjectives });
         this.startLoops();
         welcomed();
         this.onWelcome?.();
@@ -440,13 +442,15 @@ interface Args {
   tutorial: boolean;
   /** Depth the bots descend to after a final boss (0 = ascend at once). */
   descendTo: number;
+  /** Bots prefer doors with a special objective. */
+  objectives: boolean;
 }
 
 /** `--descend` without a number: keep descending for as long as the party lives (soak tests). */
 const DESCEND_FOREVER = 1e9;
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { url: 'ws://localhost:8787', code: '', create: false, bots: 1, classes: [], name: 'Bot', latency: 0, jitter: 0, once: false, quiet: false, timeScale: 1, metaMax: false, tutorial: false, descendTo: 0 };
+  const args: Args = { url: 'ws://localhost:8787', code: '', create: false, bots: 1, classes: [], name: 'Bot', latency: 0, jitter: 0, once: false, quiet: false, timeScale: 1, metaMax: false, tutorial: false, descendTo: 0, objectives: false };
   const num = (v: string | undefined, name: string): number => {
     const n = Number(v);
     if (v === undefined || !Number.isFinite(n)) throw new Error(`--${name} needs a number`);
@@ -488,6 +492,7 @@ function parseArgs(argv: string[]): Args {
         break;
       }
       case '--tutorial': args.tutorial = true; args.create = true; args.bots = 1; break;
+      case '--objectives': args.objectives = true; break;
       case '--quiet': args.quiet = true; break;
       default: throw new Error(`unknown argument "${flag}"`);
     }
@@ -516,14 +521,14 @@ async function cli(): Promise<void> {
       startWhenPlayers: hosting ? (args.wait ?? args.bots) : undefined, oath: hosting ? args.oath : undefined,
       relobbyAfterMs: hosting && !args.once ? 6000 : undefined, latencyMs: args.latency, jitterMs: args.jitter,
       timeScale: args.timeScale, seed: 1 + i, reconnect: true, log, tutorial: args.tutorial,
-      loadout: args.metaMax ? maxLoadout(cls) : defaultLoadout(), descendTo: args.descendTo,
+      loadout: args.metaMax ? maxLoadout(cls) : defaultLoadout(), descendTo: args.descendTo, preferObjectives: args.objectives,
     });
     bot.onRunEnd = (phase, run) => {
       const reward = run.rewards.find((r) => r.slot === bot.slot);
       const stats = run.stats.find((x) => x.slot === bot.slot);
       const what = run.tutorial
         ? `tutorial ${phase === 'victory' ? 'completed' : 'failed'} (${run.tutorial.total} steps)`
-        : `run over: ${phase} at depth ${run.depth}, chamber ${run.chamber + 1}/${RUN.CHAMBERS.length} vs ${run.finalBoss}, bosses slain ${run.cleared}, ultimates ${stats?.ultimates ?? 0}`;
+        : `run over: ${phase} at depth ${run.depth}, chamber ${run.chamber + 1}/${RUN.CHAMBERS.length} vs ${run.finalBoss}, bosses slain ${run.cleared}, objectives ${run.objectivesDone} (${run.objectiveBonuses} with bonus), ultimates ${stats?.ultimates ?? 0}`;
       const relics = reward && reward.relics.length > 0 ? reward.relics.join(',') : 'none';
       say(`[${bot.opts.name}] ${what} after ${Math.round(run.elapsed)} s, +${reward?.glimmer ?? 0} glimmer, +${reward?.xp ?? 0} xp, relics ${relics} (snapshots ${bot.snapshots}, rtt ${Math.round(bot.rttMs)} ms)`);
       if (args.once && ++finished >= bots.length) shutdown(0);
@@ -545,7 +550,7 @@ async function cli(): Promise<void> {
     setInterval(() => {
       const b = bots[0];
       if (!b || !b.run) return;
-      const where = b.run.tutorial ? `tutorial step ${b.run.tutorial.index + 1}/${b.run.tutorial.total} (${b.run.tutorial.step})` : `depth ${b.run.depth} chamber ${b.run.chamber + 1} wave ${b.run.wave}/${b.run.waveCount}`;
+      const where = b.run.tutorial ? `tutorial step ${b.run.tutorial.index + 1}/${b.run.tutorial.total} (${b.run.tutorial.step})` : `depth ${b.run.depth} chamber ${b.run.chamber + 1} ${b.run.objective ? b.run.objective.kind : '-'} wave ${b.run.wave}/${b.run.waveCount}`;
       say(`status: ${b.run.phase} ${where} players ${b.roster.filter((p) => p.connected).length} t=${Math.round(b.run.elapsed)}s`);
     }, 10000).unref();
   }

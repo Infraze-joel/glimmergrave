@@ -1,16 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { encodeSnapshotBody } from '@shared/protocol.ts';
 import { BotBrain, viewFromWorld, World } from '@shared/sim/index.ts';
-import type { ClassId } from '@shared/types.ts';
+import { OBJECTIVE_KINDS, type ClassId, type ObjectiveKind } from '@shared/types.ts';
 
 const CLASSES: ClassId[] = ['knight', 'mage', 'rogue', 'barbarian'];
 
 /** Runs `ticks` ticks with bots and returns snapshot bytes at checkpoints plus the final event count. */
-function play(seed: number, ticks: number, botSeed = 1): { frames: string[]; events: number; run: string } {
+function play(seed: number, ticks: number, botSeed = 1, objective?: ObjectiveKind): { frames: string[]; events: number; run: string; objectives: string } {
   const world = new World();
   CLASSES.forEach((cls, slot) => world.addPlayer(slot, cls, `B${slot}`));
-  world.start(0, seed);
-  const bots = CLASSES.map((cls, slot) => new BotBrain(slot, cls, botSeed));
+  world.start(0, seed, objective ? 2 : 0, { objective });
+  const bots = CLASSES.map((cls, slot) => new BotBrain(slot, cls, botSeed, { preferObjectives: objective !== undefined }));
+  let objectives = '';
   const frames: string[] = [];
   let events = 0;
   for (let i = 0; i < ticks; i++) {
@@ -26,10 +27,12 @@ function play(seed: number, ticks: number, botSeed = 1): { frames: string[]; eve
     world.step();
     const ev = world.drainEvents();
     events += ev.length;
+    for (const e of ev) if (e.e === 'objective' || e.e === 'dome' || e.e === 'mend' || e.e === 'warded') objectives += `${world.tick}:${JSON.stringify(e)};`;
+    if (world.tick % 150 === 0) objectives += JSON.stringify(world.getRunState().objective);
     for (const bot of bots) bot.observe(ev, world.tick);
     if (world.tick % 300 === 0 || i === ticks - 1) frames.push(Buffer.from(encodeSnapshotBody(world.getSnapshotBody())).toString('base64'));
   }
-  return { frames, events, run: JSON.stringify(world.getRunState()) };
+  return { frames, events, run: JSON.stringify(world.getRunState()), objectives };
 }
 
 describe('determinism', () => {
@@ -41,6 +44,19 @@ describe('determinism', () => {
     expect(b.events).toBe(a.events);
     expect(b.run).toBe(a.run);
   });
+
+  it('update 4: every objective replays identically (state, events, doors) from the same seed', () => {
+    for (const kind of OBJECTIVE_KINDS) {
+      const a = play(977, 3000, 1, kind);
+      const b = play(977, 3000, 1, kind);
+      expect(a.objectives.length, kind).toBeGreaterThan(50);
+      expect(a.objectives).toContain(`"kind":"${kind}"`);
+      expect(b.objectives, kind).toBe(a.objectives);
+      expect(b.frames, kind).toEqual(a.frames);
+      expect(b.run, kind).toBe(a.run);
+      expect(b.events, kind).toBe(a.events);
+    }
+  }, 120000);
 
   it('a different seed produces a different run', () => {
     const a = play(4242, 900);

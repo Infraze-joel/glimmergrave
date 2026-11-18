@@ -163,6 +163,10 @@ export const SAMPLES = [
   { name: 'zap.chain.1', group: 'zap.chain', cat: 'magic', tier: 2, file: 'zap.chain.1.mp3', dur: 1.236, gain: 0.188, bytes: 9939 },
   { name: 'tex.void.1', group: 'tex.void', cat: 'bed', tier: 2, file: 'tex.void.1.mp3', dur: 1.4, gain: 0.222, bytes: 5669 },
   { name: 'tex.fireLow.1', group: 'tex.fireLow', cat: 'bed', tier: 2, file: 'tex.fireLow.1.mp3', dur: 3, gain: 0.52, bytes: 12716 },
+  { name: 'hit.dull.1', group: 'hit.dull', cat: 'impact', tier: 2, file: 'hit.dull.1.mp3', dur: 0.489, gain: 1.094, bytes: 3904 },
+  { name: 'hit.dull.2', group: 'hit.dull', cat: 'impact', tier: 2, file: 'hit.dull.2.mp3', dur: 0.445, gain: 1.074, bytes: 3644 },
+  { name: 'zap.fall.1', group: 'zap.fall', cat: 'magic', tier: 2, file: 'zap.fall.1.mp3', dur: 0.421, gain: 0.194, bytes: 4295 },
+  { name: 'tex.spin.1', group: 'tex.spin', cat: 'bed', tier: 2, file: 'tex.spin.1.mp3', dur: 1.9, gain: 0.492, bytes: 10404 },
   { name: 'door.open.1', group: 'door.open', cat: 'flow', tier: 3, file: 'door.open.1.mp3', dur: 0.913, gain: 0.477, bytes: 8853 },
   { name: 'door.open.2', group: 'door.open', cat: 'flow', tier: 3, file: 'door.open.2.mp3', dur: 1.381, gain: 0.529, bytes: 11687 },
   { name: 'door.close.1', group: 'door.close', cat: 'flow', tier: 3, file: 'door.close.1.mp3', dur: 0.595, gain: 0.515, bytes: 6697 },
@@ -185,10 +189,13 @@ export const SAMPLES = [
   { name: 'slime.1', group: 'slime', cat: 'flow', tier: 3, file: 'slime.1.mp3', dur: 0.496, gain: 1.071, bytes: 6726 },
   { name: 'sub.drop.1', group: 'sub.drop', cat: 'big', tier: 3, file: 'sub.drop.1.mp3', dur: 0.6, gain: 0.523, bytes: 3721 },
   { name: 'bong.1', group: 'bong', cat: 'flow', tier: 3, file: 'bong.1.mp3', dur: 0.132, gain: 0.631, bytes: 1458 },
+  { name: 'lid.1', group: 'lid', cat: 'flow', tier: 3, file: 'lid.1.mp3', dur: 0.229, gain: 0.805, bytes: 2918 },
+  { name: 'pouch.1', group: 'pouch', cat: 'flow', tier: 3, file: 'pouch.1.mp3', dur: 0.242, gain: 0.976, bytes: 3127 },
+  { name: 'pouch.2', group: 'pouch', cat: 'flow', tier: 3, file: 'pouch.2.mp3', dur: 0.266, gain: 0.8, bytes: 3204 },
   { name: 'bed.drone.1', group: 'bed.drone', cat: 'bed', tier: 4, file: 'bed.drone.1.mp3', dur: 3.6, gain: 0.474, bytes: 15445 },
   { name: 'bed.rumble.1', group: 'bed.rumble', cat: 'bed', tier: 4, file: 'bed.rumble.1.mp3', dur: 3.6, gain: 0.425, bytes: 14926 },
 ] as const satisfies readonly SampleInfo[];
 
 export type SampleGroup = (typeof SAMPLES)[number]['group'];
-export const AUDIO_TOTAL_BYTES = 650306;
+export const AUDIO_TOTAL_BYTES = 681802;
 export const AUDIO_TIERS = 5;

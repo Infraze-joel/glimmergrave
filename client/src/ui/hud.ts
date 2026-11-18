@@ -4,14 +4,18 @@
  */
 import { RUN, WORLD, depthScale } from '@shared/constants.ts';
 import { SETS } from '@shared/data/boons.ts';
-import { PF, type AbilitySlot, type BiomeId, type DoorType, type EnemyKind, type GameEvent, type PlayerSnap } from '@shared/types.ts';
+import {
+  OBJECTIVE_KINDS, PF, type AbilitySlot, type BiomeId, type Door, type DoorType, type ElementId, type EnemyKind, type GameEvent,
+  type ObjectiveKind, type PlayerSnap, type RunState,
+} from '@shared/types.ts';
 import { self, selfRoster, state } from '../core/GameState.ts';
 import { createCoach } from './coach.ts';
 import { h, icon, key, retrigger, setAttr, setText, setVar, show, toggle } from './dom.ts';
-import { actTitle, bossLabel, chamberActs, enemyName, phaseThresholds } from './elements.ts';
+import { actTitle, bossLabel, chamberActs, distinctElements, enemyName, infusionsOf, phaseThresholds } from './elements.ts';
 import { createBuffs, createSets, createUltimate } from './hud3.ts';
 import { DOOR_TEXT_PARAMS, formatBoon, roman, t, type I18nKey } from './i18n.ts';
 import { ABILITY_SLOTS, abilityIcon, depthLabel, infusionOf, maxDashCharges, nameOf } from './model.ts';
+import { OBJECTIVE_ICON, createObjective, createObjectiveBanner, hasBonus, objectiveBonus, objectiveGoal, objectiveName } from './objective.ts';
 import { affixBody, affixName, setName, setTierText } from './text.ts';
 import { ui, UI_CONFIG } from './store.ts';
 import { createStrip } from './strip.ts';
@@ -20,7 +24,14 @@ import type { View } from './view.ts';
 import type { IconName } from './icons.ts';
 
 const PERCENT = 100;
-const DOOR_LEGEND: readonly DoorType[] = ['boon', 'blessing', 'cursed', 'boss', 'descend', 'ascend'];
+/** Door types that lead into an ordinary combat chamber: their objective is always worth showing. */
+const COMBAT_DOORS: readonly DoorType[] = ['boon', 'blessing', 'cursed'];
+/** Objectives whose chamber has no waves to count (foes keep coming, or there are none). */
+const WAVELESS: readonly ObjectiveKind[] = ['survive', 'ritual', 'vault'];
+/** Objective behind a door; `slay` when an older server does not send one. */
+const doorObjective = (door: Door): ObjectiveKind => ((OBJECTIVE_KINDS as readonly string[]).includes(door.objective) ? door.objective : 'slay');
+/** Objective of the chamber being fought, or null outside a chamber. */
+const liveObjective = (run: RunState | null): ObjectiveKind | null => (run && run.objective && run.phase === 'combat' ? run.objective.kind : null);
 const pctMore = (mul: number): number => Math.round((mul - 1) * PERCENT);
 /** Icon of a boss / champion on the chamber track and the boss bar. */
 export const BOSS_ICON: Partial<Record<EnemyKind, IconName>> = { champion: 'elite', regent: 'boss', matron: 'matron', stalker: 'stalker' };
@@ -157,15 +168,23 @@ export function createHud(): HudView {
   const bossSlot = h('div', { class: 'gg-boss-slot' });
   const coach = createCoach();
   const coachSlot = h('div', { class: 'gg-coach-slot' });
-  const topCentre = h('div', { class: 'gg-hud-tc' }, coachSlot, track, waveLine, bossSlot, banner);
+  const objective = createObjective();
+  const objectiveBanner = createObjectiveBanner();
+  // The objective banner shares the place of the generic banner: whichever came last is shown.
+  const bannerSlot = h('div', { class: 'gg-banner-slot' }, banner, objectiveBanner.slot);
+  const topCentre = h('div', { class: 'gg-hud-tc' }, coachSlot, track, waveLine, objective.el, bossSlot, bannerSlot);
   let trackKey = '';
   let bossKey = '';
   let bannerTimer = 0;
   let actBannerUntil = 0;
+  /** While an objective intro / completion banner is up, the plain "Wave 1" / "Chamber cleared" banners stay away. */
+  let objectiveBannerUntil = 0;
   let lastBiome: BiomeId | null = null;
   let lastChamber = -1;
 
   const showBanner = (title: string, sub: string, tone: string, ms: number = UI_CONFIG.BANNER_MS): void => {
+    objectiveBanner.hide();
+    objectiveBannerUntil = 0;
     setText(bannerTitle, title);
     setText(bannerSub, sub);
     banner.dataset.tone = tone;
@@ -180,11 +199,13 @@ export function createHud(): HudView {
     if (!run) return;
     const acts = chamberActs(ui.biomes);
     const depth = Math.max(0, Math.floor(run.depth ?? 0));
-    const k = `${run.chamber}|${run.oath}|${run.entered}|${run.finalBoss}|${depth}|${acts.join('')}|${[...ui.biomes.values()].join(',')}`;
+    const special = liveObjective(run);
+    const k = `${run.chamber}|${run.oath}|${run.entered}|${run.finalBoss}|${depth}|${special}|${acts.join('')}|${[...ui.biomes.values()].join(',')}`;
     if (k === trackKey) return;
     trackKey = k;
     setAttr(track, 'data-chamber', String(run.chamber));
     setAttr(track, 'data-depth', String(depth));
+    setAttr(track, 'data-objective', special ?? '');
     const finalName = enemyName(run.finalBoss ?? 'regent');
     const list = h('ol', { class: 'gg-track-list', 'aria-label': t('hud.chamber', { n: run.chamber + 1, m: RUN.CHAMBERS.length }) });
     const currentAct = acts[Math.min(run.chamber, acts.length - 1)];
@@ -203,10 +224,13 @@ export function createHud(): HudView {
       const cls = i < run.chamber ? 'is-done' : i === run.chamber ? 'is-current' : '';
       const cursed = i === run.chamber && run.entered === 'cursed' ? ' is-cursed' : '';
       const final = kind === 'boss';
+      // The current chamber wears its objective's icon (special objectives only exist in combat chambers).
+      const goal = i === run.chamber && kind === 'combat' && special && special !== 'slay' ? special : null;
       list.append(h('li', {
-        class: `gg-track-node is-${kind} ${cls}${cursed}${actStart ? ' is-act-start' : ''}`,
-        title: final ? t('hud.finalBoss', { name: finalName }) : t(`chamber.${kind}`),
-      }, icon(final ? BOSS_ICON[run.finalBoss] ?? 'boss' : kind)));
+        class: `gg-track-node is-${kind} ${cls}${cursed}${actStart ? ' is-act-start' : ''}${goal ? ' has-objective' : ''}`,
+        'data-objective': goal ?? '',
+        title: final ? t('hud.finalBoss', { name: finalName }) : goal ? `${t(`chamber.${kind}`)} — ${objectiveName(goal)}` : t(`chamber.${kind}`),
+      }, icon(final ? BOSS_ICON[run.finalBoss] ?? 'boss' : goal ? OBJECTIVE_ICON[goal] : kind)));
     });
     const badge = run.oath > 0
       ? h('span', { class: 'gg-oath-badge', title: t('oath.badge', { n: roman(run.oath) }) }, icon('bell'), roman(run.oath))
@@ -231,9 +255,15 @@ export function createHud(): HudView {
     lastBiome = biome;
     if (!fresh) return;
     const act = chamberActs(ui.biomes)[Math.min(run.chamber, RUN.CHAMBERS.length - 1)] ?? 0;
+    // If the objective was introduced a moment earlier, the act goes first and the objective comes back after it.
+    const pending = objectiveBanner.showing() ? liveObjective(run) : null;
     showBanner(actTitle(act, biome), t(`biome.${biome}.hint`), `biome-${biome}`, UI_CONFIG.ACT_BANNER_MS);
     banner.dataset.act = String(act + 1);
     actBannerUntil = performance.now() + UI_CONFIG.ACT_BANNER_MS;
+    if (pending && pending !== 'slay') {
+      objectiveBanner.intro(pending, UI_CONFIG.ACT_BANNER_MS);
+      objectiveBannerUntil = actBannerUntil + UI_CONFIG.OBJECTIVE_BANNER_MS;
+    }
   };
 
   const syncRun = (): void => {
@@ -250,8 +280,11 @@ export function createHud(): HudView {
     sets.sync(selfRoster()?.boons ?? []);
     tips.onRun();
     const combat = run.phase === 'combat';
+    const waveless = combat && run.objective !== null && run.objective !== undefined && WAVELESS.includes(run.objective.kind);
+    objective.sync();
     setText(waveText,
-      combat ? t('hud.wave', { n: Math.max(1, run.wave), m: Math.max(1, run.waveCount) })
+      waveless ? ''
+        : combat ? t('hud.wave', { n: Math.max(1, run.wave), m: Math.max(1, run.waveCount) })
         : run.phase === 'draft' ? t('hud.phase.draft')
           : run.phase === 'doors' ? t('hud.phase.doors') : '');
     const entered = run.entered === 'cursed' ? t('hud.entered.cursed') : run.entered === 'blessing' ? t('hud.entered.blessing') : '';
@@ -357,27 +390,52 @@ export function createHud(): HudView {
       return;
     }
     if (run?.phase === 'doors') {
-      const types = DOOR_LEGEND.filter((type) => run.doors.some((d) => d.type === type));
-      const shown = types.length > 0 ? types : DOOR_LEGEND.slice(0, 3);
-      const deep = shown.includes('descend') || shown.includes('ascend');
+      const training = run.tutorial !== null && run.tutorial !== undefined;
+      const deep = run.doors.some((d) => d.type === 'descend' || d.type === 'ascend');
       const nextDepth = roman(Math.max(0, run.depth ?? 0) + 2);
-      renderPrompt(`doors|${shown.join(',')}|${run.doors.map((d) => d.type).join(',')}|${run.finalBoss}|${nextDepth}`, () => {
-        const legend = h('div', { class: 'gg-door-legend' });
-        for (const type of shown) {
+      const goals = run.doors.map((d) => doorObjective(d));
+      // One card per door, left to right as the doors stand in the room (the camera looks down the -z axis).
+      const order = run.doors.map((_, index) => index).sort((i, j) => run.doors[i].x - run.doors[j].x || i - j);
+      const sided = order.length === 2 && run.doors[order[0]].x !== run.doors[order[1]].x;
+      const special = !training && goals.some((kind) => kind !== 'slay');
+      renderPrompt(`doors|${run.doors.map((d, i) => `${d.type}:${goals[i]}:${Math.round(d.x)}`).join(',')}|${run.finalBoss}|${nextDepth}|${training}`, () => {
+        const legend = h('div', { class: 'gg-door-legend', 'data-doors': String(order.length) });
+        order.forEach((index, place) => {
+          const door = run.doors[index];
+          const kind = goals[index];
           const fill = h('i');
-          const index = run.doors.findIndex((d) => d.type === type);
           fill.dataset.door = String(index);
           doorBars.push(fill);
-          legend.append(h('div', { class: `gg-door gg-door--${type}` },
-            icon(type),
-            h('div', null,
-              h('b', null, t(`door.${type}.name`)),
-              h('span', null, t(`door.${type}.desc`, { ...DOOR_TEXT_PARAMS, boss: enemyName(run.finalBoss ?? 'regent'), depth: nextDepth })),
+          // The objective is shown for every door into a combat chamber, and wherever it is a special one.
+          const showGoal = !training && (kind !== 'slay' || COMBAT_DOORS.includes(door.type));
+          const goal = showGoal
+            ? h('div', { class: 'gg-door-obj', 'data-testid': `door-objective-${index}`, 'data-kind': kind, 'data-bonus': String(hasBonus(kind)) },
+              icon(OBJECTIVE_ICON[kind]),
+              h('div', { class: 'gg-door-obj-text' },
+                h('b', null, objectiveName(kind)),
+                h('span', null, objectiveGoal(kind)),
+                hasBonus(kind)
+                  ? h('em', { class: 'gg-door-obj-bonus', title: objectiveBonus(kind) }, icon('star'),
+                    h('span', null, `${t('objective.bonus')}: ${objectiveBonus(kind)}`))
+                  : null,
+              ))
+            : null;
+          legend.append(h('div', { class: `gg-door gg-door--${door.type}${goal ? ' has-objective' : ''}`, 'data-door': String(index), 'data-type': door.type },
+            h('div', { class: 'gg-door-type' },
+              icon(door.type),
+              h('div', null,
+                h('b', null, t(`door.${door.type}.name`), sided ? h('i', { class: 'gg-door-side' }, t(place === 0 ? 'door.left' : 'door.right')) : null),
+                h('span', null, t(`door.${door.type}.desc`, { ...DOOR_TEXT_PARAMS, boss: enemyName(run.finalBoss ?? 'regent'), depth: nextDepth })),
+              ),
             ),
+            goal,
             h('div', { class: 'gg-door-progress' }, fill),
           ));
-        }
-        return [line(deep ? 'bell' : 'door', deep ? t('hud.prompt.doorsDeep') : t('hud.prompt.doors')), legend];
+        });
+        return [
+          line(deep ? 'bell' : 'door', deep ? t('hud.prompt.doorsDeep') : special ? t('hud.prompt.doorsObjective') : t('hud.prompt.doors')),
+          order.length > 0 ? legend : null,
+        ];
       });
       for (const fill of doorBars) {
         const index = Number(fill.dataset.door);
@@ -549,7 +607,10 @@ export function createHud(): HudView {
     syncPrompt();
     buffs.tick();
     tips.pump();
-    const hp = state.bossHp;
+    objective.sync();
+    // The bar belongs to a living boss: once the fight is over (draft, doors) a dead boss's empty bar goes away.
+    const fighting = state.run?.phase === 'combat';
+    const hp = fighting ? state.bossHp : null;
     if (hp !== null && !boss.isConnected) bossSlot.append(boss);
     else if (hp === null && boss.isConnected) boss.remove();
     if (hp !== null) {
@@ -560,9 +621,14 @@ export function createHud(): HudView {
     const n = state.enemiesAlive;
     setText(enemiesText, combat && n > 0 ? (n === 1 ? t('hud.enemies.one') : t('hud.enemies.many', { n })) : '');
     show(enemiesText, combat && n > 0);
+    show(waveLine, waveText.textContent !== '' || !waveTag.hidden || !enemiesText.hidden);
   };
 
   const affixSeen = new Map<string, number>();
+  const wardSeen = new Map<ElementId, number>();
+  let anchorCalloutAt = -Infinity;
+  /** Braziers announced as lit in this chamber (the event can arrive before the snapshot that shows it). */
+  const litSites = new Set<number>();
 
   const sync = (): void => {
     renderParty();
@@ -614,23 +680,61 @@ export function createHud(): HudView {
         break;
       }
       case 'spawn': {
+        const now = performance.now();
+        // Wards: one line per element, and a plainer warning when it is an element the own hero relies on.
+        if (ev.ward && now - (wardSeen.get(ev.ward) ?? -Infinity) >= UI_CONFIG.WARD_CALLOUT_GAP_MS) {
+          wardSeen.set(ev.ward, now);
+          const mine = distinctElements(infusionsOf(selfRoster()?.boons ?? [])).includes(ev.ward);
+          pushFeed('warded', t(mine ? 'toast.wardOwn' : 'toast.ward', { element: t(`element.${ev.ward}.name`) }), `ward-${ev.ward}`);
+        }
         // Elite affixes: one small line per affix, however many elites spawn with it.
         if (!ev.affix) break;
-        const now = performance.now();
         if (now - (affixSeen.get(ev.affix) ?? -Infinity) < UI_CONFIG.AFFIX_CALLOUT_GAP_MS) break;
         affixSeen.set(ev.affix, now);
         pushFeed('affix', `${t('toast.affix', { affix: affixName(ev.affix) })} — ${affixBody(ev.affix)}`, 'affix');
         break;
       }
+      case 'objective': {
+        if (state.run?.tutorial) break;
+        objective.onEvent(ev);
+        const now = performance.now();
+        if (ev.what === 'start') litSites.clear();
+        if (ev.what === 'start' && ev.kind !== 'slay') {
+          // A new act or depth is announced first; the objective follows it.
+          const wait = Math.max(0, actBannerUntil - now);
+          if (wait === 0) banner.classList.remove('is-on');
+          objectiveBanner.intro(ev.kind, wait);
+          objectiveBannerUntil = now + wait + UI_CONFIG.OBJECTIVE_BANNER_MS;
+        } else if (ev.what === 'done' && ev.kind !== 'slay') {
+          banner.classList.remove('is-on');
+          objectiveBanner.done(ev.kind, ev.bonus === true);
+          objectiveBannerUntil = now + UI_CONFIG.OBJECTIVE_DONE_MS;
+        } else if (ev.what === 'bonusLost') {
+          banner.classList.remove('is-on');
+          objectiveBanner.lost(ev.kind);
+          objectiveBannerUntil = now + UI_CONFIG.OBJECTIVE_BANNER_MS;
+        } else if (ev.what === 'site') {
+          const sites = state.run?.objective?.sites ?? [];
+          sites.forEach((site, index) => { if (site.lit) litSites.add(index); });
+          if (typeof ev.index === 'number') litSites.add(ev.index);
+          const lit = Math.max(litSites.size, 1);
+          pushFeed('ritual', t('toast.objective.site', { n: lit, m: Math.max(sites.length, lit) }), 'objective');
+        } else if (ev.what === 'anchorHit' && now - anchorCalloutAt >= UI_CONFIG.ANCHOR_CALLOUT_GAP_MS) {
+          anchorCalloutAt = now;
+          pushFeed('defend', t('toast.objective.anchorHit'), 'anchor');
+        }
+        break;
+      }
       case 'wave': {
-        if (state.run?.tutorial || (ev.wave <= 1 && performance.now() < actBannerUntil)) break;
+        if (state.run?.tutorial || (ev.wave <= 1 && performance.now() < Math.max(actBannerUntil, objectiveBannerUntil))) break;
         const final = ev.wave >= ev.waveCount && ev.waveCount > 1;
         showBanner(final ? t('toast.waveFinal') : t('toast.wave', { n: ev.wave }),
           final ? t('hud.wave', { n: ev.wave, m: ev.waveCount }) : t('toast.waveSub', { m: ev.waveCount }), 'wave');
         break;
       }
       case 'chamberClear':
-        if (!state.run?.tutorial) showBanner(t('toast.chamberClear'), t('toast.chamberClearSub'), 'clear');
+        // A special objective has just announced its own completion: do not talk over it.
+        if (!state.run?.tutorial && performance.now() >= objectiveBannerUntil) showBanner(t('toast.chamberClear'), t('toast.chamberClearSub'), 'clear');
         break;
       case 'bossPhase':
         showBanner(
@@ -687,6 +791,12 @@ export function createHud(): HudView {
     feed.replaceChildren();
     buffs.reset();
     affixSeen.clear();
+    wardSeen.clear();
+    litSites.clear();
+    anchorCalloutAt = -Infinity;
+    objective.reset();
+    objectiveBanner.hide();
+    objectiveBannerUntil = 0;
     banner.classList.remove('is-on');
     lastBiome = null;
     lastChamber = -1;
@@ -696,6 +806,6 @@ export function createHud(): HudView {
   return {
     el, sync, syncHud, onEvent, onLocalAction, reset,
     dismissTip: () => tips.dismiss(),
-    dispose: () => { window.clearTimeout(bannerTimer); coach.dispose?.(); strip.dispose?.(); tips.dispose?.(); },
+    dispose: () => { window.clearTimeout(bannerTimer); objectiveBanner.hide(); coach.dispose?.(); strip.dispose?.(); tips.dispose?.(); },
   };
 }

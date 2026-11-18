@@ -2,7 +2,7 @@
 export { World } from './world.ts';
 export { Rng } from './rng.ts';
 export { BotBrain, viewFromWorld, type BotView, type BotOptions } from './bot.ts';
-export { SIM, AI, DIRECTOR, BIOME, META, TUTORIAL, TALENT, AFFIX } from './tuning.ts';
+export { SIM, AI, DIRECTOR, BIOME, META, TUTORIAL, TALENT, AFFIX, OBJECTIVE } from './tuning.ts';
 export {
   generateRoom, composeWave, waveBudget, findSpawnPoint, doorPositions, biomeOfChamber, bossOfChamber, hasHazardFreeRoutes,
   type RunOverrides,

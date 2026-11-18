@@ -18,6 +18,8 @@ import {
 } from './director.ts';
 import { spawnEnemy, stepEnemy, type SpawnOpts } from './enemies.ts';
 import { stepHazards } from './hazardFx.ts';
+import { refreshDomes } from './horde.ts';
+import { isSpecial } from './objectives.ts';
 import { noMetaLevels } from './meta.ts';
 import { META } from './tuning.ts';
 import { sanctuaryHolds, stepBlasts, stepZones } from './zones.ts';
@@ -42,7 +44,7 @@ const freshRun = (): RunCore => ({
   phase: 'lobby', oath: 0, chamber: 0, chamberKind: 'combat', entered: 'boon', wave: 0, waveCount: 0, doors: [],
   doorProgress: [], bossId: -1, draftPending: [], draftTime: 0, elapsed: 0, secondWinds: 0,
   // `finalBoss` only means something once a run has started (it is drawn from the run seed).
-  bossKind: null, finalBoss: 'regent', rewards: [], depth: 0, cleared: 0, chambersCleared: 0, tutorial: null,
+  bossKind: null, finalBoss: 'regent', rewards: [], depth: 0, cleared: 0, chambersCleared: 0, objective: null, objectivesDone: 0, objectiveBonuses: 0, tutorial: null,
 });
 
 /** Mixed into the run seed for the generator that only rolls relic shards. */
@@ -206,7 +208,7 @@ export class World {
     planRun(this, overrides);
     const last = RUN.CHAMBERS.length - 1;
     const index = Math.max(0, Math.min(last, Math.floor(startChamber)));
-    enterChamber(this, index, index === last ? 'boss' : 'boon');
+    enterChamber(this, index, index === last ? 'boss' : 'boon', overrides.objective);
     openAttunementDraft(this);
     return true;
   }
@@ -293,6 +295,15 @@ export class World {
     this.fragileCount = 0;
   }
 
+  /**
+   * True while the current objective changes continuously (timers, brazier and vault progress, shard health), so
+   * whoever publishes the run state should keep re-sending it during combat (the server does, ~4x per second).
+   */
+  get objectiveLive(): boolean {
+    const o = this.run.objective;
+    return this.run.phase === 'combat' && o !== null && o.status === 'active' && isSpecial(o.kind);
+  }
+
   /** Is the simulation waiting because nobody is connected (or no run is active)? */
   get paused(): boolean {
     if (this.run.phase === 'lobby') return true;
@@ -318,6 +329,7 @@ export class World {
       // Summons appended during the loop start acting next tick.
       const n = this.enemies.length;
       for (let i = 0; i < n; i++) stepEnemy(this, this.enemies[i] as Enemy);
+      refreshDomes(this);
       stepProjectiles(this);
       stepZones(this);
       if (this.blasts.length > 0) stepBlasts(this);
@@ -412,6 +424,10 @@ export class World {
       doorProgress: [...run.doorProgress],
       draftPending: [...run.draftPending],
       rewards: run.rewards.map((r) => ({ ...r, relics: [...r.relics] })),
+      objective: run.objective ? {
+        ...run.objective, anchor: run.objective.anchor ? { ...run.objective.anchor } : null,
+        sites: run.objective.sites.map((site) => ({ ...site })), targets: [...run.objective.targets],
+      } : null,
       tutorial: run.tutorial ? { ...run.tutorial, marker: run.tutorial.marker ? { ...run.tutorial.marker } : null } : null,
       room: run.phase === 'lobby' ? null : this.room,
       stats: this.heroes.map((h) => ({ ...h.run, damage: Math.round(h.run.damage) })),
@@ -453,7 +469,7 @@ export class World {
       else if (e.status === 'umbra') flags |= EF.WITHER;
       if (e.stunTime > 0) flags |= EF.STUNNED;
       if (e.shieldHp > 0) flags |= EF.SHIELDED;
-      if (e.boss && e.boss.phase >= 3) flags |= EF.ENRAGED;
+      if ((e.boss && e.boss.phase >= 3) || e.enraged) flags |= EF.ENRAGED;
       enemies.push({
         id: e.id, kind: e.kind, x: e.x, z: e.z, rot: e.rot, hp: e.dead ? 0 : Math.max(0, e.hp / e.maxHp), anim: e.anim,
         animSeq: e.animSeq & 0xff, flags,

@@ -8,6 +8,7 @@
  *   boon.<boonId>.name|desc              infusion.<element>.<slot>.name   infusion.desc   infusion.slot.<slot>
  *   door.<type>.name|desc                oath.<0..3>.name    oath.desc    oath.0.desc
  *   rarity.<rarity>   category.<category>   toast.*   error.<ErrorCode | ConnError>
+ * Update 4 keys (objectives, the new foes, wards) live in strings4.ts.
  * Update 3 keys live in strings3.ts; texts that mirror a data table by id are looked up with `tx()` (strings3data.ts).
  * Update 2 keys (tutorial.* tip.* codex.* armory.* meta.* wardrobe.* look.* biome.* hazard.*) live in strings2.ts.
  * Placeholders use {name}. Boon descriptions use {v} for the value at the offered level.
@@ -18,10 +19,12 @@ import type { Lang } from '../core/Settings.ts';
 import { DE2, EN2 } from './strings2.ts';
 import { DE3, EN3 } from './strings3.ts';
 import { DE_DATA, EN_DATA } from './strings3data.ts';
+import { DE4, DE4_DATA, EN4, EN4_DATA } from './strings4.ts';
 
 const EN = {
   ...EN2,
   ...EN3,
+  ...EN4,
   'common.title': 'Glimmergrave',
   'common.tagline': 'A co-op descent for 1–4 Wardens',
   'common.ok': 'OK',
@@ -391,6 +394,7 @@ export type I18nKey = keyof typeof EN;
 const DE: Record<I18nKey, string> = {
   ...DE2,
   ...DE3,
+  ...DE4,
   'common.title': 'Glimmergrave',
   'common.tagline': 'Ein Koop-Abstieg für 1–4 Wächter',
   'common.ok': 'OK',
@@ -793,7 +797,7 @@ export function hasKey(key: string): key is I18nKey {
   return Object.prototype.hasOwnProperty.call(EN, key);
 }
 
-const DATA: Record<Lang, Readonly<Record<string, string>>> = { en: EN_DATA, de: DE_DATA };
+const DATA: Record<Lang, Readonly<Record<string, string>>> = { en: { ...EN_DATA, ...EN4_DATA }, de: { ...DE_DATA, ...DE4_DATA } };
 const own = (table: object, key: string): string | undefined =>
   (Object.prototype.hasOwnProperty.call(table, key) ? (table as Record<string, string>)[key] : undefined);
 

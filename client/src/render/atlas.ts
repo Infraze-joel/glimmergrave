@@ -20,6 +20,8 @@ export const ICONS = [
   'burn', 'chill', 'shock', 'stun', 'shield', 'enrage', 'boon', 'blessing', 'cursed', 'boss', 'down', 'marker',
   // update 3
   'wither', 'mark', 'descend', 'ascend', 'bell', 'swift', 'armored', 'volatile', 'vampiric',
+  // update 4: element ward, hunt target, and one emblem per chamber objective (survive uses the hourglass)
+  'ward', 'hunt', 'survive', 'defend', 'ritual', 'vault',
 ] as const;
 export type IconName = (typeof ICONS)[number];
 
@@ -262,6 +264,89 @@ function drawIcon(ctx: CanvasRenderingContext2D, name: IconName, ox: number, oy:
       strokeFill(ctx);
       star(ctx, c + 22, 9, 4, 8, 3);
       ctx.fillStyle = '#ffffff'; ctx.fill();
+      break;
+    }
+    case 'ward': {
+      // a hollow shield: whatever is drawn inside it is turned away
+      for (const pass of [0, 1]) {
+        ctx.strokeStyle = pass === 0 ? OUTLINE : '#ffffff';
+        ctx.lineWidth = pass === 0 ? 12 : 6;
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(c - 22, 9); ctx.lineTo(c + 22, 9); ctx.lineTo(c + 22, 31);
+        ctx.quadraticCurveTo(c + 19, 51, c, 59); ctx.quadraticCurveTo(c - 19, 51, c - 22, 31);
+        ctx.closePath();
+        ctx.stroke();
+      }
+      ctx.fillStyle = 'rgba(6, 6, 12, 0.72)';
+      ctx.fill();
+      break;
+    }
+    case 'hunt': {
+      // a quarry pin: a pointed drop with a diamond cut out of it
+      ctx.beginPath();
+      ctx.moveTo(c, 61);
+      ctx.bezierCurveTo(c - 8, 44, c - 23, 38, c - 23, 24);
+      ctx.bezierCurveTo(c - 23, -2, c + 23, -2, c + 23, 24);
+      ctx.bezierCurveTo(c + 23, 38, c + 8, 44, c, 61);
+      ctx.closePath();
+      strokeFill(ctx);
+      ctx.fillStyle = OUTLINE;
+      ctx.beginPath(); ctx.moveTo(c, 11); ctx.lineTo(c + 11, 24); ctx.lineTo(c, 37); ctx.lineTo(c - 11, 24); ctx.closePath(); ctx.fill();
+      break;
+    }
+    case 'survive': {
+      // an hourglass
+      ctx.beginPath();
+      ctx.moveTo(c - 19, 8); ctx.lineTo(c + 19, 8); ctx.lineTo(c + 19, 15); ctx.lineTo(c + 4, c);
+      ctx.lineTo(c + 19, 49); ctx.lineTo(c + 19, 56); ctx.lineTo(c - 19, 56); ctx.lineTo(c - 19, 49);
+      ctx.lineTo(c - 4, c); ctx.lineTo(c - 19, 15);
+      ctx.closePath();
+      strokeFill(ctx);
+      ctx.fillStyle = OUTLINE;
+      ctx.beginPath(); ctx.moveTo(c - 11, 17); ctx.lineTo(c + 11, 17); ctx.lineTo(c, 28); ctx.closePath(); ctx.fill();
+      break;
+    }
+    case 'defend': {
+      // the bell shard: a tall crystal on a plinth
+      ctx.beginPath();
+      ctx.moveTo(c - 2, 4); ctx.lineTo(c + 13, 22); ctx.lineTo(c + 8, 46); ctx.lineTo(c - 10, 46); ctx.lineTo(c - 14, 24);
+      ctx.closePath();
+      strokeFill(ctx);
+      ctx.fillStyle = 'rgba(6, 6, 12, 0.3)';
+      ctx.beginPath(); ctx.moveTo(c - 2, 4); ctx.lineTo(c + 13, 22); ctx.lineTo(c + 8, 46); ctx.lineTo(c - 1, 46); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.rect(c - 20, 50, 40, 8);
+      strokeFill(ctx);
+      break;
+    }
+    case 'ritual': {
+      // a burning brazier: a bowl on a foot with a flame
+      ctx.beginPath();
+      ctx.moveTo(c, 4);
+      ctx.bezierCurveTo(c + 4, 14, c + 14, 18, c + 11, 30);
+      ctx.lineTo(c - 11, 30);
+      ctx.bezierCurveTo(c - 14, 22, c - 5, 20, c - 5, 13);
+      ctx.bezierCurveTo(c - 1, 16, c, 10, c, 4);
+      ctx.closePath();
+      strokeFill(ctx);
+      ctx.beginPath();
+      ctx.moveTo(c - 23, 34); ctx.lineTo(c + 23, 34); ctx.lineTo(c + 12, 47); ctx.lineTo(c + 5, 47); ctx.lineTo(c + 9, 58);
+      ctx.lineTo(c - 9, 58); ctx.lineTo(c - 5, 47); ctx.lineTo(c - 12, 47);
+      ctx.closePath();
+      strokeFill(ctx);
+      break;
+    }
+    case 'vault': {
+      // a reliquary chest with a keyhole
+      ctx.beginPath();
+      ctx.moveTo(c - 24, 30); ctx.quadraticCurveTo(c - 24, 10, c, 10); ctx.quadraticCurveTo(c + 24, 10, c + 24, 30);
+      ctx.lineTo(c + 24, 55); ctx.lineTo(c - 24, 55);
+      ctx.closePath();
+      strokeFill(ctx);
+      ctx.fillStyle = OUTLINE;
+      ctx.fillRect(c - 24, 28, 48, 4);
+      ctx.beginPath(); ctx.arc(c, 39, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillRect(c - 2.5, 40, 5, 10);
       break;
     }
     case 'vampiric': {

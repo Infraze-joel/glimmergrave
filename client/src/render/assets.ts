@@ -7,7 +7,7 @@
  */
 import {
   Box3, BoxGeometry, BufferAttribute, BufferGeometry, Color, ConeGeometry, CylinderGeometry, DodecahedronGeometry, Matrix3, Matrix4, Mesh,
-  OctahedronGeometry, Quaternion, SRGBColorSpace, Skeleton, SkinnedMesh, Vector3,
+  OctahedronGeometry, Quaternion, SRGBColorSpace, Skeleton, SkinnedMesh, SphereGeometry, Vector3,
 } from 'three';
 import type { AnimationClip, Bone, InterleavedBufferAttribute, KeyframeTrack, Material, Object3D, Texture } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -35,7 +35,11 @@ export interface CharacterTemplate {
   /** Hero templates only: cache key (class, head, cape, style) and the number of live views using it. */
   key: string;
   refs: number;
+  /** Named points that ride on a bone (fuse tip, staff head), in that bone's local space. */
+  anchors: Record<string, Anchor>;
 }
+
+export interface Anchor { bone: string; x: number; y: number; z: number }
 
 export type PropName = 'arrow' | 'dagger' | 'skel_arrow' | 'shield_round';
 
@@ -56,8 +60,11 @@ export interface Assets {
   knightMap: Texture;
   skeletonMap: Texture;
   props: Record<PropName, BufferGeometry>;
-  /** Baked static geometry of one dungeon kit piece (cached, owned by the library). */
-  piece(name: string): BufferGeometry;
+  /**
+   * Baked static geometry of one dungeon kit piece (cached, owned by the library). `part` narrows it to the meshes
+   * whose node name matches (`+lid`) or does not match (`-lid`) the word, for pieces with a moving part (chests).
+   */
+  piece(name: string, part?: string): BufferGeometry;
   dispose(): void;
 }
 
@@ -97,6 +104,8 @@ interface BakeSpec {
    * space, or (with `local`) a transform in the new bone's own space applied to the mesh as it was held.
    */
   rehang?: Map<string, { bone: string; matrix: Matrix4; local?: boolean }>;
+  /** Named points in rest-pose model space, each riding on a bone (see CharacterTemplate.anchors). */
+  anchors?: Record<string, { bone: string; at: readonly [number, number, number] }>;
 }
 
 const FILES = [
@@ -403,7 +412,14 @@ function bakeCharacter(source: Object3D, map: Texture, spec: BakeSpec): Characte
   meshParent.add(body);
   scene.updateMatrixWorld(true);
   body.bind(bakedSkeleton, main.bindMatrix.clone());
-  return { scene, map, triangles: mainCount / 3, key: '', refs: 0 };
+  const anchors: Record<string, Anchor> = {};
+  for (const [name, a] of Object.entries(spec.anchors ?? {})) {
+    const bone = skeleton.bones.find((b) => b.name === a.bone);
+    if (!bone) continue;
+    _v.set(a.at[0], a.at[1], a.at[2]).applyMatrix4(_m.copy(bone.matrixWorld).invert());
+    anchors[name] = { bone: a.bone, x: _v.x, y: _v.y, z: _v.z };
+  }
+  return { scene, map, triangles: mainCount / 3, key: '', refs: 0, anchors };
 }
 
 function matrixOf(px: number, py: number, pz: number, rx = 0, ry = 0, rz = 0, s = 1): Matrix4 {
@@ -637,6 +653,221 @@ function stalkerParts(props: Object3D): ExtraPart[] {
   }
   parts.push(modelPart(new DodecahedronGeometry(0.13), 'chest', matrixOf(-0.14, 1.12, -0.3), solid, bone));
   parts.push(modelPart(new OctahedronGeometry(0.07), 'chest', matrixOf(0, 1.06, 0.24), [1, 0, 1], new Color(PALETTE.sickly).multiplyScalar(STALKER.GLOW)));
+  return parts;
+}
+
+// ---------------------------------------------------------------------------------------------- the horde (update 4)
+// Five rank-and-file kinds on the four skeleton rigs. Each gets one read from the game camera that no other kind
+// has: horns and a totem (shaman), a slab of a shield (aegis), a lit keg towering over the head (bomber), a tall
+// dark cowl and robe (necromancer), two long pale blades and streaming scarf tails (reaver).
+
+const HORDE = {
+  WOOD: 0x7a4420, WOOD_DARK: 0x44280f, IRON: 0x4a4a55, STEEL: 0xaab4cc, MOSS: 0x2f6b2a, MOSS_DARK: 0x1d4420,
+  ROBE: 0x3a1f5c, ROBE_DARK: 0x1f1034, SCARF: 0xcfe4f0, GLOW: 2.6,
+  /** The kit's skull (measured): 0.9 m across, y 1.31 .. 2.17 in rest-pose model space. */
+  HEAD_Y: 1.74, HEAD_R: 0.47, HEAD_TOP: 2.17,
+  /** The bomber balances its keg on its head: from the game camera it is a walking barrel. */
+  KEG_Y: 2.54, KEG_R: 0.52, KEG_H: 0.86,
+  /** Model-space point the fuse sparks fly from. */
+  FUSE_TIP: [0.05, 3.22, 0],
+  SHIELD: [1.55, 1.9, 1.55],
+} as const;
+
+/** A cap or hood over the kit skull: a sphere section, open below `down` (0..1 of the sphere) and, for a hood, at the face. */
+function skullCap(radius: number, down: number, faceGap: number): BufferGeometry {
+  const geo = new SphereGeometry(radius, 8, 4, Math.PI / 2 + faceGap / 2, Math.PI * 2 - faceGap, 0, Math.PI * down);
+  geo.scale(1, 1.05, 1.06);
+  return geo;
+}
+
+function scaled(sx: number, sy: number, sz: number, px = 0, py = 0, pz = 0, ry = 0): Matrix4 {
+  return new Matrix4().compose(new Vector3(px, py, pz), new Quaternion().setFromAxisAngle(_v.set(0, 1, 0), ry), new Vector3(sx, sy, sz));
+}
+
+/** Shaman: ram horns, a mossy mantle that hunches the shoulders, charms, and a totem staff crowned with a bog light. */
+function shamanParts(props: Object3D): { parts: ExtraPart[]; top: Vector3 } {
+  const wood = new Color(HORDE.WOOD);
+  const moss = new Color(HORDE.MOSS);
+  const mossDark = new Color(HORDE.MOSS_DARK);
+  const bone = new Color(PALETTE.bone);
+  const glow = new Color(PALETTE.mend).multiplyScalar(HORDE.GLOW);
+  const solid: [number, number, number] = [0, 0, 1];
+  const parts: ExtraPart[] = [];
+  for (const side of [-1, 1]) {
+    // horns: three segments curling out and forward
+    const segs: [number, number, number, number, number, number][] = [
+      [0.52, 1.96, -0.02, 0.15, 0.46, 1.3], [0.86, 2.1, 0.06, 0.115, 0.42, 0.55], [0.98, 2.38, 0.2, 0.075, 0.4, -0.3],
+    ];
+    for (const [x, y, z, r, len, lean] of segs) {
+      parts.push(modelPart(new CylinderGeometry(r * 0.62, r, len, 5), 'head', matrixOf(side * x, y, z, 0.25, 0, -side * lean), solid, bone));
+    }
+    // shoulder humps of moss and bark
+    const hump = new DodecahedronGeometry(0.24);
+    hump.scale(1.15, 0.8, 1.2);
+    parts.push(modelPart(hump, 'chest', matrixOf(side * 0.3, 1.3, -0.1), solid, side < 0 ? moss : mossDark));
+    parts.push(modelPart(new ConeGeometry(0.07, 0.3, 4), 'chest', matrixOf(side * 0.42, 1.48, -0.12, -0.3, 0, -side * 0.6), solid, wood));
+  }
+  const back = new DodecahedronGeometry(0.3);
+  back.scale(1.2, 0.85, 0.9);
+  parts.push(modelPart(back, 'chest', matrixOf(0, 1.32, -0.24), solid, moss));
+  // a cap of moss and bark over the skull, a bog light set in its brow and a crest of leaves down the middle
+  parts.push(modelPart(skullCap(HORDE.HEAD_R * 1.1, 0.5, 0), 'head', matrixOf(0, HORDE.HEAD_Y, 0), solid, moss));
+  parts.push(modelPart(new OctahedronGeometry(0.1), 'head', matrixOf(0, 2.02, 0.44), [1, 0, 1], glow));
+  for (let i = 0; i < 3; i++) {
+    parts.push(modelPart(new ConeGeometry(0.11, 0.4 - i * 0.05, 4), 'head', matrixOf(0, 2.36 - i * 0.07, 0.16 - i * 0.26, -0.5 - i * 0.2), solid, i === 1 ? moss : mossDark));
+  }
+  // mantle to the knees and a loincloth in front, charms on the belt
+  parts.push({
+    geometry: panelGeometry([[1.22, -0.22, 0.36], [0.85, -0.36, 0.44], [0.48, -0.42, 0.36]], 0.12),
+    bone: 'chest', matrix: new Matrix4(), mask: solid, tint: mossDark, owned: true, space: 'model',
+  });
+  parts.push({
+    geometry: frontPanel([[0.78, -0.2, 0.15], [0.42, -0.24, 0.11]], -0.1),
+    bone: 'hips', matrix: new Matrix4(), mask: solid, tint: moss, owned: true, space: 'model',
+  });
+  for (let i = 0; i < 3; i++) {
+    parts.push(modelPart(new OctahedronGeometry(0.05), 'hips', matrixOf(-0.2 + i * 0.2, 0.62 - (i % 2) * 0.06, 0.22), [1, 0, 1], glow));
+  }
+  // totem staff: the kit staff, taller, with a carved head, two tines and the bog light on top
+  const staff = propPart(props, 'skel_staff', 'handslotr', matrixOf(0, 0, 0, 0, 0, 0, 1.3));
+  parts.push(staff);
+  const tip = farEnd(staff);
+  const at = (dx: number, dy: number, dz: number): Matrix4 => new Matrix4().makeTranslation(tip.x + dx, tip.y + dy, tip.z + dz);
+  const head = new DodecahedronGeometry(0.15);
+  parts.push({ geometry: faceted(head), bone: 'handslotr', matrix: at(0, 0.08, 0), mask: solid, tint: wood, owned: true });
+  for (const side of [-1, 1]) {
+    const tine = new ConeGeometry(0.045, 0.42, 4);
+    tine.rotateZ(-side * 0.8);
+    parts.push({ geometry: faceted(tine), bone: 'handslotr', matrix: at(side * 0.24, 0.26, 0), mask: solid, tint: bone, owned: true });
+  }
+  const orb = new OctahedronGeometry(0.15);
+  parts.push({ geometry: faceted(orb), bone: 'handslotr', matrix: at(0, 0.42, 0), mask: [1, 0, 1], tint: glow, owned: true });
+  return { parts, top: new Vector3(tip.x, tip.y + 0.42, tip.z) };
+}
+
+/** Aegis: a slab of a tower shield with the ward stone set in it, heavy pauldrons, a helmet fin and a short mace. */
+function aegisParts(props: Object3D): ExtraPart[] {
+  const steel = new Color(HORDE.STEEL);
+  const iron = new Color(HORDE.IRON);
+  const glow = new Color(PALETTE.aegis).multiplyScalar(HORDE.GLOW);
+  const solid: [number, number, number] = [0, 0, 1];
+  const [sx, sy, sz] = HORDE.SHIELD;
+  const parts: ExtraPart[] = [propPart(props, 'skel_shield', 'handslotl', scaled(sx, sy, sz))];
+  // the ward stone pokes through both faces of the shield, with four studs around it
+  const stone = new OctahedronGeometry(0.2);
+  stone.scale(1, 1.5, 2.2);
+  parts.push({ geometry: faceted(stone), bone: 'handslotl', matrix: new Matrix4(), mask: [1, 0, 1], tint: glow, owned: true });
+  for (const [dx, dy] of [[-0.42, 0.62], [0.42, 0.62], [-0.42, -0.62], [0.42, -0.62]]) {
+    const stud = new OctahedronGeometry(0.07);
+    stud.scale(1, 1, 5);
+    parts.push({ geometry: faceted(stud), bone: 'handslotl', matrix: new Matrix4().makeTranslation(dx, dy, 0), mask: [1, 0, 1], tint: glow.clone().multiplyScalar(0.6), owned: true });
+  }
+  for (const side of [-1, 1]) {
+    const arm = side > 0 ? 'upperarml' : 'upperarmr';
+    const plate = new DodecahedronGeometry(0.24);
+    plate.scale(1.25, 0.75, 1.2);
+    parts.push(modelPart(plate, arm, matrixOf(side * 0.36, 1.3, 0, 0, 0, -side * 0.25), solid, steel));
+    parts.push(modelPart(new ConeGeometry(0.07, 0.3, 4), arm, matrixOf(side * 0.5, 1.46, 0, 0, 0, -side * 0.6), solid, iron));
+  }
+  // ward light along the top edge of the shield and on the helmet, where the game camera sees it
+  for (const dx of [-0.42, 0, 0.42]) {
+    parts.push({ geometry: faceted(new OctahedronGeometry(0.11)), bone: 'handslotl', matrix: new Matrix4().makeTranslation(dx, 1.12, 0), mask: [1, 0, 1], tint: glow, owned: true });
+  }
+  // the kit helmet reaches up to y = 2.58: a ward stone set in its crown
+  const crest = new OctahedronGeometry(0.17);
+  crest.scale(1, 1.5, 1);
+  parts.push(modelPart(crest, 'head', matrixOf(0, 2.66, 0), [1, 0, 1], glow));
+  // mace
+  parts.push({ geometry: faceted(new CylinderGeometry(0.04, 0.05, 0.75, 5)), bone: 'handslotr', matrix: new Matrix4().makeTranslation(0, 0.3, 0), mask: solid, tint: iron, owned: true });
+  parts.push({ geometry: faceted(new DodecahedronGeometry(0.16)), bone: 'handslotr', matrix: new Matrix4().makeTranslation(0, 0.72, 0), mask: solid, tint: steel, owned: true });
+  return parts;
+}
+
+/** Bomber: a powder keg balanced on the skull (iron bands, a glowing waist, a lit wick): a barrel on legs from above. */
+function bomberParts(): ExtraPart[] {
+  const wood = new Color(HORDE.WOOD);
+  const dark = new Color(HORDE.WOOD_DARK);
+  const iron = new Color(HORDE.IRON);
+  const glow = new Color(PALETTE.fuse).multiplyScalar(HORDE.GLOW);
+  const solid: [number, number, number] = [0, 0, 1];
+  const y = HORDE.KEG_Y;
+  const r = HORDE.KEG_R;
+  const h = HORDE.KEG_H;
+  const parts: ExtraPart[] = [];
+  const ring = (radius: number, height: number, at: number, mask: [number, number, number], tint: Color): void => {
+    parts.push(modelPart(new CylinderGeometry(radius, radius, height, 8), 'head', matrixOf(0, at, 0), mask, tint));
+  };
+  parts.push(modelPart(new CylinderGeometry(r * 0.8, r, h * 0.5, 8), 'head', matrixOf(0, y + h * 0.25, 0), solid, wood));
+  parts.push(modelPart(new CylinderGeometry(r, r * 0.8, h * 0.5, 8), 'head', matrixOf(0, y - h * 0.25, 0), solid, dark));
+  // the waist glows through the staves (kept under the bloom threshold: the barrel has to stay a barrel)
+  ring(r * 1.03, 0.07, y, [1, 0, 1], glow.clone().multiplyScalar(0.45));
+  ring(r * 0.9, 0.07, y + h * 0.36, solid, iron);
+  ring(r * 0.9, 0.07, y - h * 0.36, solid, iron);
+  // the lid: an iron hoop, a dark bung, the wick and its ember
+  ring(r * 0.83, 0.05, y + h * 0.5, solid, iron);
+  ring(r * 0.7, 0.06, y + h * 0.5 + 0.01, solid, dark);
+  ring(r * 0.2, 0.08, y + h * 0.5 + 0.03, solid, iron);
+  parts.push(modelPart(new CylinderGeometry(0.035, 0.04, 0.24, 4), 'head', matrixOf(0.03, y + h * 0.5 + 0.13, 0, 0, 0, -0.2), solid, dark));
+  parts.push(modelPart(new OctahedronGeometry(0.085), 'head', matrixOf(HORDE.FUSE_TIP[0], HORDE.FUSE_TIP[1] - 0.06, HORDE.FUSE_TIP[2]), [1, 0, 1], glow));
+  // ropes holding it down
+  for (const side of [-1, 1]) {
+    parts.push(modelPart(new BoxGeometry(0.06, 0.6, 0.05), 'head', matrixOf(side * 0.44, 1.98, 0.08, 0, 0, side * 0.28), solid, dark));
+  }
+  return parts;
+}
+
+/** Necromancer: a floor-length grave robe, a tall pointed cowl, a spiked collar and a soul light in each open hand. */
+function necromancerParts(): ExtraPart[] {
+  const robe = new Color(HORDE.ROBE);
+  const dark = new Color(HORDE.ROBE_DARK);
+  const trim = new Color(PALETTE.grave);
+  const soul = new Color(PALETTE.soul).multiplyScalar(HORDE.GLOW);
+  const solid: [number, number, number] = [0, 0, 1];
+  const parts: ExtraPart[] = [
+    ...shellParts(0.26, 0.6, 0.66, 8, 'hips', 0.35, robe, solid),
+    ...shellParts(0.25, 0.28, 0.4, 8, 'spine', 0.86, robe, solid),
+    modelPart(new CylinderGeometry(0.615, 0.63, 0.06, 8, 1, true), 'hips', matrixOf(0, 0.06, 0), [1, 0, 1], trim.clone().multiplyScalar(1.6)),
+    modelPart(new CylinderGeometry(0.3, 0.3, 0.07, 8), 'spine', matrixOf(0, 0.68, 0), solid, trim),
+    {
+      geometry: panelGeometry([[1.3, -0.2, 0.3], [0.9, -0.34, 0.44], [0.45, -0.48, 0.54], [0.06, -0.62, 0.6]], 0.2),
+      bone: 'chest', matrix: new Matrix4(), mask: solid, tint: dark, owned: true, space: 'model',
+    },
+  ];
+  // the cowl: a deep hood over the whole skull, open at the face, drawn up into a tall bent point
+  parts.push(modelPart(skullCap(HORDE.HEAD_R * 1.16, 0.72, 1.3), 'head', matrixOf(0, HORDE.HEAD_Y, 0), solid, robe));
+  parts.push(modelPart(new ConeGeometry(0.42, 0.74, 7), 'head', matrixOf(0, HORDE.HEAD_TOP + 0.28, -0.1, -0.22), solid, robe));
+  parts.push(modelPart(new ConeGeometry(0.2, 0.66, 5), 'head', matrixOf(0, HORDE.HEAD_TOP + 0.8, -0.38, -0.7), solid, dark));
+  parts.push(modelPart(new OctahedronGeometry(0.1), 'head', matrixOf(0, HORDE.HEAD_TOP + 0.02, 0.36), [1, 0, 1], soul));
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < 2; i++) {
+      const h = 0.44 - i * 0.14;
+      parts.push(modelPart(new ConeGeometry(0.07, h, 4), 'chest', matrixOf(side * (0.24 + i * 0.12), 1.36 + h * 0.35, -0.12, -0.25, 0, -side * (0.35 + i * 0.4)), solid, i === 0 ? trim : dark));
+    }
+    // wide sleeves and a soul light in the palm
+    const sleeve = new CylinderGeometry(0.07, 0.17, 0.4, 6, 1, true);
+    parts.push({ geometry: faceted(sleeve), bone: side > 0 ? 'handslotl' : 'handslotr', matrix: new Matrix4().makeTranslation(0, -0.12, -0.2), mask: solid, tint: robe, owned: true });
+    parts.push({ geometry: faceted(new OctahedronGeometry(0.12)), bone: side > 0 ? 'handslotl' : 'handslotr', matrix: new Matrix4().makeTranslation(0, 0.16, 0), mask: [1, 0, 1], tint: soul, owned: true });
+  }
+  return parts;
+}
+
+/** Reaver: two long pale blades, scarf tails streaming from the neck and a bare, lean frame. */
+function reaverParts(props: Object3D): ExtraPart[] {
+  const scarf = new Color(HORDE.SCARF);
+  const steel = new Color(PALETTE.reaver).multiplyScalar(HORDE.GLOW * 0.5);
+  const edge: [number, number, number] = [0.35, 0, 0];
+  const parts: ExtraPart[] = [
+    propPart(props, 'skel_blade', 'handslotr', scaled(0.8, 1.3, 0.8), edge),
+    propPart(props, 'skel_blade', 'handslotl', scaled(0.8, 1.3, 0.8, 0, 0, 0, Math.PI), edge),
+  ];
+  for (const side of [-1, 1]) {
+    parts.push({
+      geometry: panelGeometry([[1.22, -0.16, 0.09], [0.98, -0.44, 0.11], [0.78, -0.7, 0.08], [side < 0 ? 0.6 : 0.68, -0.92, 0.02]]),
+      bone: 'chest', matrix: matrixOf(side * 0.12, 0, 0, 0, side * 0.3), mask: [0, 0, 1], tint: scarf, owned: true, space: 'model',
+    });
+    parts.push(modelPart(new ConeGeometry(0.05, 0.3, 4), side > 0 ? 'upperarml' : 'upperarmr', matrixOf(side * 0.33, 1.26, -0.02, -0.3, 0, -side * 1.0), [0, 0, 1], new Color(HORDE.IRON)));
+  }
+  parts.push(modelPart(new OctahedronGeometry(0.05), 'chest', matrixOf(0, 1.08, 0.24), [1, 0, 1], steel));
   return parts;
 }
 
@@ -874,6 +1105,7 @@ export async function loadAssets(onProgress: (loaded: number, total: number) => 
   const HAND_R = 'handslotr';
   const HAND_L = 'handslotl';
   const id = (): Matrix4 => new Matrix4();
+  const shaman = shamanParts(props);
   const enemySpecs: Record<EnemyKind, BakeSpec> = {
     minion: { keepRigid: () => true, extras: [propPart(props, 'skel_blade', HAND_R, matrixOf(0, 0, 0, 0, 0, 0, 0.8))] },
     warrior: {
@@ -899,12 +1131,19 @@ export async function loadAssets(onProgress: (loaded: number, total: number) => 
     },
     matron: { keepRigid: () => false, extras: matronParts(props) },
     stalker: { keepRigid: () => true, extras: stalkerParts(props) },
+    shaman: { keepRigid: () => false, extras: shaman.parts, anchors: {} },
+    aegis: { keepRigid: () => true, extras: aegisParts(props) },
+    bomber: { keepRigid: () => true, extras: bomberParts(), anchors: { fuse: { bone: 'head', at: HORDE.FUSE_TIP } } },
+    necromancer: { keepRigid: () => false, extras: necromancerParts() },
+    reaver: { keepRigid: (n) => !/cape/i.test(n), extras: reaverParts(props) },
   };
   const enemies = {} as Record<EnemyKind, CharacterTemplate>;
   for (const kind of ENEMY_KINDS) {
     const scene = files[ENEMY_MODEL[kind] as FileName].scene;
     enemies[kind] = bakeCharacter(scene, skeletonMap, enemySpecs[kind]);
   }
+  // the totem's head is found from the staff's bounds, already in the hand's own space
+  enemies.shaman.anchors.totem = { bone: HAND_R, x: shaman.top.x, y: shaman.top.y, z: shaman.top.z };
 
   const propGeometry = (name: PropName): BufferGeometry => {
     const { root, main } = propMeshes(props, name);
@@ -922,23 +1161,28 @@ export async function loadAssets(onProgress: (loaded: number, total: number) => 
   const dungeon = files.dungeon.scene;
   dungeon.updateMatrixWorld(true);
   const pieces = new Map<string, BufferGeometry>();
-  const piece = (name: string): BufferGeometry => {
-    const cached = pieces.get(name);
+  const piece = (name: string, part?: string): BufferGeometry => {
+    const key = part ? `${name}|${part}` : name;
+    const cached = pieces.get(key);
     if (cached) return cached;
     const root = dungeon.getObjectByName(name);
     if (!root) throw new Error(`unknown dungeon piece "${name}"`);
     const inv = new Matrix4().copy(root.matrixWorld).invert();
     const parts: BufferGeometry[] = [];
+    const want = part ? part.startsWith('+') : true;
+    const word = part ? part.slice(1) : '';
     root.traverse((o) => {
       const mesh = o as Mesh;
-      if (mesh.isMesh) parts.push(plainGeometry(mesh.geometry, new Matrix4().multiplyMatrices(inv, mesh.matrixWorld)));
+      if (!mesh.isMesh) return;
+      if (part && mesh.name.includes(word) !== want) return;
+      parts.push(plainGeometry(mesh.geometry, new Matrix4().multiplyMatrices(inv, mesh.matrixWorld)));
     });
     const geo = parts.length === 1 ? parts[0] : mergeGeometries(parts, false);
-    if (!geo) throw new Error(`failed to bake dungeon piece "${name}"`);
+    if (!geo) throw new Error(`failed to bake dungeon piece "${key}"`);
     if (parts.length > 1) for (const p of parts) p.dispose();
     geo.computeBoundingBox();
     geo.computeBoundingSphere();
-    pieces.set(name, geo);
+    pieces.set(key, geo);
     return geo;
   };
 

@@ -1,11 +1,11 @@
 /** UI-local view state (not part of the GameState contract). */
-import type { BiomeId, ClassId } from '@shared/types.ts';
+import type { BiomeId, ClassId, ObjectiveKind } from '@shared/types.ts';
 import type { ConnError, EventMap } from '../core/EventBus.ts';
 
 export type ModalKind = 'howto' | 'settings' | 'leave';
 /** Full-screen pages that open on top of the menu, lobby, summary or pause menu. */
 export type PageKind = 'armory' | 'wardrobe' | 'codex';
-export type CodexTab = 'elements' | 'classes' | 'combat' | 'hazards' | 'enemies' | 'doors' | 'boons' | 'progress';
+export type CodexTab = 'elements' | 'classes' | 'combat' | 'objectives' | 'hazards' | 'bestiary' | 'doors' | 'boons' | 'progress';
 /** Tabs of the progression hub (the page that grew out of the Armory; PageKind stays 'armory'). */
 export const HUB_TABS = ['armory', 'ascension', 'mastery', 'reliquary', 'chronicle'] as const;
 export type HubTab = (typeof HUB_TABS)[number];
@@ -42,6 +42,14 @@ export const ui = {
   hubRelic: null as string | null,
   /** Rewards booked for the run whose summary is showing; null before they arrive and outside a summary. */
   progress: null as RunProgress | null,
+  /**
+   * Special objectives completed and bonuses earned in the current run, counted from the `objective` events.
+   * `tracked` is true only when the run was watched from its first chamber (a hero who joined or reloaded
+   * mid-run does not know the earlier chambers, so the summary hides the tally then).
+   */
+  objectives: { done: 0, bonus: 0, tracked: false },
+  /** The last finished objective (for the draft's "objective bonus" mark), or null. */
+  lastObjective: null as { kind: ObjectiveKind; bonus: boolean; chamber: number; depth: number } | null,
   /** Biome seen per chamber index in the current run (for the act grouping of the chamber track). */
   biomes: new Map<number, BiomeId>(),
 };
@@ -83,4 +91,13 @@ export const UI_CONFIG = {
   /** Run summary: the experience bar fills over this long (per level gained it wraps once). */
   XP_FILL_MS: 1400,
   XP_FILL_DELAY_MS: 450,
+  /** Objective intro ("Hold Out — survive until the bell tolls") and completion banner. */
+  OBJECTIVE_BANNER_MS: 2500,
+  OBJECTIVE_DONE_MS: 3200,
+  /** Objective timers turn urgent below this many seconds. */
+  OBJECTIVE_URGENT_SECONDS: 10,
+  /** "The shard is under attack" is repeated at most this often. */
+  ANCHOR_CALLOUT_GAP_MS: 8000,
+  /** Several foes with the same ward spawning together make one callout. */
+  WARD_CALLOUT_GAP_MS: 12000,
 } as const;

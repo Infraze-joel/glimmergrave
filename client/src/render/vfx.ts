@@ -47,6 +47,8 @@ interface TimedDecal {
   r2: number; g2: number; b2: number;
   additive: number;
   p1: number; p2: number;
+  /** Telegraphs: id of the enemy winding up (-1 = unknown), so the telegraph can go when that enemy is interrupted. */
+  src: number;
   /** Hero slot to follow (-1 = fixed in the world). */
   follow: number;
 }
@@ -126,7 +128,7 @@ export class Vfx {
     for (let i = 0; i < LIMITS.TELEGRAPHS + LIMITS.BURSTS; i++) {
       this.timed.push({
         active: false, kind: 0, shape: 0, x: 0, y: 0, z: 0, rot: 0, s0: 0, s1: 0, sz: 0, age: 0, dur: 1,
-        r: 1, g: 1, b: 1, a: 1, r2: 1, g2: 1, b2: 1, additive: 0, p1: 0, p2: 0, follow: -1,
+        r: 1, g: 1, b: 1, a: 1, r2: 1, g2: 1, b2: 1, additive: 0, p1: 0, p2: 0, follow: -1, src: -1,
       });
     }
     for (let i = 0; i < LIMITS.FLOATERS; i++) {
@@ -249,16 +251,28 @@ export class Vfx {
   private timedSlot(): TimedDecal {
     for (let i = 0; i < this.timed.length; i++) {
       const j = (this.timedCursor + i) % this.timed.length;
-      if (!this.timed[j].active) { this.timedCursor = (j + 1) % this.timed.length; return this.timed[j]; }
+      if (!this.timed[j].active) { this.timedCursor = (j + 1) % this.timed.length; this.timed[j].src = -1; return this.timed[j]; }
     }
     const t = this.timed[this.timedCursor];
     this.timedCursor = (this.timedCursor + 1) % this.timed.length;
+    t.src = -1;
     return t;
   }
 
-  /** Hostile ground telegraph that fills over `dur` and flashes when it lands. */
-  telegraph(shape: 'circle' | 'arc' | 'line', x: number, z: number, rot: number, r: number, w: number, dur: number): void {
+  /**
+   * Removes the telegraphs of an enemy whose windup was cut short (killed, stunned, staggered): by contract that
+   * attack never lands. Telegraphs that are already flashing (the attack landed) are left alone.
+   */
+  cancelTelegraphs(src: number): void {
+    for (const t of this.timed) {
+      if (t.active && t.kind === TIMED.TELEGRAPH && t.src === src && t.age < t.dur) t.active = false;
+    }
+  }
+
+  /** Hostile ground telegraph that fills over `dur` and flashes when it lands. `src` = the enemy winding up, if known. */
+  telegraph(shape: 'circle' | 'arc' | 'line', x: number, z: number, rot: number, r: number, w: number, dur: number, src = -1): void {
     const t = this.timedSlot();
+    t.src = src;
     const c = rgb(PALETTE.hostile);
     t.active = true; t.kind = TIMED.TELEGRAPH; t.age = 0; t.dur = Math.max(0.05, dur); t.follow = -1;
     t.r = c[0] * 1.5; t.g = c[1] * 1.5; t.b = c[2] * 1.5; t.a = 1; t.additive = 0.25; t.y = FX.TELEGRAPH_Y; t.rot = rot; t.p1 = 0; t.p2 = 0;

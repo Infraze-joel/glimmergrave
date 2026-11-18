@@ -3,6 +3,7 @@ import { TICK_DT, WORLD } from '../constants.ts';
 import { TRAP, ULTIMATE, type AbilityDef } from '../data/classes.ts';
 import type { AbilitySlot } from '../types.ts';
 import { damageHero, healHero, isTargetable, reviveHero, strikeEnemy } from './combat.ts';
+import { blastEnemies } from './horde.ts';
 import type { Hero, PendingBlast, Zone } from './state.ts';
 import { SIM } from './tuning.ts';
 import type { World } from './world.ts';
@@ -137,7 +138,10 @@ export function clearZones(w: World): void {
   w.blasts.length = 0;
 }
 
-/** Delayed hostile explosions (volatile affix): announced when queued, they hurt heroes inside when they go off. */
+/**
+ * Delayed hostile explosions (volatile affix, a slain bomber): announced when queued, they hurt heroes inside when
+ * they go off; a bomber's also tears through the horde.
+ */
 export function stepBlasts(w: World): void {
   const blasts = w.blasts;
   let keep = 0;
@@ -151,6 +155,7 @@ export function stepBlasts(w: World): void {
       const dz = h.body.z - b.z;
       if (dx * dx + dz * dz <= b.r * b.r) damageHero(w, h, b.damage, -1);
     }
+    if (b.enemyDamage > 0) blastEnemies(w, b.x, b.z, b.r, b.enemyDamage);
   }
   blasts.length = keep;
 }

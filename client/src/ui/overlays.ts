@@ -37,9 +37,9 @@ function slider(label: string, min: number, max: number, step: number, read: () 
 }
 
 function segmented<T extends string>(label: string, options: readonly T[], text: (v: T) => string, read: () => T,
-  write: (v: T) => void): { row: HTMLElement; sync: SettingsSync } {
+  write: (v: T) => void, title?: (v: T) => string): { row: HTMLElement; sync: SettingsSync } {
   const buttons = options.map((option) => {
-    const btn = h('button', { type: 'button', onClick: () => write(option) }, text(option));
+    const btn = h('button', { type: 'button', title: title?.(option), onClick: () => write(option) }, text(option));
     return { option, btn };
   });
   const sync = (): void => {
@@ -85,8 +85,10 @@ function settingsBody(): { el: HTMLElement; sync: SettingsSync } {
     class: 'gg-switch', type: 'button', role: 'switch', 'aria-label': t('settings.damageNumbers'),
     onClick: () => updateSettings({ damageNumbers: !settings.damageNumbers }),
   });
-  const cursor = segmented(t('settings.cursor'), CURSOR_STYLES, (c) => t(`settings.cursor.${c}`),
-    () => settings.cursor, (c) => updateSettings({ cursor: c }));
+  // Short option labels (the row label already says "cursor"); the full wording stays as the tooltip.
+  const cursor = segmented(t('settings.cursor'), CURSOR_STYLES,
+    (c) => (c === 'large' ? t('settings.cursor.largeShort') : c === 'system' ? t('settings.cursor.systemShort') : t(`settings.cursor.${c}`)),
+    () => settings.cursor, (c) => updateSettings({ cursor: c }), (c) => t(`settings.cursor.${c}`));
   cursor.row.setAttribute('data-testid', 'settings-cursor');
   const lang = segmented(t('settings.language'), LANGS, (l) => LANG_LABEL[l], () => settings.lang, (l) => updateSettings({ lang: l }));
   // Tips are a UI-only preference (ui/prefs.ts), not part of the Settings contract.

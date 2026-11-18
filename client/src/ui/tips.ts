@@ -8,12 +8,12 @@ import { ENEMY_TUNING } from '@shared/data/enemies.ts';
 import { RUN, WORLD } from '@shared/constants.ts';
 import { HAZARD_TIMING } from '@shared/sim/hazards.ts';
 import { SETS } from '@shared/data/boons.ts';
-import type { AffixId, ElementId, GameEvent } from '@shared/types.ts';
+import type { AffixId, ElementId, EnemyKind, GameEvent } from '@shared/types.ts';
 import { selfRoster, state } from '../core/GameState.ts';
 import { h, icon, key } from './dom.ts';
 import { bossLabel, distinctElements, enemyName, infusionsOf, resonanceParams, statusParams } from './elements.ts';
 import type { IconName } from './icons.ts';
-import { roman, t } from './i18n.ts';
+import { formatNum, roman, t, type Params } from './i18n.ts';
 import { ABILITY_ICON, nameOf } from './model.ts';
 import { affixBody, affixName, setName, setTierText } from './text.ts';
 import { markTipSeen, tipSeen, tipsEnabled } from './prefs.ts';
@@ -31,6 +31,8 @@ export const TIP_IDS = [
   'status.ember', 'status.rime', 'status.storm', 'resonance', 'ally', 'hazard', 'cursed', 'downed', 'elite', 'boss',
   // update 3
   'status.umbra', 'ultimate', 'descend', 'affix', 'set',
+  // update 4: the five new foes, warded enemies, objectives on the doors
+  'enemy.shaman', 'enemy.aegis', 'enemy.bomber', 'enemy.necromancer', 'enemy.reaver', 'ward', 'objective',
 ] as const;
 export type TipId = (typeof TIP_IDS)[number];
 
@@ -57,12 +59,37 @@ export interface TipsView extends View {
 
 /** Builds the text of a tip from the live state (exported for the dev harness and the codex of tips). */
 export interface TipDetail {
+  /** Element of a ward (`ward` tip). */
+  ward?: ElementId;
   name?: string;
   a?: ElementId;
   b?: ElementId;
   affix?: AffixId;
   set?: string;
   tier?: number;
+}
+
+export const NEW_FOES = ['shaman', 'aegis', 'bomber', 'necromancer', 'reaver'] as const;
+export type NewFoe = (typeof NEW_FOES)[number];
+export const FOE_ICON: Record<NewFoe, IconName> = { shaman: 'shaman', aegis: 'aegis', bomber: 'bomber', necromancer: 'necromancer', reaver: 'reaver' };
+const isNewFoe = (kind: EnemyKind): kind is NewFoe => (NEW_FOES as readonly string[]).includes(kind);
+
+/** Numbers quoted in the texts about a new foe (description, counter and first-encounter tip), from ENEMY_TUNING. */
+export function foeParams(kind: EnemyKind): Params {
+  switch (kind) {
+    case 'shaman':
+      return { r: ENEMY_TUNING.SHAMAN.MEND_RADIUS, v: Math.round(ENEMY_TUNING.SHAMAN.MEND_FRACTION * PERCENT), t: formatNum(ENEMY_TUNING.SHAMAN.MEND_WINDUP) };
+    case 'aegis':
+      return { r: formatNum(ENEMY_TUNING.AEGIS.DOME_RADIUS), v: Math.round(ENEMY_TUNING.AEGIS.DOME_REDUCTION * PERCENT), t: formatNum(ENEMY_TUNING.AEGIS.DOME_REARM_SECONDS) };
+    case 'bomber':
+      return { r: formatNum(ENEMY_TUNING.BOMBER.BLAST_RADIUS), d: formatNum(ENEMY_TUNING.BOMBER.DEATH_BLAST_DELAY), m: formatNum(ENEMY_TUNING.BOMBER.ENEMY_DAMAGE_MUL) };
+    case 'necromancer':
+      return { n: ENEMY_TUNING.NECROMANCER.RAISE_COUNT, max: ENEMY_TUNING.NECROMANCER.MAX_RAISED };
+    case 'reaver':
+      return { t: formatNum(ENEMY_TUNING.REAVER.LEAP_AIR_TIME), r: formatNum(ENEMY_TUNING.REAVER.LEAP_RADIUS) };
+    default:
+      return {};
+  }
 }
 
 export function tipContent(id: TipId, detail: TipDetail = {}): TipContent {
@@ -124,6 +151,23 @@ export function tipContent(id: TipId, detail: TipDetail = {}): TipContent {
       const affix = detail.affix ?? 'swift';
       return { id, icon: 'affix', tone: 'danger', title: t('tip.affix.title', { name: affixName(affix) }), body: t('tip.affix.body', { body: affixBody(affix) }) };
     }
+    case 'enemy.shaman':
+    case 'enemy.aegis':
+    case 'enemy.bomber':
+    case 'enemy.necromancer':
+    case 'enemy.reaver': {
+      const kind = id.slice('enemy.'.length) as NewFoe;
+      return {
+        id, icon: FOE_ICON[kind], tone: 'danger', title: t('tip.enemy.title', { name: enemyName(kind) }),
+        body: t(`tip.enemy.${kind}.body`, foeParams(kind)),
+      };
+    }
+    case 'ward': {
+      const el = detail.ward ?? 'ember';
+      return { id, icon: 'warded', tone: el, title: t('tip.ward.title'), body: t('tip.ward.body', { element: mark(el, t(`element.${el}.name`)) }) };
+    }
+    case 'objective':
+      return { id, icon: 'hunt', tone: 'res', title: t('tip.objective.title'), body: t('tip.objective.body') };
     case 'set': {
       const def = SETS.find((set) => set.id === detail.set) ?? SETS[0];
       const tier = detail.tier ?? 1;
@@ -230,7 +274,11 @@ export function createTips(): TipsView {
       case 'resonance': offer('resonance'); break;
       case 'down': if (ev.slot === own) offer('downed', undefined, true); break;
       case 'ultReady': if (ev.slot === own) offer('ultimate'); break;
-      case 'spawn': if (ev.affix) offer('affix', { affix: ev.affix }); break;
+      case 'spawn':
+        if (isNewFoe(ev.kind)) offer(`enemy.${ev.kind}`);
+        if (ev.ward) offer('ward', { ward: ev.ward });
+        if (ev.affix) offer('affix', { affix: ev.affix });
+        break;
       case 'set': if (ev.slot === own) offer('set', { set: ev.id, tier: ev.tier }); break;
       case 'telegraph': {
         const bossId = state.run?.bossId ?? -1;
@@ -252,6 +300,7 @@ export function createTips(): TipsView {
     }
     if (run.phase === 'doors' && run.doors.some((d) => d.type === 'cursed')) offer('cursed');
     if (run.phase === 'doors' && run.doors.some((d) => d.type === 'descend')) offer('descend', undefined, true);
+    if (run.phase === 'doors' && run.doors.some((d) => d.objective !== undefined && d.objective !== 'slay')) offer('objective');
     pump();
   };
 
