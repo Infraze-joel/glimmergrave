@@ -9,7 +9,11 @@ export const ELEMENT_IDS = ['ember', 'rime', 'storm', 'umbra'] as const;
 export type ElementId = (typeof ELEMENT_IDS)[number];
 
 /** Append only (wire codes). matron and stalker are bosses, like regent. */
-export const ENEMY_KINDS = ['minion', 'warrior', 'archer', 'mage', 'champion', 'regent', 'matron', 'stalker'] as const;
+export const ENEMY_KINDS = [
+  'minion', 'warrior', 'archer', 'mage', 'champion', 'regent', 'matron', 'stalker',
+  // update 4 (append only): rank-and-file enemies that force a change of plan, see data/enemies.ts
+  'shaman', 'aegis', 'bomber', 'necromancer', 'reaver',
+] as const;
 export type EnemyKind = (typeof ENEMY_KINDS)[number];
 
 /** The final boss of a run is drawn from this pool (seeded), so consecutive runs end differently. */
@@ -214,10 +218,44 @@ export const DOOR_TYPES = ['boon', 'blessing', 'cursed', 'boss', 'descend', 'asc
  */
 export type DoorType = (typeof DOOR_TYPES)[number];
 
+export const OBJECTIVE_KINDS = ['slay', 'survive', 'defend', 'hunt', 'ritual', 'vault'] as const;
+/**
+ * What a combat chamber asks of the party (data/objectives.ts has the numbers):
+ *  slay    – clear every wave (the classic chamber)
+ *  survive – enemies keep coming; hold out until the timer runs down, then the rest crumbles
+ *  defend  – a bell shard stands in the room and part of the horde attacks it; clear the waves while it stands
+ *  hunt    – marked elites must die before the timer runs out; afterwards they enrage
+ *  ritual  – enemies keep coming until every brazier is lit by heroes standing in its circle
+ *  vault   – no fight: a treasure chamber with a richer draft
+ * Elite and boss chambers are always `slay`.
+ */
+export type ObjectiveKind = (typeof OBJECTIVE_KINDS)[number];
+
 export interface Door {
   x: number;
   z: number;
   type: DoorType;
+  /** Objective of the chamber behind this door (shown on the door so the party can choose). */
+  objective: ObjectiveKind;
+}
+
+/** Live state of the current chamber's objective (RunState.objective). */
+export interface ObjectiveState {
+  kind: ObjectiveKind;
+  /** 0..1 towards completion (time survived, waves cleared, targets slain, braziers lit). */
+  progress: number;
+  /** Seconds left on the objective's timer (survive, hunt), else 0. */
+  timeLeft: number;
+  /** The bonus condition can still be met / was met (see OBJECTIVES[kind].bonus). False once it is lost. */
+  bonus: boolean;
+  /** `done` = objective complete, the chamber is ending. */
+  status: 'active' | 'done';
+  /** defend: the bell shard. `hp` is 0..1; at 0 it is shattered (bonus lost, the fight goes on). */
+  anchor: { x: number; z: number; r: number; hp: number } | null;
+  /** ritual: the braziers. `progress` 0..1; `lit` braziers stay lit. */
+  sites: { x: number; z: number; r: number; progress: number; lit: boolean }[];
+  /** hunt: enemy ids of the marked targets that are still alive. */
+  targets: number[];
 }
 
 /** Rectangular arena centred on the origin: x in [-w/2, w/2], z in [-d/2, d/2]. */
@@ -361,6 +399,8 @@ export interface RunState {
   cleared: number;
   /** Chambers cleared in this run across all depths. */
   chambersCleared: number;
+  /** Objective of the current chamber; null in the lobby and when the run is over. */
+  objective: ObjectiveState | null;
   /** Guided training session state, or null in a normal run. */
   tutorial: TutorialState | null;
 }
@@ -409,7 +449,8 @@ export type GameEvent =
   | { e: 'down'; slot: number }
   | { e: 'revived'; slot: number; by: number }
   | { e: 'shieldBreak'; id: number }
-  | { e: 'spawn'; id: number; kind: EnemyKind; x: number; z: number; elite: boolean; affix?: AffixId }
+  /** `ward`: the enemy is warded against that element — its status and Resonance bursts of it do nothing to it. */
+  | { e: 'spawn'; id: number; kind: EnemyKind; x: number; z: number; elite: boolean; affix?: AffixId; ward?: ElementId }
   | { e: 'wave'; wave: number; waveCount: number }
   | { e: 'chamberClear' }
   | { e: 'bossPhase'; phase: number }
@@ -429,6 +470,16 @@ export type GameEvent =
   | { e: 'mark'; id: number; dur: number }
   /** A hero's ultimate became ready. */
   | { e: 'ultReady'; slot: number }
+  /**
+   * Objective milestones. start: the chamber's objective begins. site: a ritual brazier was lit (`index`).
+   * anchorHit: the bell shard was struck (rate-limited). bonusLost: the bonus condition failed (shard shattered,
+   * hunt timer ran out). done: objective complete, `bonus` tells whether the bonus was earned.
+   */
+  | { e: 'objective'; kind: ObjectiveKind; what: 'start' | 'site' | 'anchorHit' | 'bonusLost' | 'done'; index?: number; bonus?: boolean }
+  /** An aegis raised (`on`) or lost its ward dome of radius `r`; enemies inside take far less damage. */
+  | { e: 'dome'; id: number; on: boolean; r: number }
+  /** A shaman healed these enemies. */
+  | { e: 'mend'; id: number; targets: number[] }
   /** The party went one depth deeper. */
   | { e: 'descend'; depth: number }
   /** A set bonus became active for a hero (data/boons.ts SETS). */

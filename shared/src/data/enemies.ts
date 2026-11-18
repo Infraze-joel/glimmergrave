@@ -36,6 +36,15 @@ export interface EnemyDef {
  *  regent   – boss, 3 phases: sweep, charge, radial hex volley, summon, grave slam
  *  matron   – caster boss (sim/matron.ts), 3 phases: orb rings and spirals, rotating beams, blast patterns,
  *             homing soul wisps, blink, summons
+ *  shaman   – support caster: keeps behind the horde and mends wounded enemies near it with a telegraphed
+ *             channel (stun, stagger or kill it to stop the heal); weak hex bolt when nobody needs mending
+ *  aegis    – shield bearer: raises a ward dome; other enemies inside take far less damage. The dome drops
+ *             while the aegis is stunned, staggered or dead. Slow, sturdy, weak melee
+ *  bomber   – runs at a hero, stops and bursts after a short telegraphed fuse (hurts enemies too); also
+ *             bursts when slain, so kill it from range or dash out
+ *  necromancer – keeps away and raises minions at intervals, up to a cap; its minions crumble when it dies
+ *  reaver   – leaps onto the hero furthest from the fight (telegraphed landing circle), then quick melee;
+ *             fragile
  *  stalker  – mobile ranged boss (sim/stalker.ts), 3 phases: arrow fans, piercing bone spear, leap, traps, frenzy
  */
 export const ENEMIES: Record<EnemyKind, EnemyDef> = {
@@ -47,6 +56,11 @@ export const ENEMIES: Record<EnemyKind, EnemyDef> = {
   regent: { kind: 'regent', hp: 2300, speed: 3.3, radius: 1.1, scale: 2.2, damage: 31, attackRange: 4.4, windup: 0.9, cooldown: 1.5, spawnTime: 2.4, cost: 0, minChamber: 0, poise: 0 },
   // attackRange of the two ranged bosses = the distance they try to keep; damage = their basic projectile.
   matron: { kind: 'matron', hp: 2200, speed: 2.7, radius: 0.9, scale: 1.9, damage: 14, attackRange: 9, windup: 0.9, cooldown: 1.5, spawnTime: 2.4, cost: 0, minChamber: 0, poise: 0 },
+  shaman: { kind: 'shaman', hp: 70, speed: 3.0, radius: 0.42, scale: 1.0, damage: 10, attackRange: 11, windup: 0.9, cooldown: 2.8, spawnTime: 1.0, cost: 4, minChamber: 2, poise: 12 },
+  aegis: { kind: 'aegis', hp: 170, speed: 2.6, radius: 0.55, scale: 1.15, damage: 14, attackRange: 2.2, windup: 0.75, cooldown: 2.2, spawnTime: 1.2, cost: 5, minChamber: 3, poise: 35 },
+  bomber: { kind: 'bomber', hp: 34, speed: 5.2, radius: 0.4, scale: 0.9, damage: 26, attackRange: 1.8, windup: 0.8, cooldown: 0, spawnTime: 0.8, cost: 2, minChamber: 1, poise: 0 },
+  necromancer: { kind: 'necromancer', hp: 95, speed: 2.8, radius: 0.42, scale: 1.05, damage: 0, attackRange: 12, windup: 1.3, cooldown: 7, spawnTime: 1.1, cost: 5, minChamber: 4, poise: 18 },
+  reaver: { kind: 'reaver', hp: 62, speed: 4.6, radius: 0.42, scale: 1.0, damage: 15, attackRange: 1.7, windup: 0.4, cooldown: 1.0, spawnTime: 0.9, cost: 3, minChamber: 2, poise: 5 },
   stalker: { kind: 'stalker', hp: 2500, speed: 3.9, radius: 0.85, scale: 1.8, damage: 15, attackRange: 10, windup: 0.85, cooldown: 1.4, spawnTime: 2.2, cost: 0, minChamber: 0, poise: 0 },
 };
 
@@ -106,6 +120,16 @@ export const ENEMY_TUNING = {
     TRAP_COUNT: [2, 3, 4], TRAP_RADIUS: 1.8, TRAP_ARM: 1.0, TRAP_PULSES: 4, TRAP_INTERVAL: 0.8, TRAP_DAMAGE: 16,
     FRENZY_SHOTS: 6, FRENZY_INTERVAL: 0.45, FRENZY_WINDUP: 0.55, FRENZY_DAMAGE: 15,
   },
+  SHAMAN: { KEEP_DISTANCE: 9, MEND_RADIUS: 6, MEND_FRACTION: 0.3, MEND_WINDUP: 1.4, MEND_COOLDOWN: 6, MEND_BELOW: 0.75, BOLT_SPEED: 11 },
+  AEGIS: { DOME_RADIUS: 4.5, DOME_REDUCTION: 0.6, DOME_REARM_SECONDS: 3 },
+  BOMBER: { BLAST_RADIUS: 2.6, DEATH_BLAST_DELAY: 0.6, ENEMY_DAMAGE_MUL: 1.5 },
+  NECROMANCER: { KEEP_DISTANCE: 10, RAISE_COUNT: 2, MAX_RAISED: 6 },
+  REAVER: { LEAP_MIN_DISTANCE: 6, LEAP_MAX_DISTANCE: 14, LEAP_AIR_TIME: 0.8, LEAP_RADIUS: 1.8, LEAP_DAMAGE: 18, LEAP_COOLDOWN: 7 },
+  /**
+   * Warded enemies (spawn.ward): from WARD_FROM_CHAMBER on, a share of the rank and file is immune to one
+   * element's status and bursts, so a one-element build has to adapt. Never the only enemies of a wave.
+   */
+  WARD: { FROM_CHAMBER: 4, SHARE: 0.2, SHARE_PER_DEPTH: 0.08, MAX_SHARE: 0.45 },
   /** The herald (second elite chamber): a boss that is not this run's final boss, locked to phase 1. */
   HERALD: { HP_FRACTION: 0.45 },
   /**
