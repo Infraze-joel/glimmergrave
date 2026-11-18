@@ -2,6 +2,7 @@
  * Hero and enemy views: one baked SkinnedMesh + AnimationMixer per entity, driven purely by snapshot rows.
  * All overlay visuals (rings, shadows, bars, icons, labels) are pushed into the shared batches each frame.
  */
+import { CL } from './clarity.ts';
 import { AnimationMixer, Color, LoopOnce, LoopRepeat } from 'three';
 import { Vector3 } from 'three';
 import type { AnimationAction, AnimationClip, Object3D, SkinnedMesh } from 'three';
@@ -187,6 +188,8 @@ interface EnemyLook {
   cloth: number; clothAmount: number; emissive: number; walk: boolean; bar: boolean; glide?: boolean; clothBoost?: number;
   /** Forward lean of the whole body in radians (hunched shaman, crouched reaver, the bomber bent under its keg). */
   lean?: number;
+  /** Visual size on top of the balance table's scale (polish 1: the shaman was too small to pick out). */
+  grow?: number;
   /** Idle clip other than Idle_Combat, and its speed. */
   idle?: string;
   idleSpeed?: number;
@@ -201,8 +204,8 @@ const ENEMY_LOOK: Record<EnemyKind, EnemyLook> = {
   regent: { cloth: 0x7a2cff, clothAmount: 0.95, emissive: 0x12041c, walk: true, bar: false },
   matron: { cloth: 0x6a2fd0, clothAmount: 0.96, emissive: 0x0a0416, walk: true, bar: false, glide: true },
   stalker: { cloth: 0xb9ad45, clothAmount: 0.94, emissive: 0x0c0b02, walk: false, bar: false, clothBoost: 2.4 },
-  shaman: { cloth: 0, clothAmount: 0, emissive: 0x020a02, walk: false, bar: true, lean: 0.16 },
-  aegis: { cloth: 0x4a5aa8, clothAmount: 0.92, emissive: 0x000000, walk: true, bar: true, idle: 'Blocking', idleSpeed: 0.6 },
+  shaman: { cloth: 0, clothAmount: 0, emissive: 0x020a02, walk: false, bar: true, lean: 0.16, grow: 1.22 },
+  aegis: { cloth: 0x9fb0ff, clothAmount: 0.92, emissive: 0x000000, walk: true, bar: true, idle: 'Blocking', idleSpeed: 0.6 },
   bomber: { cloth: 0xc9a227, clothAmount: 0.92, emissive: 0x060300, walk: false, bar: true },
   necromancer: { cloth: 0, clothAmount: 0, emissive: 0x05020a, walk: false, bar: true, glide: true, idle: 'Spellcasting', idleSpeed: 0.3 },
   reaver: { cloth: 0x2b3040, clothAmount: 0.96, emissive: 0x000000, walk: false, bar: true, lean: 0.26 },
@@ -248,7 +251,9 @@ const BOSS2 = {
 
 const STATUS_VIS = {
   BURN_TINT: 0.26, CHILL_TINT: 0.62, SHOCK_TINT: 0.22, WITHER_TINT: 0.7,
-  RIM: { burn: 2.2, chill: 1.5, shock: 2.6, wither: 1.0 },
+  RIM: { burn: 2.2, chill: 1.5, shock: 2.6, wither: 2.1 },
+  /** Clarity: brightest the summed rim may get, and how far a status may recolour the body. */
+  RIM_CAP: 0.75, TINT_CAP: 0.4,
   WISPS: 3,
   FROST: [0.78, 0.95, 1.0],
   FLICKER_HZ: 17,
@@ -305,6 +310,7 @@ class Actor {
   /** Extra uniform scale multiplier that springs back to 1 (hit squash, local action nudge). */
   punch = 0;
   baseScale = 1;
+  private flashGain = 1;
   speed = 0;
   /** Height above the floor (hover, leap arc); applied by the owner each frame. */
   lift = 0;
@@ -446,7 +452,7 @@ class Actor {
     this.mixer.update(dt);
     if (this.flash > 0) {
       this.flash = Math.max(0, this.flash - dt / this.flashTime);
-      this.mat.uniforms.uFlash.value.w = this.flash * this.flash * 0.85;
+      this.mat.uniforms.uFlash.value.w = this.flash * this.flash * 0.85 * this.flashGain;
     }
     if (this.punch !== 0) {
       this.punch *= Math.max(0, 1 - dt * 14);
@@ -456,8 +462,12 @@ class Actor {
     this.root.scale.set(s * (1 + this.punch * 0.6), s * (1 - this.punch), s * (1 + this.punch * 0.6));
   }
 
-  hitFlash(r: number, g: number, b: number): void {
-    this.mat.uniforms.uFlash.value.set(r, g, b, 0.85);
+  /** `gain` < 1: a weaker flash (clarity: other heroes' hits do not keep an enemy white). */
+  hitFlash(r: number, g: number, b: number, gain = 1): void {
+    // a strong flash that is still fading is not replaced by a weak one
+    if (gain < this.flashGain && this.flash > 0.5) return;
+    this.flashGain = gain;
+    this.mat.uniforms.uFlash.value.set(r, g, b, 0.85 * gain);
     this.flash = 1;
   }
 
@@ -1253,7 +1263,7 @@ export class Enemies {
       const elite = (e.flags & EF.ELITE) !== 0;
       const def = enemyDef(e.kind);
       view.elite = elite;
-      view.baseScale = def.scale * (elite ? ENEMY_TUNING.ELITE_SCALE_MUL : 1);
+      view.baseScale = def.scale * (elite ? ENEMY_TUNING.ELITE_SCALE_MUL : 1) * (ENEMY_LOOK[e.kind].grow ?? 1);
       view.height = ENEMY_VIS.HEIGHT * view.baseScale;
       view.radius = def.radius * (elite ? ENEMY_TUNING.ELITE_SCALE_MUL : 1);
       view.place(e.x, e.z, e.rot);
@@ -1379,6 +1389,21 @@ export class Enemies {
       return true;
     }
     return false;
+  }
+
+  /**
+   * RunState.traits: ward, affix and necromancer link of the living enemies. The `spawn` event announces them once;
+   * this brings a client that joined or reloaded later up to date. Idempotent, safe to call on every run-state update.
+   */
+  setTraits(traits: readonly { id: number; ward?: ElementId; affix?: AffixId; raisedBy?: number }[]): void {
+    for (const t of traits) {
+      if (this.killed.has(t.id)) continue;
+      const v = this.byId.get(t.id);
+      if (v && v.dying) continue;
+      if (t.ward && this.wards.get(t.id) !== t.ward) { this.wards.set(t.id, t.ward); if (v) v.ward = t.ward; }
+      if (t.affix && this.affixes.get(t.id) !== t.affix) { this.affixes.set(t.id, t.affix); if (v) v.affix = t.affix; }
+      if (t.raisedBy !== undefined && this.masters.get(t.id) !== t.raisedBy) { this.masters.set(t.id, t.raisedBy); if (v) v.master = t.raisedBy; }
+    }
   }
 
   /** `interrupt` event: the wind-up of this enemy was broken; whatever it was channelling stops at once. */
@@ -1690,10 +1715,10 @@ export class Enemies {
     v.markTotal = Math.max(0.1, dur);
   }
 
-  hit(id: number, r: number, g: number, b: number): void {
+  hit(id: number, r: number, g: number, b: number, gain = 1): void {
     const v = this.byId.get(id);
     if (!v) return;
-    v.hitFlash(r, g, b);
+    v.hitFlash(r, g, b, gain);
     v.punch = isBigEnemy(v.kind) ? 0.05 : 0.12;
   }
 
@@ -1811,6 +1836,13 @@ export class Enemies {
     }
     if (v.guarded) { rr += AEGIS_RGB[0] * 1.3; rg += AEGIS_RGB[1] * 1.3; rb += AEGIS_RGB[2] * 1.3; rim = true; }
     if (v.master >= 0) { rr += SOUL_RGB[0] * 0.9; rg += SOUL_RGB[1] * 0.9; rb += SOUL_RGB[2] * 0.9; rim = true; }
+    // clarity: status and ward light on the body is a thin rim, never a glowing shell, and the body keeps its own colour
+    if (CL.enemyRim < 1) {
+      const peak = Math.max(rr, rg, rb) * CL.enemyRim;
+      const k = peak > STATUS_VIS.RIM_CAP ? (STATUS_VIS.RIM_CAP / peak) * CL.enemyRim : CL.enemyRim;
+      rr *= k; rg *= k; rb *= k;
+      ta = Math.min(ta, STATUS_VIS.TINT_CAP);
+    }
     if (ta > 0) u.uTint.value.set(tr / ta, tg / ta, tb / ta, Math.min(0.7, ta));
     else if (v.master >= 0) u.uTint.value.set(GRAVE_RGB[0], GRAVE_RGB[1], GRAVE_RGB[2], 0.3);
     else u.uTint.value.w = 0;
@@ -1905,9 +1937,14 @@ export class Enemies {
     const ward = spawning ? null : v.ward;
     if (ward) n++;
     if (n > 0) {
-      const size = bossy ? 0.66 : 0.48;
-      let ox = -(n - 1) * size * 0.5;
-      if (ward) {
+      // clarity: one short row, the two most important entries and "+n" for the rest
+      const size = (bossy ? 0.66 : 0.48) * CL.pipSize;
+      const cap = CL.pipMax;
+      const more = n > cap ? n - cap : 0;
+      let left = cap;
+      let ox = -(Math.min(n, cap) - 1 + (more > 0 ? 1 : 0)) * size * 0.5;
+      if (ward && left > 0) {
+        left--;
         // the element inside a shield: this enemy shrugs that element off
         const wide = size * 1.5;
         this.icon(ui, v, top, 'ward', ELEMENT_COLOR[ward], wide, ox);
@@ -1916,13 +1953,21 @@ export class Enemies {
         ui.push(SPRITE.ATLAS, v.x, top, v.z, wide * 0.5, wide * 0.5, _color.r * 1.2, _color.g * 1.2, _color.b * 1.2, 1, 0, 0, 0, ox, 0.42, uv[0], uv[1], uv[2], uv[3]);
         ox += size;
       }
-      if (affix) { this.icon(ui, v, top, affix, AFFIX_COLOR[affix], size, ox); ox += size; }
-      if (f & EF.BURN) { this.pip(ui, v, top, 'burn', ELEMENT_COLOR.ember, size, ox); ox += size; }
-      if (f & EF.CHILL) { this.pip(ui, v, top, 'chill', ELEMENT_COLOR.rime, size, ox); ox += size; }
-      if (f & EF.SHOCK) { this.pip(ui, v, top, 'shock', ELEMENT_COLOR.storm, size, ox); ox += size; }
-      if (f & EF.WITHER) { this.pip(ui, v, top, 'wither', PALETTE.umbraDeep, size, ox, ELEMENT_COLOR.umbra); ox += size; }
-      if (f & EF.SHIELDED) { this.icon(ui, v, top, 'shield', PALETTE.shield, size, ox); ox += size; }
-      if (f & EF.ENRAGED) this.icon(ui, v, top, 'enrage', PALETTE.hostile, size, ox);
+      if (affix && left-- > 0) { this.icon(ui, v, top, affix, AFFIX_COLOR[affix], size, ox); ox += size; }
+      if (f & EF.SHIELDED && left-- > 0) { this.icon(ui, v, top, 'shield', PALETTE.shield, size, ox); ox += size; }
+      if (f & EF.ENRAGED && left-- > 0) { this.icon(ui, v, top, 'enrage', PALETTE.hostile, size, ox); ox += size; }
+      if (f & EF.BURN && left-- > 0) { this.pip(ui, v, top, 'burn', ELEMENT_COLOR.ember, size, ox); ox += size; }
+      if (f & EF.CHILL && left-- > 0) { this.pip(ui, v, top, 'chill', ELEMENT_COLOR.rime, size, ox); ox += size; }
+      if (f & EF.SHOCK && left-- > 0) { this.pip(ui, v, top, 'shock', ELEMENT_COLOR.storm, size, ox); ox += size; }
+      if (f & EF.WITHER && left > 0) { this.pip(ui, v, top, 'wither', PALETTE.umbraDeep, size, ox, ELEMENT_COLOR.umbra); ox += size; }
+      if (more > 0) {
+        const plus = this.atlas.plus;
+        const digit = this.atlas.digits[Math.min(9, more)];
+        const h = size * 0.8;
+        const w = h * this.atlas.digitAspect;
+        ui.push(SPRITE.ATLAS, v.x, top, v.z, w, h, 0.85, 0.85, 0.9, 0.9, 0, 0, 0, ox - size * 0.18, 0.42, plus[0], plus[1], plus[2], plus[3]);
+        ui.push(SPRITE.ATLAS, v.x, top, v.z, w, h, 0.85, 0.85, 0.9, 0.9, 0, 0, 0, ox - size * 0.18 + w * 0.7, 0.42, digit[0], digit[1], digit[2], digit[3]);
+      }
     }
     if (f & EF.STUNNED) {
       const uv = this.atlas.icons.stun;
@@ -1975,12 +2020,12 @@ export class Enemies {
       const c = rgb(ELEMENT_COLOR[v.ward]);
       const d = v.radius * 4.8;
       decals.push(DECAL.RUNE, v.x, 0.044, v.z, -time * 0.8 + v.seed * 6, d, d, c[0] * 1.4, c[1] * 1.4, c[2] * 1.4, 0.8, 0.55, 0.3);
-      for (let k = 0; k < HORDE.WARD_SHARDS; k++) {
+      for (let k = 0; k < (CL.wardShell ? HORDE.WARD_SHARDS : 0); k++) {
         const a = time * 1.5 + (k / HORDE.WARD_SHARDS) * Math.PI * 2 + v.seed * 6;
         fx.push(SPRITE.SHARD, v.x + Math.sin(a) * v.radius * 1.55, mid + 0.25 * s * Math.sin(time * 2.2 + k * 2.1), v.z + Math.cos(a) * v.radius * 1.55, 0.3 * s, 0.52 * s,
           c[0] * 1.4, c[1] * 1.4, c[2] * 1.4, 0.95, 0.35, 1);
       }
-      fx.push(SPRITE.GLOW, v.x, mid, v.z, v.height * 1.15, v.height * 1.4, c[0], c[1], c[2], 0.13, 1, 0);
+      if (CL.wardShell) fx.push(SPRITE.GLOW, v.x, mid, v.z, v.height * 1.15, v.height * 1.4, c[0], c[1], c[2], 0.13, 1, 0);
     }
     if (v.guarded) {
       const d = v.radius * 3.6;
@@ -2032,7 +2077,7 @@ export class Enemies {
         if (v.domeK < 0.01) break;
         // the dome's footprint (the shell itself is a mesh, see horde.ts)
         const d = v.domeR * 2 * (0.6 + 0.4 * v.domeK);
-        decals.push(DECAL.DISC, v.x, 0.029, v.z, 0, d, d, c[0], c[1], c[2], 0.07 * v.domeK, 1, 0.9);
+        decals.push(DECAL.DISC, v.x, 0.029, v.z, 0, d, d, c[0], c[1], c[2], 0.07 * v.domeK * CL.dome, 1, 0.9);
         decals.push(DECAL.PROGRESS, v.x, 0.047, v.z, time * 0.25, d, d, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, 0.85 * v.domeK, 0.45, 1);
         decals.push(DECAL.RUNE, v.x, 0.045, v.z, -time * 0.3, d * 0.42, d * 0.42, c[0] * 1.2, c[1] * 1.2, c[2] * 1.2, 0.4 * v.domeK, 0.6, 0.2);
         break;
@@ -2131,7 +2176,9 @@ export class Enemies {
       // a pool of shadow with a pale rim, and wisps of the victim's strength sinking out of it
       const c = STATUS_COLORS.wither;
       decals.push(DECAL.SMOKE, v.x, 0.031, v.z, v.seed * 6.283 + time * 0.3, v.radius * 5.2, v.radius * 5.2, UMBRA_CORE[0], UMBRA_CORE[1], UMBRA_CORE[2], 0.92, 0, 0.9,
-        c.r * 0.9, c.g * 0.9, c.b * 0.9);
+        c.r * 1.5, c.g * 1.5, c.b * 1.5);
+      // a pale outline around the pool: on the dark floors the pool alone used to disappear
+      decals.push(DECAL.SHOCK, v.x, 0.034, v.z, 0, v.radius * 5, v.radius * 5, c.r * 1.5, c.g * 1.5, c.b * 1.5, 0.5 + 0.2 * Math.sin(time * 2.6 + v.seed * 9), 1, 0.1);
       for (let k = 0; k < STATUS_VIS.WISPS; k++) {
         const ph = (time * 0.55 + k / STATUS_VIS.WISPS + v.seed) % 1;
         const a = v.seed * 6.283 + k * 2.094 + Math.sin(time * 1.3 + k) * 0.5;

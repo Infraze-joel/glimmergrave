@@ -256,6 +256,13 @@ export const OBJECTIVE = {
   RITUAL_SECONDS_PER_EXTRA_HERO: 1,
   /** Vault: seconds a living hero has to stand within OBJECTIVE_TUNING.VAULT.OPEN_RADIUS_PAD of the reliquary's edge; its size. */
   VAULT_HOLD_SECONDS: 1.5, VAULT_RADIUS: 0.9,
+  /**
+   * Polish 1: the fixtures are solid. Collision radius of a brazier's bowl (the shard uses DEFEND.RADIUS, the
+   * reliquary VAULT_RADIUS), and how far from a fixture's edge a hero's edge must find walkable ground that is
+   * connected to the spawn points and the doors (checked at FIXTURE_APPROACH_POINTS points around it). FIXTURE_LANE:
+   * free ground that always stays between a fixture and every obstacle and wall (a hero is 1 m wide).
+   */
+  RITUAL_BOWL_RADIUS: 0.6, FIXTURE_APPROACH: 0.8, FIXTURE_APPROACH_POINTS: 8, FIXTURE_LANE: 1.2,
 } as const;
 
 export const DIRECTOR = {
@@ -293,7 +300,7 @@ export const DIRECTOR = {
   /** Support kinds (shaman, aegis, necromancer) never take more than this share of a wave's budget. */
   SUPPORT_BUDGET_SHARE: 0.4,
   /** Extra enemy damage per additional hero (parties share the pressure and can revive each other). */
-  DAMAGE_PER_EXTRA_PLAYER: 0.15,
+  DAMAGE_PER_EXTRA_PLAYER: 0.1,
   CLEAR_DELAY: 0.8,
   /** Room generation details. */
   OBSTACLE_GRID: 0.25, CENTRED_OBSTACLE_CHANCE: 0.2, BOSS_PILLAR_INSET: 3, BOSS_PILLAR_RADIUS: 0.9,

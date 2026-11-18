@@ -99,7 +99,7 @@ export class Hazards {
     return this.count;
   }
 
-  update(dt: number, time: number, tick: number, decals: DecalBatch, fx: BillboardBatch, vfx: Vfx): void {
+  update(dt: number, time: number, tick: number, decals: DecalBatch, fx: BillboardBatch, vfx: Vfx, warnings: DecalBatch = decals): void {
     if (this.count === 0) return;
     let spike = 0;
     for (let i = 0; i < this.count; i++) {
@@ -117,7 +117,7 @@ export class Hazards {
 
       if (phase === PHASE.warn) {
         // slightly wider than the fixture, so the closing iris is read against the floor as well
-        decals.push(DECAL.WARN, h.x, CFG.WARN_Y, h.z, 0, d * CFG.WARN_SCALE, d * CFG.WARN_SCALE, c[0] * 1.6, c[1] * 1.6, c[2] * 1.6, Math.min(1, t * 8 + 0.35), 0.3, t);
+        warnings.push(DECAL.WARN, h.x, CFG.WARN_Y, h.z, 0, d * CFG.WARN_SCALE, d * CFG.WARN_SCALE, c[0] * 1.6, c[1] * 1.6, c[2] * 1.6, Math.min(1, t * 8 + 0.35), 0.3, t);
         fx.push(SPRITE.GLOW, h.x, 0.3, h.z, d * 1.1, d * 0.7, c[0], c[1], c[2], 0.1 + 0.2 * t, 1, 0);
       }
 

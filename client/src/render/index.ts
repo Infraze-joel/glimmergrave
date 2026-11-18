@@ -14,14 +14,16 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { EF, PF } from '@shared/types.ts';
+import { REACTIONS, REACTION_IDS, reactionOf } from '@shared/data/reactions.ts';
 import type {
-  ClassId, Door, ElementId, EnemyKind, EnemySnap, GameEvent, Look, ObjectiveKind, ObjectiveState, PlayerSnap, ProjectileSnap, RoomLayout,
+  AffixId, ClassId, Door, ElementId, EnemyKind, EnemySnap, GameEvent, Look, ObjectiveKind, ObjectiveState, PlayerSnap, ProjectileSnap, RoomLayout,
 } from '@shared/types.ts';
 import { ENEMY_TUNING } from '@shared/data/enemies.ts';
 import type { ChamberKind } from '@shared/constants.ts';
 import { CLASSES } from '@shared/data/classes.ts';
 import type { AbilityDef } from '@shared/data/classes.ts';
-import type { Quality } from '../core/Settings.ts';
+import type { EffectsLevel, Quality } from '../core/Settings.ts';
+import { CL, setClarityLevel } from './clarity.ts';
 import { loadAssets } from './assets.ts';
 import type { Assets } from './assets.ts';
 import { Atlas } from './atlas.ts';
@@ -37,7 +39,8 @@ import { HordeFx } from './horde.ts';
 import { Objectives } from './objectives.ts';
 import { LevelView } from './level.ts';
 import { Projectiles } from './projectiles.ts';
-import { Vfx, rgb } from './vfx.ts';
+import { Glare } from './glare.ts';
+import { OWNER, Vfx, rgb } from './vfx.ts';
 import type { FollowSource } from './vfx.ts';
 
 export { loadAssets };
@@ -49,6 +52,10 @@ export interface RosterView { slot: number; cls: ClassId; name: string; look?: L
 /** Hero presented on the wardrobe diorama; `screenX` (0..1 of the canvas width) is where it is centred. */
 export interface ShowcaseView { cls: ClassId; look: Look; screenX: number }
 export interface MarkerView { x: number; z: number; r: number }
+/** Localised words drawn in the scene (EventBus `ui:labels`); `reactions` is keyed by ReactionId. */
+export interface LabelsView { resonance: string; reactions: Record<string, string> }
+/** RunState.traits rows. */
+export interface TraitView { id: number; ward?: ElementId; affix?: AffixId; raisedBy?: number }
 export type { Infusions };
 
 interface AbilityInfo { def: AbilityDef; cls: ClassId; index: number }
@@ -83,6 +90,33 @@ const VIEW = {
   ABYSS_RATE: 3,
   ABYSS_MAX_DEPTH: 5,
 } as const;
+
+/**
+ * Ground aim marker: the class reticle of the cursor lying on the floor under it. Small and translucent, in the
+ * cursor's own accent colours (gold, or the element infused into the primary attack) and never in telegraph red.
+ */
+const AIM = {
+  SIZE: 1.5,
+  Y: 0.052,
+  LIGHT: 0.5,
+  ACCENT: 0.72,
+  SHADE: 0.2,
+  GOLD: 0xffcf5a,
+  ELEMENT: { ember: 0xff8a2a, rime: 0x5fe3ff, storm: 0xc79bff, umbra: 0x9dff8a } as Record<ElementId, number>,
+  /** Seconds of ease when it appears, and metres per second it may trail the cursor (it does not: it snaps). */
+  FADE: 8,
+} as const;
+
+/** Clarity: size of the status icon that pops over an enemy the own hero afflicted. */
+const STATUS_POP = 0.65;
+/** Clarity: strength of the white flash on a struck enemy for the own hero's and for other heroes' hits. */
+const HIT_FLASH = { OWN: 0.75, ALLY: 0.3 } as const;
+
+/** Own hero's find-yourself marker (clarity levels `clear` and `minimal`). */
+const SELF = { RING: 2.9, PULSE: 0.04, RATE: 3.2, OVERLAY: 0.95, HOOP: 0.05, CHEVRON: 1.1, CHEVRON_Y: 0.8 } as const;
+
+/** How long after a hero's cast a friendly `aoe` at its target is taken to be that hero's (the event names nobody). */
+const AOE_OWNER = { WINDOW: 2.2, REACH: 1.5 } as const;
 
 /** Wardrobe diorama camera: the hero fills HERO_FRACTION of the screen height. */
 const STAGE = {
@@ -126,11 +160,23 @@ export class WorldView implements FollowSource {
   private readonly horde: HordeFx;
   private readonly objectives: Objectives;
   private readonly decals: DecalBatch;
+  /** Hostile warnings have their own batch, drawn after every friendly decal AND every particle. */
+  private readonly warnings: DecalBatch;
+  private readonly glare = new Glare();
+  private aimOn = false;
+  private aimX = 0;
+  private aimZ = 0;
+  private aimFade = 0;
+  /** Target and time of each hero's last cast, and who last struck which enemy: owners for events that name nobody. */
+  private readonly castX: number[] = [0, 0, 0, 0];
+  private readonly castZ: number[] = [0, 0, 0, 0];
+  private readonly lastHitBy = new Map<number, number>();
   private readonly fx: BillboardBatch;
   private readonly ui: BillboardBatch;
   private readonly fog: Fog;
   private composer: EffectComposer | null = null;
   private bloomTarget: WebGLRenderTarget | null = null;
+  private bloomPass: UnrealBloomPass | null = null;
 
   private quality: Quality = 'high';
   private profile: QualityProfile = QUALITY.high;
@@ -228,10 +274,14 @@ export class WorldView implements FollowSource {
     this.atlas = new Atlas();
     this.level = new LevelView(assets);
     this.scene.add(this.level.group, this.level.lights);
-    this.decals = new DecalBatch(LIMITS.DECALS);
+    this.decals = new DecalBatch(LIMITS.DECALS, this.atlas.texture);
+    this.warnings = new DecalBatch(LIMITS.TELEGRAPHS + LIMITS.HAZARDS, null, WARNING_ORDER);
+    this.glare.lift = 1 / Math.tan(CAMERA.PITCH_DEG * DEG);
     this.fx = new BillboardBatch(LIMITS.FX_BILLBOARDS, this.atlas.texture, { depthTest: true, toneMapped: true, renderOrder: 3 });
     this.ui = new BillboardBatch(LIMITS.UI_BILLBOARDS, this.atlas.texture, { depthTest: false, toneMapped: false, renderOrder: 4 });
-    this.scene.add(this.decals.mesh, this.fx.mesh);
+    this.decals.glare = this.glare;
+    this.fx.glare = this.glare;
+    this.scene.add(this.decals.mesh, this.fx.mesh, this.warnings.mesh);
     this.uiScene.add(this.ui.mesh);
 
     this.heroes = new Heroes(this.scene, assets, this.atlas);
@@ -241,12 +291,14 @@ export class WorldView implements FollowSource {
     this.hazards = new Hazards(this.scene, assets, this.level.stoneUv);
     this.preview = new HeroPreview(this.scene, assets);
     this.vfx = new Vfx(this.atlas);
+    this.vfx.glare = this.glare;
     this.ability = new AbilityFx(this.vfx, this.atlas, this.heroes, this.enemies);
     this.horde = new HordeFx(this.scene, this.vfx, this.atlas, this.enemies);
     this.objectives = new Objectives(this.scene, assets, this.atlas, this.level.stoneUv, this.vfx, this.enemies, this.heroes, this.level);
     this.enemies.prewarm();
 
     this.setQuality('high');
+    this.setClarity(CL.level, false);
     this.resize();
   }
 
@@ -259,6 +311,18 @@ export class WorldView implements FollowSource {
     this.vfx.density = this.profile.particles;
     if (!this.profile.bloom) this.disposeComposer();
     this.resize();
+  }
+
+  /**
+   * Effect clarity (Settings.effects) and whether other heroes' damage numbers are shown (Settings.allyNumbers).
+   * Call at start and whenever the settings change; takes effect on the next frame. See render/clarity.ts.
+   */
+  setClarity(level: EffectsLevel, allyNumbers: boolean): void {
+    setClarityLevel(level, allyNumbers);
+    this.glare.budget = CL.glare;
+    this.decals.setCap(CL.quadCap);
+    this.fx.setCap(CL.quadCap);
+    if (this.bloomPass) this.bloomPass.strength = BLOOM.STRENGTH * CL.bloom;
   }
 
   setShake(scale: number): void {
@@ -295,7 +359,8 @@ export class WorldView implements FollowSource {
     this.bloomTarget = new WebGLRenderTarget(1, 1, { type: HalfFloatType, samples: 4 });
     const composer = new EffectComposer(this.renderer, this.bloomTarget);
     composer.addPass(new RenderPass(this.scene, this.camera));
-    composer.addPass(new UnrealBloomPass(new Vector2(256, 256), BLOOM.STRENGTH, BLOOM.RADIUS, BLOOM.THRESHOLD));
+    this.bloomPass = new UnrealBloomPass(new Vector2(256, 256), BLOOM.STRENGTH * CL.bloom, BLOOM.RADIUS, BLOOM.THRESHOLD);
+    composer.addPass(this.bloomPass);
     composer.addPass(new OutputPass());
     this.composer = composer;
   }
@@ -307,6 +372,7 @@ export class WorldView implements FollowSource {
     this.bloomTarget?.dispose();
     this.composer = null;
     this.bloomTarget = null;
+    this.bloomPass = null;
   }
 
   private updateFog(): void {
@@ -342,8 +408,41 @@ export class WorldView implements FollowSource {
     this.horde.clear();
     this.objectives.clear();
     this.doors.clear();
+    this.glare.clear();
+    this.lastHitBy.clear();
     this.snapCamera = true;
     this.bossSeen = false;
+  }
+
+  /**
+   * Localised words for the scene (forward EventBus `ui:labels`; call at start and whenever the language changes).
+   * A Resonance burst then shows the reaction's name ("SHATTER", "ZERSPLITTERN") instead of always "RESONANCE".
+   * Missing entries keep the English names of data/reactions.ts; null restores those.
+   */
+  setLabels(labels: LabelsView | null): void {
+    this.atlas.setWord(0, labels?.resonance || 'Resonance');
+    REACTION_IDS.forEach((id, i) => {
+      const def = REACTIONS.find((r) => r.id === id);
+      this.atlas.setWord(i + 1, labels?.reactions[id] || (def ? def.name : id));
+    });
+  }
+
+  /**
+   * Ground position under the cursor while the own hero is aiming (call every frame; null = not aiming / cursor off
+   * the floor). Draws a small translucent copy of the class reticle on the floor there, in the cursor's accent
+   * colour. The native cursor stays what the player steers with; this only shows where on the ground it points.
+   */
+  setAim(x: number | null, z = 0): void {
+    this.aimOn = x !== null && Number.isFinite(x) && Number.isFinite(z);
+    if (x !== null && this.aimOn) { this.aimX = x; this.aimZ = z; }
+  }
+
+  /**
+   * RunState.traits (call on every run-state update): wards, affix auras and necromancer tethers also appear on
+   * enemies that spawned before this client joined. Idempotent.
+   */
+  setTraits(traits: readonly TraitView[]): void {
+    this.enemies.setTraits(traits);
   }
 
   /**
@@ -445,6 +544,7 @@ export class WorldView implements FollowSource {
 
   syncPlayers(players: PlayerSnap[], localSlot: number): void {
     this.localSlot = localSlot;
+    this.ability.localSlot = localSlot;
     this.heroes.sync(players, localSlot);
   }
 
@@ -496,7 +596,49 @@ export class WorldView implements FollowSource {
     return el ? ELEMENT_COLOR[el] : fallback;
   }
 
+  /** OWNER.* of a hero slot: the own hero's effects are drawn in full, other heroes' quieter. */
+  private slotOwner(slot: number): number {
+    if (slot < 0) return OWNER.WORLD;
+    return this.localSlot < 0 || slot === this.localSlot ? OWNER.SELF : OWNER.ALLY;
+  }
+
+  /** Whose effect an event is. Events that name nobody are traced back to the last cast / hit where that is possible. */
+  private ownerOf(ev: GameEvent): number {
+    switch (ev.e) {
+      case 'hit': return ev.target.t === 'e' ? this.slotOwner(ev.by) : ev.target.id === this.localSlot || this.localSlot < 0 ? OWNER.WORLD : OWNER.ALLY;
+      case 'kill':
+      case 'resonance':
+      case 'warded':
+      case 'zone': return this.slotOwner(ev.by);
+      case 'status': return this.slotOwner(this.lastHitBy.get(ev.id) ?? -1);
+      case 'cast': return ev.who.t === 'p' ? this.slotOwner(ev.who.id) : OWNER.WORLD;
+      case 'heal':
+      case 'boon':
+      case 'set':
+      case 'ultReady': return this.slotOwner(ev.slot);
+      case 'aoe': {
+        if (ev.hostile) return OWNER.WORLD;
+        let best = -1;
+        let bestD: number = AOE_OWNER.REACH;
+        for (let s = 0; s < this.castAt.length; s++) {
+          if (this.time - this.castAt[s] > AOE_OWNER.WINDOW) continue;
+          const d = Math.hypot(this.castX[s] - ev.x, this.castZ[s] - ev.z);
+          if (d < bestD) { bestD = d; best = s; }
+        }
+        // nobody's cast: a reaction's or a relic's burst; treated as an ally's unless the own hero stands in it
+        return best >= 0 ? this.slotOwner(best) : this.localSlot < 0 ? OWNER.SELF : OWNER.ALLY;
+      }
+      default: return OWNER.WORLD;
+    }
+  }
+
   handleEvent(ev: GameEvent): void {
+    this.vfx.owner(this.ownerOf(ev));
+    this.dispatch(ev);
+    this.vfx.owner(OWNER.WORLD);
+  }
+
+  private dispatch(ev: GameEvent): void {
     const vfx = this.vfx;
     switch (ev.e) {
       case 'hit': {
@@ -504,12 +646,16 @@ export class WorldView implements FollowSource {
         if (ev.target.t === 'e') {
           const v = this.enemies.get(ev.target.id);
           const y = v ? v.height * 0.55 : 1.1;
+          const own = ev.by === this.localSlot || this.localSlot < 0;
+          const gain = CL.level === 'full' ? 1 : own ? HIT_FLASH.OWN : HIT_FLASH.ALLY;
           if (ev.el) {
             const c = rgb(hex);
-            this.enemies.hit(ev.target.id, Math.min(1, c[0] * 1.6 + 0.3), Math.min(1, c[1] * 1.6 + 0.3), Math.min(1, c[2] * 1.6 + 0.3));
-          } else this.enemies.hit(ev.target.id, 1, 1, 1);
+            this.enemies.hit(ev.target.id, Math.min(1, c[0] * 1.6 + 0.3), Math.min(1, c[1] * 1.6 + 0.3), Math.min(1, c[2] * 1.6 + 0.3), gain);
+          } else this.enemies.hit(ev.target.id, 1, 1, 1, gain);
+          const mine = ev.by === this.localSlot || this.localSlot < 0;
+          this.lastHitBy.set(ev.target.id, ev.by);
           vfx.sparks(ev.x, y, ev.z, hex, ev.crit ? 12 : 6, ev.crit ? 9 : 6.5);
-          vfx.flash(ev.x, y, ev.z, hex, ev.crit ? 2.6 : 1.6, 0.12);
+          vfx.flash(ev.x, y, ev.z, hex, ev.crit ? 2.2 : 1.4, 0.12, 1.25);
           if (ev.el) {
             this.elementBurst(ev.el, ev.x, y, ev.z, 0.45, ev.crit ? 0.5 : 0.25);
             // the swing that caused it takes the element's colour (the cast event itself does not carry it)
@@ -518,13 +664,15 @@ export class WorldView implements FollowSource {
               vfx.tintSlashes(ev.by, hex);
             }
           }
-          vfx.number(ev.x, (v ? v.height : 2) + 0.5, ev.z, ev.dmg, ev.crit ? PALETTE.crit : ev.el ? hex : PALETTE.white, ev.crit ? 1.5 : 1, ev.crit ? 2 : 0);
+          // one number per target and side (own hero / everyone else): further hits within a moment count it up
+          vfx.number(ev.x, (v ? v.height : 2) + 0.5, ev.z, ev.dmg, ev.crit ? PALETTE.crit : ev.el ? hex : PALETTE.white, ev.crit ? 1.35 : 1, ev.crit ? 2 : 0,
+            ev.target.id * 2 + (mine ? 1 : 2), !mine);
           if (ev.by === this.localSlot) this.shake(ev.crit ? 0.14 : 0.04);
         } else {
           this.heroes.hit(ev.target.id);
           vfx.sparks(ev.x, 1.2, ev.z, PALETTE.hostile, 7, 6);
           vfx.flash(ev.x, 1.2, ev.z, PALETTE.hostile, 2, 0.14);
-          vfx.number(ev.x, 2.5, ev.z, ev.dmg, PALETTE.hostile, 0.95, 0);
+          vfx.number(ev.x, 2.5, ev.z, ev.dmg, PALETTE.hostile, 0.95, 0, -(ev.target.id * 4 + 1), ev.target.id !== this.localSlot && this.localSlot >= 0);
           if (ev.target.id === this.localSlot) this.shake(0.32);
         }
         break;
@@ -555,6 +703,7 @@ export class WorldView implements FollowSource {
           vfx.smoke(ev.x, 1, ev.z, PALETTE.umbraCore, 5, 0.8, 0.4, 1.2, 1.4);
         }
         this.enemies.kill(ev.id);
+        this.lastHitBy.delete(ev.id);
         vfx.sparks(ev.x, s, ev.z, VIEW.BONE, big ? 30 : 9, big ? 11 : 6);
         vfx.motes(ev.x, 0.6 * s, ev.z, PALETTE.glimmer, big ? 40 : 7, 0.5 * s, 2.4, big ? 1.8 : 1);
         vfx.puff(ev.x, 0.3, ev.z, VIEW.DUST, big ? 12 : 3, 0.6 * s, 0.3);
@@ -580,22 +729,23 @@ export class WorldView implements FollowSource {
         const a = ELEMENT_COLOR[ev.a];
         const b = ELEMENT_COLOR[ev.b];
         const d = ev.r * 2;
-        vfx.flash(ev.x, 1.1, ev.z, PALETTE.white, ev.r * 0.8, 0.09, 1.5);
+        vfx.flash(ev.x, 1.1, ev.z, PALETTE.white, ev.r * 0.55, 0.09, 1.1);
         vfx.duoRing(ev.x, ev.z, d * 0.15, d * 1.06, 0.55, a, b, 0.7, 1.9);
         vfx.duoRing(ev.x, ev.z, d * 0.1, d * 1.32, 0.9, b, a, 0.25, 1.6, 0.1);
-        vfx.groundFlash(ev.x, ev.z, d * 1.2, 0.55, a, 0.45);
-        vfx.groundFlash(ev.x, ev.z, d * 0.75, 0.75, b, 0.55, 0.06);
-        vfx.flash(ev.x, 1.0, ev.z, a, ev.r * 1.5, 0.3, 0.9);
-        vfx.flash(ev.x, 1.7, ev.z, b, ev.r * 1.0, 0.45, 1.0);
+        vfx.groundFlash(ev.x, ev.z, d * 1.2, 0.55, a, 0.35);
+        vfx.groundFlash(ev.x, ev.z, d * 0.75, 0.75, b, 0.4, 0.06);
+        vfx.flash(ev.x, 1.0, ev.z, a, ev.r * 1.2, 0.3, 0.7);
+        vfx.flash(ev.x, 1.7, ev.z, b, ev.r * 0.9, 0.4, 0.8);
         vfx.sparks(ev.x, 1, ev.z, a, 16, 12);
         vfx.sparks(ev.x, 1.2, ev.z, b, 16, 14);
         this.elementBurst(ev.a, ev.x, 0.4, ev.z, ev.r * 0.55, 1);
         this.elementBurst(ev.b, ev.x, 0.4, ev.z, ev.r * 0.85, 1);
         vfx.motes(ev.x, 0.3, ev.z, a, 7, ev.r * 0.7, 2.6, 1);
         vfx.motes(ev.x, 0.3, ev.z, b, 7, ev.r * 0.9, 2, 1.1);
-        vfx.word(ev.x, 3.2, ev.z, a, b, ev.by === this.localSlot || this.localSlot < 0 ? 1 : 0.82);
+        const named = reactionOf(ev.a, ev.b);
+        vfx.word(ev.x, 3.2, ev.z, a, b, ev.by === this.localSlot || this.localSlot < 0 ? 1 : 0.74, named ? REACTION_IDS.indexOf(named.id) + 1 : 0);
         this.ability.reaction(ev);
-        this.shake(ev.by === this.localSlot ? 0.3 : 0.2);
+        this.shake(ev.by === this.localSlot ? 0.3 : CL.outlines ? 0 : 0.1);
         break;
       }
       case 'status': {
@@ -604,7 +754,11 @@ export class WorldView implements FollowSource {
         const hex = ELEMENT_COLOR[ev.el];
         const icon = ev.el === 'ember' ? this.atlas.icons.burn : ev.el === 'rime' ? this.atlas.icons.chill
           : ev.el === 'storm' ? this.atlas.icons.shock : this.atlas.icons.wither;
-        vfx.iconPop(v.x, v.lift + v.height + 0.95, v.z, icon, hex, isBigEnemy(v.kind) ? 1.3 : 0.95);
+        // clarity: the pip row already says which statuses an enemy carries; the pop is the own hero's feedback only
+        const quiet = CL.level !== 'full';
+        if (!quiet || this.slotOwner(this.lastHitBy.get(ev.id) ?? -1) === OWNER.SELF) {
+          vfx.iconPop(v.x, v.lift + v.height + 0.95, v.z, icon, hex, (isBigEnemy(v.kind) ? 1.3 : 0.95) * (quiet ? STATUS_POP : 1));
+        }
         vfx.ring(v.x, v.z, 0.5, v.radius * 4.6, 0.32, hex, 0.35, 1.5);
         vfx.flash(v.x, v.lift + v.height * 0.55, v.z, hex, v.height * 1.1, 0.2, 1.3);
         this.elementBurst(ev.el, v.x, v.lift + v.height * 0.35, v.z, v.radius * 1.1, 0.6);
@@ -636,7 +790,7 @@ export class WorldView implements FollowSource {
       case 'heal': {
         const h = this.heroes.get(ev.slot);
         if (!h) break;
-        vfx.number(h.x, 2.6, h.z, ev.amount, PALETTE.heal, 1, 1);
+        vfx.number(h.x, 2.6, h.z, ev.amount, PALETTE.heal, 1, 1, -(ev.slot * 4 + 2), ev.slot !== this.localSlot && this.localSlot >= 0);
         vfx.motes(h.x, 0.2, h.z, PALETTE.heal, 12, 0.7, 2.6, 0.9);
         vfx.ring(h.x, h.z, 0.6, 3, 0.45, PALETTE.heal, 0.3, 1.3);
         break;
@@ -924,7 +1078,7 @@ export class WorldView implements FollowSource {
     const color = infused ? ELEMENT_COLOR[infused] : classColor(info.cls);
     const sin = Math.sin(rot);
     const cos = Math.cos(rot);
-    if (id >= 0 && id < this.castAt.length) { this.castAt[id] = this.time; this.castTinted[id] = infused !== null; }
+    if (id >= 0 && id < this.castAt.length) { this.castAt[id] = this.time; this.castTinted[id] = infused !== null; this.castX[id] = x; this.castZ[id] = z; }
     // ground-targeted abilities carry their target in the event; the hero's own position comes from its view
     const hero = this.heroes.get(id);
     const hx = hero ? hero.x + hero.offX : x;
@@ -991,18 +1145,25 @@ export class WorldView implements FollowSource {
     _pm.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
     _frustum.setFromProjectionMatrix(_pm);
 
+    this.glare.begin();
     this.decals.begin();
+    this.warnings.begin();
     this.fx.begin();
     this.ui.begin();
 
     this.level.emit(this.fx, this.decals, time);
     this.ambient(step);
-    this.hazards.update(step, time, this.serverTick, this.decals, this.fx, this.vfx);
+    this.hazards.update(step, time, this.serverTick, this.decals, this.fx, this.vfx, this.warnings);
     if (this.marker && this.hasRoom) this.drawMarker(this.marker, time);
     if (this.level.diorama) this.preview.update(step);
     const blobs = this.profile.blobShadows;
     this.heroes.update(step, time, this.decals, this.ui, this.fx, blobs);
+    // clarity: the light hung on enemies (auras, pools, wisps, channel glows) is turned down as one
+    this.decals.gain = CL.enemyGlow;
+    this.fx.gain = CL.enemyGlow;
     this.enemies.update(step, time, this.decals, this.ui, this.fx, blobs);
+    this.decals.gain = 1;
+    this.fx.gain = 1;
     this.heroes.forEach(this.cullHero);
     this.enemies.forEachView(this.perEnemy);
     this.heroes.forEach(this.heroFx);
@@ -1010,17 +1171,66 @@ export class WorldView implements FollowSource {
     this.projectiles.update(step, time, this.decals, this.fx, this.vfx);
     // lasting friendly ground effects go in before the timed pool, whose telegraphs are drawn last (always on top)
     this.objectives.update(step, time, this.decals, this.fx, this.ui);
+    this.decals.gain = CL.enemyGlow;
+    this.fx.gain = CL.enemyGlow;
     this.horde.update(step, time, this.decals, this.fx);
+    this.decals.gain = 1;
+    this.fx.gain = 1;
     this.shake(this.objectives.takeShake() + this.horde.takeShake());
     this.ability.update(step, time, this.decals, this.fx);
     this.shake(this.ability.takeShake());
-    this.vfx.update(step, this.decals, this.fx, this.ui, this);
+    this.drawAim(step);
+    this.vfx.update(step, this.decals, this.fx, this.ui, this, this.warnings);
+    if (CL.selfMarker) this.drawSelf(time);
 
     this.decals.end(time);
+    this.warnings.end(time);
     this.fx.end(time);
     this.ui.end(time);
 
     if (render) this.render(step);
+  }
+
+  /**
+   * Find-yourself marker (clarity): a bright double ring in the own hero's slot colour and a chevron over the head.
+   * Both are overlay sprites: above every effect, and as a thin ring it hides nothing of a warning it stands in (a
+   * hero inside a telegraph is exactly the one who has to be found).
+   */
+  private drawSelf(time: number): void {
+    const h = this.heroes.get(this.localSlot);
+    if (!h || !this.hasRoom) return;
+    const c = rgb(SLOT_COLORS[h.slot] ?? PALETTE.white);
+    const x = h.x + h.offX;
+    const z = h.z + h.offZ;
+    const alive = h.state === 'alive';
+    const d = SELF.RING * (1 + SELF.PULSE * Math.sin(time * SELF.RATE));
+    const on = alive ? 1 : 0.6;
+    // an overlay ring (an ellipse that matches the camera pitch, so it reads as lying on the floor): thin, drawn over
+    // everything, so it shows through a pile of enemies without hiding them
+    const squash = Math.sin(CAMERA.PITCH_DEG * DEG);
+    this.ui.push(SPRITE.HOOP, x, 0.05, z, d * 1.19, d * 1.19 * squash, Math.min(1.3, c[0] * 1.4 + 0.15), Math.min(1.3, c[1] * 1.4 + 0.15), Math.min(1.3, c[2] * 1.4 + 0.15), SELF.OVERLAY * on,
+      0, SELF.HOOP);
+    const uv = this.atlas.icons.marker;
+    const y = HERO_VIS.LABEL_Y + SELF.CHEVRON_Y + Math.abs(Math.sin(time * SELF.RATE)) * 0.12 + (h.lift > 0 ? h.lift : 0);
+    this.ui.push(SPRITE.ATLAS, x, y, z, SELF.CHEVRON, SELF.CHEVRON, Math.min(1.4, c[0] * 1.5 + 0.2), Math.min(1.4, c[1] * 1.5 + 0.2), Math.min(1.4, c[2] * 1.5 + 0.2), 1,
+      0, 0, 0, 0, 0, uv[0], uv[1], uv[2], uv[3]);
+  }
+
+  private drawAim(dt: number): void {
+    const hero = this.heroes.get(this.localSlot);
+    const show = this.aimOn && this.hasRoom && hero !== null && hero.state === 'alive';
+    this.aimFade = Math.max(0, Math.min(1, this.aimFade + (show ? dt : -dt) * AIM.FADE));
+    if (!hero || this.aimFade <= 0) return;
+    const el = this.heroes.infusion(this.localSlot, 'primary');
+    const c = rgb(el ? AIM.ELEMENT[el] : AIM.GOLD);
+    const uv = this.atlas.reticles[hero.cls];
+    const k = this.aimFade;
+    const s = AIM.SIZE;
+    const d = this.decals;
+    // a breath of shade so it also reads on lit floors, the light parts, then the accent
+    d.push(DECAL.DISC, this.aimX, AIM.Y - 0.004, this.aimZ, 0, s * 0.95, s * 0.95, 0, 0, 0, AIM.SHADE * k, 0, 0.3);
+    d.push(DECAL.ATLAS, this.aimX, AIM.Y, this.aimZ, 0, s, s, 1, 1, 1, AIM.LIGHT * k, 0, uv[0][0], uv[0][1], uv[0][2], uv[0][3]);
+    d.push(DECAL.ATLAS, this.aimX, AIM.Y + 0.002, this.aimZ, 0, s, s, c[0], c[1], c[2], AIM.ACCENT * k, 0, uv[1][0], uv[1][1], uv[1][2], uv[1][3]);
   }
 
   private drawMarker(m: MarkerView, time: number): void {
@@ -1065,7 +1275,8 @@ export class WorldView implements FollowSource {
     const vfx = this.vfx;
     const stage = this.level.diorama;
     if (this.level.width === 0 && !stage) return;
-    const d = vfx.density;
+    const d = vfx.density * CL.ambient;
+    if (d <= 0) return;
     const biome = this.level.biome;
     const cx = stage ? 0 : this.target.x;
     const cz = stage ? 0 : this.target.z;
@@ -1239,12 +1450,14 @@ export class WorldView implements FollowSource {
   getDebug(): {
     quality: Quality; particles: number; decals: number; fxSprites: number; uiSprites: number; enemies: number; projectiles: number;
     hazards: number; heroTemplates: number; showcase: boolean; zones: number; depth: number; domes: number; objective: ObjectiveKind | null;
+    numbers: number; glare: number; warnings: number;
   } {
     return {
       quality: this.quality, particles: this.vfx.particleCount, decals: this.decals.used, fxSprites: this.fx.used,
       uiSprites: this.ui.used, enemies: this.enemies.count, projectiles: this.projectiles.count,
       hazards: this.hazards.active, heroTemplates: this.assets.heroTemplateCount(), showcase: this.level.diorama,
       zones: this.ability.activeZones, depth: this.descent, domes: this.horde.activeDomes, objective: this.objectives.activeKind,
+      numbers: this.vfx.numberCount, glare: this.glare.peak, warnings: this.warnings.used,
     };
   }
 
@@ -1267,6 +1480,10 @@ export class WorldView implements FollowSource {
     this.doors.clear();
     this.hazards.clear();
     this.marker = null;
+    this.aimOn = false;
+    this.aimFade = 0;
+    this.glare.clear();
+    this.lastHitBy.clear();
     this.hasRoom = false;
     this.lastRoom = null;
     this.descent = 0;
@@ -1292,6 +1509,7 @@ export class WorldView implements FollowSource {
     this.projectiles.dispose();
     this.doors.dispose();
     this.decals.dispose();
+    this.warnings.dispose();
     this.fx.dispose();
     this.ui.dispose();
     this.atlas.dispose();
@@ -1302,6 +1520,8 @@ export class WorldView implements FollowSource {
 }
 
 const DOOR_GOLD = 0xffd166;
+/** Between the particle batch (3) and nothing: warnings are the last thing drawn into the world. */
+const WARNING_ORDER = 3.5;
 const HORDE_VIS = {
   /** A bomber that dies within this many seconds of its fuse running out died of its own burst. */
   FUSE_SLACK: 0.15,

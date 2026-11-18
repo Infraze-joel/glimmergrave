@@ -1,9 +1,12 @@
 /** Canvas atlas for every textured overlay sprite: damage digits, status / door icons and player name labels. */
 import { CanvasTexture, LinearFilter, LinearMipmapLinearFilter, SRGBColorSpace } from 'three';
 import { NET } from '@shared/constants.ts';
+import { CLASS_IDS } from '@shared/types.ts';
+import type { ClassId } from '@shared/types.ts';
+import { REACTIONS } from '@shared/data/reactions.ts';
 
 const W = 1024;
-const H = 512;
+const H = 1024;
 const DIGIT = { W: 44, H: 60, Y: 0 } as const;
 const ICON_SIZE = 64;
 const ICON_Y = 64;
@@ -11,8 +14,13 @@ const ICON_Y = 64;
 const ICON_Y2 = 400;
 const ICONS_PER_ROW = W / ICON_SIZE;
 const NAME = { W: 384, H: 56, Y: 144, COLS: 2 } as const;
-/** Word mark shown on a Resonance burst; drawn white so the two element colours can tint its halves. */
-const WORD = { TEXT: 'RESONANCE', X: 0, Y: 288, W: 560, H: 96 } as const;
+/**
+ * Word marks shown on a Resonance burst: slot 0 is the common word, slots 1.. the named reactions in REACTIONS order.
+ * Drawn white so the two element colours can tint the halves; redrawn whenever the language changes (setWord).
+ */
+const WORD = { FALLBACK: 'RESONANCE', Y: 512, W: 512, H: 96, COLS: 2, FONT: 66, PAD: 16, STROKE: 13 } as const;
+/** Ground aim marker: one cell pair per class (light parts with their dark outline, accent parts), see drawReticle. */
+const RETICLE = { SIZE: 72, Y: 920, VIEW: 80, LINE: 4, OUTLINE: 4, GEM: 5 } as const;
 const OUTLINE = 'rgba(6, 6, 12, 0.95)';
 const FONT_STACK = '"Trebuchet MS", "Segoe UI", system-ui, sans-serif';
 
@@ -364,6 +372,56 @@ function drawIcon(ctx: CanvasRenderingContext2D, name: IconName, ox: number, oy:
   ctx.restore();
 }
 
+// The class reticles of the aim cursor (game/Cursor.ts draws the same shapes as a CSS cursor), in an 80-unit box.
+const RC = RETICLE.VIEW / 2;
+const rrad = (deg: number): number => (deg * Math.PI) / 180;
+const polar = (r: number, deg: number): string => `${(RC + r * Math.sin(rrad(deg))).toFixed(1)} ${(RC - r * Math.cos(rrad(deg))).toFixed(1)}`;
+const QUARTER = [0, 90, 180, 270];
+const rline = (r0: number, r1: number, deg: number): string => `M${polar(r0, deg)}L${polar(r1, deg)}`;
+const rarc = (r: number, from: number, to: number): string => `M${polar(r, from)}A${r} ${r} 0 0 1 ${polar(r, to)}`;
+const rtri = (tip: number, base: number, deg: number, half: number): string => `M${polar(tip, deg)}L${polar(base, deg - half)}L${polar(base, deg + half)}Z`;
+
+interface ReticleShape { stroke: string; fill: string; accentLines?: boolean }
+const RETICLES: Record<ClassId, ReticleShape> = {
+  knight: { stroke: rarc(14, 0, 180) + rarc(14, 180, 360) + QUARTER.map((d) => rline(20, 28, d)).join(''), fill: '' },
+  barbarian: { stroke: '', fill: QUARTER.map((d) => rtri(9, 29, d + 45, 20)).join('') },
+  mage: { stroke: rarc(17, 0, 180) + rarc(17, 180, 360), fill: QUARTER.map((d) => `M${polar(27, d + 45)}m-5 0a5 5 0 1 0 10 0a5 5 0 1 0 -10 0`).join('') },
+  rogue: { stroke: QUARTER.map((d) => rline(10, 27, d + 45)).join('') + QUARTER.map((d) => rarc(27, d - 12, d + 12)).join(''), fill: '' },
+  templar: { stroke: rline(12, 24, 0) + rline(12, 24, 90) + rline(12, 24, 270) + rline(12, 30, 180), fill: [0, 90, 270].map((d) => rtri(19, 30, d, 20)).join('') + rtri(26, 36, 180, 16), accentLines: true },
+  spellblade: { stroke: `M${polar(22, 0)}L${polar(22, 90)}L${polar(22, 180)}L${polar(22, 270)}Z` + QUARTER.map((d) => rline(25, 31, d)).join(''), fill: '' },
+  shade: { stroke: rarc(22, 25, 155) + rarc(22, 205, 335) + rline(22, 30, 25) + rline(22, 30, 155) + rline(22, 30, 205) + rline(22, 30, 335), fill: '' },
+};
+
+/** layer 0: dark outline and the light parts (centre gem included); layer 1: the parts that take the accent colour. */
+function drawReticle(ctx: CanvasRenderingContext2D, cls: ClassId, layer: number, ox: number, oy: number): void {
+  const shape = RETICLES[cls];
+  const stroke = shape.stroke ? new Path2D(shape.stroke) : null;
+  const fill = shape.fill ? new Path2D(shape.fill) : null;
+  const fillAccent = !shape.accentLines;
+  const strokeAccent = !(fill && !shape.accentLines);
+  ctx.save();
+  ctx.translate(ox, oy);
+  ctx.scale(RETICLE.SIZE / RETICLE.VIEW, RETICLE.SIZE / RETICLE.VIEW);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  if (layer === 0) {
+    ctx.strokeStyle = OUTLINE;
+    if (stroke) { ctx.lineWidth = RETICLE.LINE + RETICLE.OUTLINE; ctx.stroke(stroke); }
+    if (fill) { ctx.lineWidth = RETICLE.OUTLINE; ctx.stroke(fill); if (!fillAccent) { ctx.fillStyle = '#ffffff'; ctx.fill(fill); } }
+    if (stroke && !strokeAccent) { ctx.strokeStyle = '#ffffff'; ctx.lineWidth = RETICLE.LINE; ctx.stroke(stroke); }
+    const gem = new Path2D(`M${polar(RETICLE.GEM + 2, 0)}L${polar(RETICLE.GEM, 90)}L${polar(RETICLE.GEM + 2, 180)}L${polar(RETICLE.GEM, 270)}Z`);
+    ctx.strokeStyle = OUTLINE; ctx.lineWidth = 3; ctx.stroke(gem);
+    ctx.fillStyle = '#ffffff'; ctx.fill(gem);
+  } else {
+    if (fill && fillAccent) { ctx.fillStyle = '#ffffff'; ctx.fill(fill); }
+    if (stroke && strokeAccent) { ctx.strokeStyle = '#ffffff'; ctx.lineWidth = RETICLE.LINE; ctx.stroke(stroke); }
+  }
+  ctx.restore();
+}
+
+/** A word mark in the atlas: the two halves of the drawn text and its width / height. */
+export interface WordMark { halves: [UvRect, UvRect]; aspect: number }
+
 export class Atlas {
   readonly texture: CanvasTexture;
   readonly digits: UvRect[] = [];
@@ -371,15 +429,17 @@ export class Atlas {
   readonly bang: UvRect;
   readonly icons = {} as Record<IconName, UvRect>;
   readonly names: UvRect[] = [];
-  /** Left and right half of the word mark, each tinted with one element colour. */
-  readonly wordHalves: [UvRect, UvRect];
-  readonly wordAspect = WORD.W / WORD.H;
+  /** Word marks: [0] the common "Resonance", [1..] the reactions in REACTIONS order. Entries are updated in place. */
+  readonly words: WordMark[] = [];
+  /** Aim-marker reticles per class: [light parts, accent parts]. */
+  readonly reticles = {} as Record<ClassId, [UvRect, UvRect]>;
   /** Width / height of a name cell, for sizing the sprite. */
   readonly nameAspect = NAME.W / NAME.H;
   readonly digitAspect = DIGIT.W / DIGIT.H;
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
   private readonly nameText: string[] = [];
+  private readonly wordText: string[] = [];
 
   constructor() {
     this.canvas = document.createElement('canvas');
@@ -420,14 +480,21 @@ export class Atlas {
       this.nameText.push('');
     }
 
-    ctx.font = `900 76px ${FONT_STACK}`;
-    ctx.lineJoin = 'round';
-    ctx.lineWidth = 14;
-    ctx.strokeStyle = OUTLINE;
-    ctx.strokeText(WORD.TEXT, WORD.X + WORD.W / 2, WORD.Y + WORD.H / 2 + 2, WORD.W - 28);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(WORD.TEXT, WORD.X + WORD.W / 2, WORD.Y + WORD.H / 2 + 2, WORD.W - 28);
-    this.wordHalves = [rect(WORD.X, WORD.Y, WORD.W / 2, WORD.H), rect(WORD.X + WORD.W / 2, WORD.Y, WORD.W / 2, WORD.H)];
+    CLASS_IDS.forEach((cls, i) => {
+      const pair: UvRect[] = [];
+      for (let layer = 0; layer < 2; layer++) {
+        const x = (i * 2 + layer) * RETICLE.SIZE;
+        drawReticle(ctx, cls, layer, x, RETICLE.Y);
+        pair.push(rect(x + 0.5, RETICLE.Y + 0.5, RETICLE.SIZE - 1, RETICLE.SIZE - 1));
+      }
+      this.reticles[cls] = [pair[0], pair[1]];
+    });
+
+    for (let i = 0; i <= REACTIONS.length; i++) {
+      this.words.push({ halves: [rect(0, 0, 1, 1), rect(0, 0, 1, 1)], aspect: 1 });
+      this.wordText.push('');
+      this.drawWord(i, i === 0 ? WORD.FALLBACK : REACTIONS[i - 1].name);
+    }
 
     this.texture = new CanvasTexture(this.canvas);
     this.texture.colorSpace = SRGBColorSpace;
@@ -453,6 +520,51 @@ export class Atlas {
     ctx.fillStyle = '#ffffff';
     ctx.fillText(text, x + NAME.W / 2, y + NAME.H / 2 + 1, NAME.W - 16);
     this.texture.needsUpdate = true;
+  }
+
+  /**
+   * Word mark `index` (0 = Resonance, 1.. = REACTIONS order) in the current language. Cheap when nothing changed;
+   * otherwise the cell is redrawn and the texture re-uploaded once.
+   */
+  setWord(index: number, text: string): void {
+    if (index < 0 || index >= this.words.length) return;
+    if (this.drawWord(index, text)) this.texture.needsUpdate = true;
+  }
+
+  private drawWord(index: number, raw: string): boolean {
+    const text = raw.trim().toLocaleUpperCase();
+    if (text === '' || this.wordText[index] === text) return false;
+    this.wordText[index] = text;
+    const ctx = this.ctx;
+    const x = (index % WORD.COLS) * WORD.W;
+    const y = WORD.Y + Math.floor(index / WORD.COLS) * WORD.H;
+    ctx.clearRect(x, y, WORD.W, WORD.H);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.lineJoin = 'round';
+    ctx.font = `900 ${WORD.FONT}px ${FONT_STACK}`;
+    // long words are set smaller instead of squeezed; umlaut dots count towards the height
+    let m = ctx.measureText(text);
+    const room = WORD.W - WORD.PAD * 2 - WORD.STROKE;
+    const tall = WORD.H - WORD.STROKE - 4;
+    const fit = Math.min(1, room / Math.max(1, m.width), tall / Math.max(1, m.actualBoundingBoxAscent + m.actualBoundingBoxDescent));
+    if (fit < 1) {
+      ctx.font = `900 ${Math.floor(WORD.FONT * fit)}px ${FONT_STACK}`;
+      m = ctx.measureText(text);
+    }
+    const cx = x + WORD.W / 2;
+    const base = y + WORD.H / 2 + (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2;
+    ctx.lineWidth = WORD.STROKE;
+    ctx.strokeStyle = OUTLINE;
+    ctx.strokeText(text, cx, base);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(text, cx, base);
+    const w = Math.min(WORD.W, Math.ceil(m.width) + WORD.PAD * 2);
+    const word = this.words[index];
+    word.halves[0] = rect(cx - w / 2, y, w / 2, WORD.H);
+    word.halves[1] = rect(cx, y, w / 2, WORD.H);
+    word.aspect = w / WORD.H;
+    return true;
   }
 
   dispose(): void {

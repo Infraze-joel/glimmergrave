@@ -12,6 +12,7 @@ import { stepBoss, createBossState } from './boss.ts';
 import { angleTo, closestT, DEG, inArc, inLine, sweepHit, TAU } from './geom.ts';
 import { firstSpecial, flyReaver, isHorde, resolveHordeAttack, stepDome, stepHorde } from './horde.ts';
 import { resolveCollisions } from './movement.ts';
+import { blocksShots } from './fixtures.ts';
 import { damageAnchor, standingAnchor } from './objectives.ts';
 import { spawnProjectile } from './projectiles.ts';
 import type { AttackShape, Enemy, EnemyAttack, Hero } from './state.ts';
@@ -179,6 +180,8 @@ export function steer(w: World, e: Enemy, tx: number, tz: number, speed: number,
     vz = dz * seekWeight;
     const look = Math.min(d, AI.AVOID_LOOKAHEAD);
     for (const o of w.room.obstacles) {
+      // The destination is the obstacle itself (the bell shard under siege): walk up to it, not around it.
+      if ((tx - o.x) * (tx - o.x) + (tz - o.z) * (tz - o.z) < o.r * o.r) continue;
       const clearance = o.r + e.radius + AI.AVOID_PAD;
       const t = closestT(e.x, e.z, e.x + dx * look, e.z + dz * look, o.x, o.z);
       const cx = e.x + dx * look * t;
@@ -267,6 +270,7 @@ export function rayLength(w: World, x: number, z: number, rot: number, max: numb
   len = Math.max(0, len);
   if (obstacles) {
     for (const o of w.room.obstacles) {
+      if (!blocksShots(o)) continue;
       const t = sweepHit(x, z, x + dirX * len, z + dirZ * len, o.x, o.z, o.r);
       if (t >= 0) len *= t;
     }
@@ -274,8 +278,9 @@ export function rayLength(w: World, x: number, z: number, rot: number, max: numb
   return len;
 }
 
+/** Free line of fire from a to b (objective fixtures are shot over). */
 export function hasLineOfSight(w: World, ax: number, az: number, bx: number, bz: number, pad: number): boolean {
-  for (const o of w.room.obstacles) if (sweepHit(ax, az, bx, bz, o.x, o.z, o.r + pad) >= 0) return false;
+  for (const o of w.room.obstacles) if (blocksShots(o) && sweepHit(ax, az, bx, bz, o.x, o.z, o.r + pad) >= 0) return false;
   return true;
 }
 

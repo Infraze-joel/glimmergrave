@@ -15,7 +15,8 @@ import { DECAL, SPRITE } from './batches.ts';
 import type { BillboardBatch, DecalBatch } from './batches.ts';
 import type { Enemies, EnemyView, Heroes } from './characters.ts';
 import { ELEMENT_COLOR, PALETTE } from './config.ts';
-import { rgb } from './vfx.ts';
+import { CL } from './clarity.ts';
+import { OWNER, rgb } from './vfx.ts';
 import type { Vfx } from './vfx.ts';
 
 type ZoneEvent = Extract<GameEvent, { e: 'zone' }>;
@@ -52,6 +53,12 @@ const TUNE = {
   PRISON_RIM: 0x7fd0ff,
   WARD_SHARDS: 3,
   RUNE: 0xa8ecff,
+  /** Lasting effects of other heroes: their ground shapes stay readable but translucent, their light is turned down. */
+  ALLY_SHAPE: 0.62,
+  ALLY_LIGHT: 0.45,
+  /** Clarity: alpha of the outline that is left of another hero's lasting effect. */
+  OUTLINE: 0.5,
+  CAGE_SEE: 0.45, CAGE_LOW: 0.6,
 } as const;
 
 const ALL_ELEMENTS: readonly ElementId[] = ['ember', 'rime', 'storm', 'umbra'];
@@ -62,12 +69,14 @@ interface Zone {
   /** Seconds since the zone ended (fading out), -1 while it lasts. */
   ended: number; sprung: boolean;
   el: ElementId | null; acc: number; seed: number;
+  /** Hero who placed it (-1 unknown). */
+  slot: number;
 }
 interface Scheduled { active: boolean; at: number; type: number; x: number; z: number; r: number; rot: number; hex: number; slot: number }
-interface Meteor { active: boolean; x: number; z: number; r: number; age: number; dur: number; hex: number; acc: number }
-interface Banner { active: boolean; x: number; z: number; r: number; age: number; dur: number; acc: number }
+interface Meteor { active: boolean; x: number; z: number; r: number; age: number; dur: number; hex: number; acc: number; slot: number }
+interface Banner { active: boolean; x: number; z: number; r: number; age: number; dur: number; acc: number; slot: number }
 interface Follow { active: boolean; slot: number; age: number; dur: number; r: number; hex: number }
-interface Prison { active: boolean; x: number; z: number; r: number; age: number; dur: number; seed: number }
+interface Prison { active: boolean; x: number; z: number; r: number; age: number; dur: number; seed: number; slot: number }
 
 /** Cheap deterministic hash in [0, 1). */
 function hash1(n: number): number {
@@ -91,6 +100,8 @@ export class AbilityFx {
   private readonly prisons: Prison[] = [];
   private time = 0;
   private trauma = 0;
+  /** Slot of the own hero (-1 = none: everything is drawn in full). */
+  localSlot = -1;
 
   // scratch state of the Void Arc target search (no closures per event)
   private seekX = 0;
@@ -112,14 +123,19 @@ export class AbilityFx {
     this.heroes = heroes;
     this.enemies = enemies;
     for (let i = 0; i < LIMIT.ZONES; i++) {
-      this.zones.push({ active: false, id: -1, kind: 0, x: 0, z: 0, r: 1, dur: 1, age: 0, ended: -1, sprung: false, el: null, acc: 0, seed: 0 });
+      this.zones.push({ active: false, id: -1, kind: 0, x: 0, z: 0, r: 1, dur: 1, age: 0, ended: -1, sprung: false, el: null, acc: 0, seed: 0, slot: -1 });
     }
     for (let i = 0; i < LIMIT.SCHEDULE; i++) this.schedule.push({ active: false, at: 0, type: 0, x: 0, z: 0, r: 0, rot: 0, hex: 0, slot: -1 });
-    for (let i = 0; i < LIMIT.METEORS; i++) this.meteors.push({ active: false, x: 0, z: 0, r: 1, age: 0, dur: 1, hex: 0, acc: 0 });
-    for (let i = 0; i < LIMIT.BANNERS; i++) this.banners.push({ active: false, x: 0, z: 0, r: 1, age: 0, dur: 1, acc: 0 });
+    for (let i = 0; i < LIMIT.METEORS; i++) this.meteors.push({ active: false, x: 0, z: 0, r: 1, age: 0, dur: 1, hex: 0, acc: 0, slot: -1 });
+    for (let i = 0; i < LIMIT.BANNERS; i++) this.banners.push({ active: false, x: 0, z: 0, r: 1, age: 0, dur: 1, acc: 0, slot: -1 });
     for (let i = 0; i < LIMIT.WARDS; i++) this.wards.push({ active: false, slot: -1, age: 0, dur: 1, r: 1, hex: 0 });
     for (let i = 0; i < LIMIT.NOVAS; i++) this.novas.push({ active: false, slot: -1, age: 0, dur: 1, r: 1, hex: 0 });
-    for (let i = 0; i < LIMIT.PRISONS; i++) this.prisons.push({ active: false, x: 0, z: 0, r: 1, age: 0, dur: 1, seed: 0 });
+    for (let i = 0; i < LIMIT.PRISONS; i++) this.prisons.push({ active: false, x: 0, z: 0, r: 1, age: 0, dur: 1, seed: 0, slot: -1 });
+  }
+
+  /** Is this another hero's effect? Unknown owners and spectators (no own hero) count as own. */
+  private foreign(slot: number): boolean {
+    return this.localSlot >= 0 && slot >= 0 && slot !== this.localSlot;
   }
 
   /** Camera shake asked for since the last call (the world owns the camera). */
@@ -164,7 +180,7 @@ export class AbilityFx {
     }
     slot.active = true; slot.id = ev.id; slot.kind = ZONE_KIND[ev.kind] ?? ZK.GENERIC;
     slot.x = ev.x; slot.z = ev.z; slot.r = ev.r; slot.dur = Math.max(0.1, ev.dur); slot.age = 0; slot.ended = -1; slot.sprung = false;
-    slot.el = ev.el; slot.acc = 0; slot.seed = (ev.id * 0.61803398875) % 1;
+    slot.el = ev.el; slot.acc = 0; slot.seed = (ev.id * 0.61803398875) % 1; slot.slot = ev.by;
     const vfx = this.vfx;
     const d = ev.r * 2;
     switch (slot.kind) {
@@ -175,12 +191,12 @@ export class AbilityFx {
         break;
       case ZK.SANCTUARY:
         // the templar's ultimate: the whole circle lights up, then a column of light stands over it
-        vfx.flash(ev.x, 2.4, ev.z, PALETTE.holy, ev.r * 1.5, 0.45, 1.5);
-        vfx.flash(ev.x, 1.2, ev.z, PALETTE.white, ev.r * 0.6, 0.14, 1.5);
+        vfx.flash(ev.x, 2.4, ev.z, PALETTE.holy, ev.r * 1.1, 0.4, 1.1);
+        vfx.flash(ev.x, 1.2, ev.z, PALETTE.white, ev.r * 0.4, 0.12, 1.2);
         vfx.ring(ev.x, ev.z, 1, d * 1.1, 0.6, PALETTE.holy, 0.55, 2.3);
         vfx.ring(ev.x, ev.z, 1, d * 1.5, 0.95, PALETTE.holyDeep, 0.25, 1.7, 0.12);
-        vfx.groundFlash(ev.x, ev.z, d * 1.25, 0.8, PALETTE.holy, 1.2);
-        vfx.stamp(DECAL.HALLOW, ev.x, ev.z, d * 0.4, d * 1.25, 0.9, PALETTE.white, 1.6, 1, 0.2, -1, 1);
+        vfx.groundFlash(ev.x, ev.z, d * 1.25, 0.8, PALETTE.holy, 0.8);
+        vfx.stamp(DECAL.HALLOW, ev.x, ev.z, d * 0.4, d * 1.25, 0.9, PALETTE.white, 1.2, 1, 0.12, -1, 1);
         vfx.motes(ev.x, 0.2, ev.z, PALETTE.holy, 44, ev.r * 0.9, 4.2, 1.4);
         vfx.sparks(ev.x, 1.2, ev.z, PALETTE.holyDeep, 26, 12);
         this.trauma += 0.4;
@@ -211,6 +227,7 @@ export class AbilityFx {
       z.sprung = sprung;
       if (z.kind === ZK.TRAP && sprung) {
         const vfx = this.vfx;
+        vfx.owner(this.foreign(z.slot) ? OWNER.ALLY : OWNER.SELF);
         const hex = z.el ? ELEMENT_COLOR[z.el] : TUNE.TRAP;
         vfx.ring(z.x, z.z, 0.6, z.r * 2.05, 0.32, hex, 0.5, 2.1);
         vfx.stamp(DECAL.CRACKLE, z.x, z.z, z.r * 0.8, z.r * 2.1, 0.4, hex, 1.6, 1, 0.5, 1);
@@ -219,6 +236,7 @@ export class AbilityFx {
         vfx.puff(z.x, 0.25, z.z, TUNE.DUST, 6, z.r * 0.6, 0.3);
         if (z.el) this.elementBurst(z.el, z.x, 0.3, z.z, z.r * 0.6, 0.8);
         this.trauma += 0.12;
+        vfx.owner(OWNER.WORLD);
       }
     }
   }
@@ -238,12 +256,19 @@ export class AbilityFx {
     const { x, z, r } = zn;
     const d = r * 2;
     const live = zn.ended < 0;
+    // another hero's zone: the outline stays, the fill and the light above it are turned down
+    const foreign = this.foreign(zn.slot);
+    if (foreign && CL.outlines) { this.outlineZone(zn, a, decals); return; }
+    const lit = foreign ? TUNE.ALLY_LIGHT : CL.ownFill;
+    const fillK = foreign ? 1 : CL.ownFill;
+    if (foreign) a *= TUNE.ALLY_SHAPE;
+    vfx.owner(foreign ? OWNER.ALLY : OWNER.SELF);
     const tint = zn.el ? ELEMENT_COLOR[zn.el] : 0;
     switch (zn.kind) {
       case ZK.CONSECRATE: {
         const c = rgb(PALETTE.holy);
         const g = rgb(PALETTE.holyDeep);
-        decals.push(DECAL.DISC, x, 0.032, z, 0, d * 1.15, d * 1.15, g[0], g[1], g[2], 0.14 * a, 1, 0.2);
+        decals.push(DECAL.DISC, x, 0.032, z, 0, d * 1.15, d * 1.15, g[0], g[1], g[2], 0.14 * a * fillK, 1, 0.2);
         decals.push(DECAL.HALLOW, x, 0.044, z, 0, d, d, c[0] * 1.4, c[1] * 1.4, c[2] * 1.4, 0.85 * a, 1, 0.07, (zn.age * 1.1) % 1, 1);
         if (live) {
           zn.acc += dt * 12 * vfx.density;
@@ -255,16 +280,16 @@ export class AbilityFx {
         const c = rgb(PALETTE.holy);
         const g = rgb(PALETTE.holyDeep);
         const breathe = 0.85 + 0.15 * Math.sin(time * 2.2);
-        decals.push(DECAL.DISC, x, 0.032, z, 0, d * 1.2, d * 1.2, g[0], g[1], g[2], 0.2 * a, 1, 0.25);
+        decals.push(DECAL.DISC, x, 0.032, z, 0, d * 1.2, d * 1.2, g[0], g[1], g[2], 0.2 * a * fillK, 1, 0.25);
         decals.push(DECAL.HALLOW, x, 0.044, z, 0, d, d, c[0] * 1.6, c[1] * 1.6, c[2] * 1.6, 0.95 * a, 1, 0.1, (zn.age * 0.9) % 1, 1);
-        decals.push(DECAL.HALLOW, x, 0.046, z, Math.PI / 8, d * 0.6, d * 0.6, g[0] * 1.6, g[1] * 1.6, g[2] * 1.6, 0.7 * a, 1, 0.05, (zn.age * 0.9 + 0.5) % 1, 1);
+        decals.push(DECAL.HALLOW, x, 0.046, z, Math.PI / 8, d * 0.6, d * 0.6, g[0] * 1.6, g[1] * 1.6, g[2] * 1.6, 0.7 * a * fillK, 1, 0.05, (zn.age * 0.9 + 0.5) % 1, 1);
         // a column of light over the centre, slim pillars around the rim and a faint dome
-        fx.push(SPRITE.GLOW, x, 4.6, z, 2.4 * breathe, 10, c[0], c[1], c[2], 0.32 * a, 1, 0.4);
-        fx.push(SPRITE.GLOW, x, 1.2, z, d * 0.95, d * 0.6, c[0], c[1], c[2], 0.07 * a, 1, 0);
+        fx.push(SPRITE.GLOW, x, 4.6, z, 2.4 * breathe, 10, c[0], c[1], c[2], 0.24 * a * lit, 1, 0.4);
+        fx.push(SPRITE.GLOW, x, 1.2, z, d * 0.95, d * 0.6, c[0], c[1], c[2], 0.05 * a * lit, 1, 0);
         for (let k = 0; k < TUNE.RIM_COLUMNS; k++) {
           const ang = (k / TUNE.RIM_COLUMNS) * Math.PI * 2 + time * 0.25;
           const h = 2.6 + 0.8 * Math.sin(time * 2 + k * 1.9);
-          fx.push(SPRITE.GLOW, x + Math.sin(ang) * r, h * 0.5, z + Math.cos(ang) * r, 0.5, h, c[0] * 1.4, c[1] * 1.4, c[2] * 1.4, 0.42 * a, 1, 0.9);
+          fx.push(SPRITE.GLOW, x + Math.sin(ang) * r, h * 0.5, z + Math.cos(ang) * r, 0.5, h, c[0] * 1.4, c[1] * 1.4, c[2] * 1.4, 0.32 * a * lit, 1, 0.9);
         }
         if (live) {
           zn.acc += dt * 24 * vfx.density;
@@ -275,7 +300,7 @@ export class AbilityFx {
       case ZK.VOLLEY: {
         const hex = tint !== 0 ? tint : TUNE.BOLT;
         const c = rgb(hex);
-        decals.push(DECAL.DISC, x, 0.032, z, 0, d * 1.1, d * 1.1, c[0], c[1], c[2], 0.12 * a, 1, 0.3);
+        decals.push(DECAL.DISC, x, 0.032, z, 0, d * 1.1, d * 1.1, c[0], c[1], c[2], 0.12 * a * fillK, 1, 0.3);
         decals.push(DECAL.ZONE, x, 0.046, z, time * 0.3, d, d, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, 0.85 * a, 0.5, 0);
         if (!live) break;
         // bolts falling at a slant; each lands with a pin of light where it strikes
@@ -288,10 +313,10 @@ export class AbilityFx {
           const px = x + Math.sin(ang) * dist;
           const pz = z + Math.cos(ang) * dist;
           const up = (1 - ph) * TUNE.RAIN_HEIGHT;
-          fx.push(SPRITE.GLOW, px + up * 0.16, up + 0.7, pz - up * 0.1, 0.17, 1.9, c[0] * 2.2, c[1] * 2.2, c[2] * 2.2, 0.95 * a, 1, 1.2, -0.16);
+          fx.push(SPRITE.GLOW, px + up * 0.16, up + 0.7, pz - up * 0.1, 0.17, 1.9, c[0] * 2.2, c[1] * 2.2, c[2] * 2.2, 0.95 * a * lit, 1, 1.2, -0.16);
           if (ph > 0.86) {
             const hit = (ph - 0.86) / 0.14;
-            decals.push(DECAL.DISC, px, 0.05, pz, 0, 1.5 * hit + 0.4, 1.5 * hit + 0.4, c[0] * 1.6, c[1] * 1.6, c[2] * 1.6, 0.8 * (1 - hit) * a, 1, 0.5);
+            decals.push(DECAL.DISC, px, 0.05, pz, 0, 1.5 * hit + 0.4, 1.5 * hit + 0.4, c[0] * 1.6, c[1] * 1.6, c[2] * 1.6, 0.8 * (1 - hit) * a * lit, 1, 0.5);
             fx.push(SPRITE.SPARK, px, 0.3, pz, 0.5 * (1 - hit) + 0.1, 0.5 * (1 - hit) + 0.1, 2.4, 2.3, 2, 1 - hit, 1, 0, n);
           }
         }
@@ -307,8 +332,10 @@ export class AbilityFx {
       case ZK.SMOKE: {
         const s = rgb(PALETTE.shadow);
         const rim = rgb(tint !== 0 ? tint : PALETTE.umbra);
-        decals.push(DECAL.SMOKE, x, 0.04, z, time * 0.2, d * 1.1, d * 1.1, s[0], s[1], s[2], 0.9 * a, 0, 1, rim[0] * 0.3, rim[1] * 0.3, rim[2] * 0.3);
-        decals.push(DECAL.SMOKE, x, 0.042, z, -time * 0.33 + 2, d * 0.72, d * 0.72, s[0] * 1.6, s[1] * 1.6, s[2] * 1.6, 0.5 * a, 0, 0.9);
+        decals.push(DECAL.SMOKE, x, 0.04, z, time * 0.2, d * 1.1, d * 1.1, s[0], s[1], s[2], 0.9 * a, 0, 1, rim[0] * 0.95, rim[1] * 0.95, rim[2] * 0.95);
+        decals.push(DECAL.SMOKE, x, 0.042, z, -time * 0.33 + 2, d * 0.72, d * 0.72, s[0] * 2, s[1] * 2, s[2] * 2, 0.5 * a, 0, 0.9);
+        // its reach as a pale dashed outline: the cloud itself is dark on a dark floor
+        decals.push(DECAL.ZONE, x, 0.046, z, time * 0.15, d, d, rim[0] * 1.5, rim[1] * 1.5, rim[2] * 1.5, 0.7 * a, 0.5, 0);
         if (live) {
           zn.acc += dt * 6 * vfx.density;
           while (zn.acc >= 1) {
@@ -337,6 +364,23 @@ export class AbilityFx {
         decals.push(DECAL.ZONE, x, 0.046, z, 0, d, d, c[0] * 1.4, c[1] * 1.4, c[2] * 1.4, 0.8 * a, 0.4, 0);
       }
     }
+  }
+
+  /**
+   * Clarity: another hero's zone is only its reach, a thin dashed ring in the zone's colour. No fill, no light
+   * above it, no particles. A snare keeps its plate (it is a small object, not an effect).
+   */
+  private outlineZone(zn: Zone, a: number, decals: DecalBatch): void {
+    const d = zn.r * 2;
+    const hex = zn.el ? ELEMENT_COLOR[zn.el] : zn.kind === ZK.CONSECRATE || zn.kind === ZK.SANCTUARY ? PALETTE.holy
+      : zn.kind === ZK.VOLLEY ? TUNE.BOLT : zn.kind === ZK.SMOKE ? PALETTE.mark : zn.kind === ZK.TRAP ? TUNE.TRAP : PALETTE.arcane;
+    const c = rgb(hex);
+    if (zn.kind === ZK.TRAP) {
+      const closed = zn.sprung ? Math.min(1, zn.ended / 0.07) : 0;
+      decals.push(DECAL.TRAP, zn.x, 0.04, zn.z, zn.seed * 6.283, TUNE.TRAP_PLATE, TUNE.TRAP_PLATE, c[0] * 1.2, c[1] * 1.2, c[2] * 1.2, a * 0.8, 0, 0.4, closed);
+      return;
+    }
+    decals.push(DECAL.ZONE, zn.x, 0.046, zn.z, this.time * 0.2, d, d, c[0] * 1.2, c[1] * 1.2, c[2] * 1.2, TUNE.OUTLINE * a, 0.3, 0);
   }
 
   // ------------------------------------------------------------------------------------------ casts
@@ -406,7 +450,7 @@ export class AbilityFx {
         return true;
       case 'knight_bulwark': {
         const b = this.take(this.banners);
-        b.active = true; b.x = hx; b.z = hz; b.r = def.radius; b.age = 0; b.dur = def.duration + def.windup; b.acc = 0;
+        b.active = true; b.x = hx; b.z = hz; b.r = def.radius; b.age = 0; b.dur = def.duration + def.windup; b.acc = 0; b.slot = slot;
         vfx.rune(hx, hz, 3.4, def.windup + 0.1, PALETTE.holy);
         vfx.ring(hx, hz, 1, def.radius * 2, 0.7, PALETTE.holy, 0.4, 2.1, def.windup);
         vfx.ring(hx, hz, 1, def.radius * 2.3, 1.0, PALETTE.shield, 0.2, 1.6, def.windup + 0.1);
@@ -442,7 +486,7 @@ export class AbilityFx {
       }
       case 'mage_meteor': {
         const m = this.take(this.meteors);
-        m.active = true; m.x = x; m.z = z; m.r = def.radius; m.age = 0; m.dur = def.windup; m.acc = 0; m.hex = infused ? color : TUNE.STAR;
+        m.active = true; m.x = x; m.z = z; m.r = def.radius; m.age = 0; m.dur = def.windup; m.acc = 0; m.hex = infused ? color : TUNE.STAR; m.slot = slot;
         vfx.rune(hx, hz, 3.4, def.windup, PALETTE.arcane);
         vfx.motes(hx, 0.2, hz, PALETTE.arcane, 22, 1.1, 3.4, def.windup);
         this.later(def.windup, SK.METEOR, x, z, def.radius, 0, m.hex, slot);
@@ -477,6 +521,7 @@ export class AbilityFx {
 
   private fire(s: Scheduled): void {
     const vfx = this.vfx;
+    vfx.owner(this.foreign(s.slot) ? OWNER.ALLY : OWNER.SELF);
     let { x, z } = s;
     const d = s.r * 2;
     switch (s.type) {
@@ -523,9 +568,9 @@ export class AbilityFx {
       }
       case SK.METEOR: {
         // the biggest single hit in the game: a white-out, three shock fronts, fire, flung rock and a lasting scorch
-        vfx.flash(x, 1.5, z, PALETTE.white, s.r * 1.8, 0.18, 1.4);
-        vfx.flash(x, 2.2, z, s.hex, s.r * 2.4, 0.5, 1.3);
-        vfx.groundFlash(x, z, d * 1.35, 0.7, s.hex, 1.5);
+        vfx.flash(x, 1.5, z, PALETTE.white, s.r * 1.1, 0.12, 1.1);
+        vfx.flash(x, 2.2, z, s.hex, s.r * 1.8, 0.45, 1);
+        vfx.groundFlash(x, z, d * 1.35, 0.7, s.hex, 1);
         vfx.ring(x, z, 1, d * 1.04, 0.45, s.hex, 0.7, 2.6);
         vfx.duoRing(x, z, 1, d * 1.5, 0.9, s.hex, PALETTE.arcane, 0.35, 2.1, 0.06);
         vfx.ring(x, z, 1, d * 1.9, 1.2, PALETTE.white, 0.14, 1.3, 0.14);
@@ -543,8 +588,8 @@ export class AbilityFx {
       case SK.NOVA: {
         const h = this.heroes.get(s.slot);
         if (h) { x = h.x + h.offX; z = h.z + h.offZ; }
-        vfx.flash(x, 1.2, z, PALETTE.white, s.r * 1.4, 0.16, 1.5);
-        vfx.groundFlash(x, z, d * 1.1, 0.6, PALETTE.white, 0.8);
+        vfx.flash(x, 1.2, z, PALETTE.white, s.r * 0.9, 0.12, 1.1);
+        vfx.groundFlash(x, z, d * 1.1, 0.6, PALETTE.white, 0.45);
         // one shock front per element, each a beat behind the last, each throwing its own matter
         for (let k = 0; k < ALL_ELEMENTS.length; k++) {
           const el = ALL_ELEMENTS[k];
@@ -571,6 +616,7 @@ export class AbilityFx {
         this.trauma += 0.15;
         break;
     }
+    vfx.owner(OWNER.WORLD);
   }
 
   /** A marked enemy died: its mark bursts (ULTIMATE.MARK_BURST_RADIUS). */
@@ -643,7 +689,7 @@ export class AbilityFx {
       case 'entomb': {
         // a cage of black ice slams shut and stands for as long as the root lasts
         const p = this.take(this.prisons);
-        p.active = true; p.x = x; p.z = z; p.r = Math.min(r * 0.55, 1.9); p.age = 0; p.dur = REACTION_TUNING.ENTOMB_ROOT_SECONDS; p.seed = Math.random();
+        p.active = true; p.x = x; p.z = z; p.r = Math.min(r * 0.55, 1.9); p.age = 0; p.dur = REACTION_TUNING.ENTOMB_ROOT_SECONDS; p.seed = Math.random(); p.slot = ev.by;
         vfx.stamp(DECAL.FROST, x, z, d * 0.9, d * 0.6, 0.5, TUNE.PRISON_RIM, 1.6, 0.9, 0.3);
         vfx.smoke(x, 0.4, z, PALETTE.umbraCore, 6, r * 0.5, 0.4, 0.9, 1.3);
         vfx.frost(x, 1.2, z, ELEMENT_COLOR.rime, 10, r * 0.6);
@@ -688,27 +734,37 @@ export class AbilityFx {
       this.fire(s);
     }
     for (const z of this.zones) if (z.active) this.drawZone(z, dt, decals, fx);
+    vfx.owner(OWNER.WORLD);
 
     for (const b of this.banners) {
       if (!b.active) continue;
       b.age += dt;
       if (b.age >= b.dur) { b.active = false; continue; }
       // the Banner of the Last Bell: a standard of light planted where the knight called it, its reach drawn on the floor
-      const a = Math.min(1, b.age * 3, (b.dur - b.age) * 2);
+      const foreign = this.foreign(b.slot);
+      const lit = foreign ? TUNE.ALLY_LIGHT : CL.ownFill;
+      const a = Math.min(1, b.age * 3, (b.dur - b.age) * 2) * (foreign ? TUNE.ALLY_SHAPE : 1);
       const c = rgb(PALETTE.holy);
+      if (foreign && CL.outlines) {
+        // the banner's reach and the bell over it: allies inside are protected, that much has to stay
+        const uvb = this.atlas.icons.bell;
+        decals.push(DECAL.ZONE, b.x, 0.045, b.z, -time * 0.2, b.r * 2, b.r * 2, c[0] * 1.2, c[1] * 1.2, c[2] * 1.2, TUNE.OUTLINE * a, 0.3, 0);
+        fx.push(SPRITE.ATLAS, b.x, 2.6, b.z, 0.7, 0.7, 1.3, 1.2, 0.9, 0.8 * a, 0, 0, 0, 0, 0, uvb[0], uvb[1], uvb[2], uvb[3]);
+        continue;
+      }
       const g = rgb(PALETTE.holyDeep);
       const sh = rgb(PALETTE.shield);
       const sway = Math.sin(time * 2.1) * 0.08;
       const d = b.r * 2;
       decals.push(DECAL.HALLOW, b.x, 0.043, b.z, 0, d, d, c[0] * 1.2, c[1] * 1.2, c[2] * 1.2, 0.6 * a, 1, 0.025, (b.age * 0.6) % 1, 0.45);
       decals.push(DECAL.ZONE, b.x, 0.045, b.z, -time * 0.2, d, d, sh[0] * 1.4, sh[1] * 1.4, sh[2] * 1.4, 0.55 * a, 0.6, 0);
-      decals.push(DECAL.DISC, b.x, 0.034, b.z, 0, 4.4, 4.4, c[0], c[1], c[2], 0.3 * a, 1, 0.1);
+      decals.push(DECAL.DISC, b.x, 0.034, b.z, 0, 4.4, 4.4, c[0], c[1], c[2], 0.3 * a * lit, 1, 0.1);
       fx.push(SPRITE.GLOW, b.x, 2.6, b.z, 0.34, 5.4, c[0] * 1.8, c[1] * 1.8, c[2] * 1.8, 0.9 * a, 1, 1.6);
       fx.push(SPRITE.PLATE, b.x, 4.05, b.z, 1.25, 1.75, g[0] * 0.95, g[1] * 0.8, g[2] * 0.5, 0.96 * a, 0.15, 0, sway, 0.72, 0);
       const uv = this.atlas.icons.bell;
       fx.push(SPRITE.ATLAS, b.x, 4.1, b.z, 0.9, 0.9, 1.5, 1.4, 1.1, a, 0.3, 0, sway, 0.72, 0, uv[0], uv[1], uv[2], uv[3]);
       fx.push(SPRITE.SPARK, b.x, 5.35, b.z, 0.5, 0.5, 2.4, 2.2, 1.6, a, 1, 0, time * 1.5);
-      fx.push(SPRITE.GLOW, b.x, 3.4, b.z, 6.5, 6.5, c[0], c[1], c[2], 0.12 * a, 1, 0);
+      fx.push(SPRITE.GLOW, b.x, 3.4, b.z, 6.5, 6.5, c[0], c[1], c[2], 0.12 * a * lit, 1, 0);
       b.acc += dt * 7 * vfx.density;
       while (b.acc >= 1) { b.acc -= 1; vfx.motes(b.x, 0.2, b.z, PALETTE.holy, 1, 1.4, 3, 1.2); }
     }
@@ -718,8 +774,13 @@ export class AbilityFx {
       w.age += dt;
       const h = this.heroes.get(w.slot);
       if (w.age >= w.dur || !h || h.state !== 'alive') { w.active = false; continue; }
-      const a = Math.min(1, w.age * 6, (w.dur - w.age) * 3);
+      const foreign = this.foreign(w.slot);
+      const a = Math.min(1, w.age * 6, (w.dur - w.age) * 3) * (foreign ? TUNE.ALLY_SHAPE : 1);
       const c = rgb(w.hex);
+      if (foreign && CL.outlines) {
+        decals.push(DECAL.RUNE, h.x + h.offX, 0.046, h.z + h.offZ, time * 2.4, w.r * 2, w.r * 2, c[0] * 1.2, c[1] * 1.2, c[2] * 1.2, TUNE.OUTLINE * a, 0.5, 0);
+        continue;
+      }
       const x = h.x + h.offX;
       const z = h.z + h.offZ;
       const d = w.r * 2;
@@ -729,7 +790,7 @@ export class AbilityFx {
         const ang = time * 6.5 + (k / TUNE.WARD_SHARDS) * Math.PI * 2;
         const ox = x + Math.sin(ang) * w.r * 0.86;
         const oz = z + Math.cos(ang) * w.r * 0.86;
-        fx.push(SPRITE.GLOW, ox, 1.1, oz, 1.3, 1.3, c[0], c[1], c[2], 0.5 * a, 1, 0.6);
+        fx.push(SPRITE.GLOW, ox, 1.1, oz, 1.3, 1.3, c[0], c[1], c[2], 0.5 * a * (foreign ? TUNE.ALLY_LIGHT : 1), 1, 0.6);
         fx.push(SPRITE.SHARD, ox, 1.1, oz, 0.5, 0.95, c[0] * 1.7, c[1] * 1.7, c[2] * 1.7, a, 0.75, 1, ang);
         decals.push(DECAL.STREAK, ox - Math.cos(ang) * 0.9, 1.05, oz + Math.sin(ang) * 0.9, ang + Math.PI / 2, 0.4, 1.9, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, 0.7 * a, 1);
       }
@@ -744,19 +805,21 @@ export class AbilityFx {
       const k = n.age / n.dur;
       const x = h.x + h.offX;
       const z = h.z + h.offZ;
+      if (this.foreign(n.slot) && CL.outlines) continue;
+      const q = this.foreign(n.slot) ? TUNE.ALLY_LIGHT : CL.ownLight;
       for (let e = 0; e < ALL_ELEMENTS.length; e++) {
         const c = rgb(ELEMENT_COLOR[ALL_ELEMENTS[e]]);
         const ang = e * (Math.PI / 2) + k * 5.5;
         const dist = (1 - k) * n.r * 0.55 + 0.45;
         const ox = x + Math.sin(ang) * dist;
         const oz = z + Math.cos(ang) * dist;
-        fx.push(SPRITE.GLOW, ox, 1.1 + 0.5 * k, oz, 0.8 + 0.6 * k, 0.8 + 0.6 * k, c[0] * 1.9, c[1] * 1.9, c[2] * 1.9, 0.95, 1, 1.5);
-        decals.push(DECAL.DISC, ox, 0.035, oz, 0, 1.6, 1.6, c[0], c[1], c[2], 0.3, 1, 0);
+        fx.push(SPRITE.GLOW, ox, 1.1 + 0.5 * k, oz, 0.8 + 0.6 * k, 0.8 + 0.6 * k, c[0] * 1.9, c[1] * 1.9, c[2] * 1.9, 0.95 * q, 1, 1.5);
+        decals.push(DECAL.DISC, ox, 0.035, oz, 0, 1.6, 1.6, c[0], c[1], c[2], 0.3 * q, 1, 0);
       }
       const c = rgb(TUNE.RUNE);
       const d = n.r * 2 * (1 - 0.35 * k);
       decals.push(DECAL.RUNE, x, 0.046, z, -time * 3, d, d, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, 0.7 * Math.min(1, k * 4), 0.9, k);
-      fx.push(SPRITE.GLOW, x, 1.3, z, 1 + 3 * k, 1 + 3 * k, 1.6, 1.6, 1.7, 0.5 * k, 1, 1);
+      fx.push(SPRITE.GLOW, x, 1.3, z, 1 + 2.4 * k, 1 + 2.4 * k, 1.6, 1.6, 1.7, 0.4 * k * q, 1, 1);
     }
 
     for (const m of this.meteors) {
@@ -767,9 +830,17 @@ export class AbilityFx {
       const c = rgb(m.hex);
       const w = rgb(PALETTE.arcane);
       const d = m.r * 2;
+      const q = this.foreign(m.slot) ? TUNE.ALLY_LIGHT : CL.ownLight;
+      if (this.foreign(m.slot) && CL.outlines) {
+        // an ally's star: only the closing iris on the floor (stand clear) and a small spark coming down
+        const fallK = k * k;
+        decals.push(DECAL.WARN, m.x, 0.047, m.z, 0, d, d, w[0] * 1.3, w[1] * 1.3, w[2] * 1.3, 0.4, 0.3, k);
+        fx.push(SPRITE.SPARK, m.x + TUNE.STAR_FROM.x * (1 - fallK), 0.6 + TUNE.STAR_FROM.y * (1 - fallK), m.z + TUNE.STAR_FROM.z * (1 - fallK), 0.9, 0.9, c[0] * 1.6, c[1] * 1.6, c[2] * 1.6, 0.9, 1, 0, time * 6);
+        continue;
+      }
       // for allies: an iris in the caster's blue-white closing on the point of impact, lit warmer as the star nears
       decals.push(DECAL.WARN, m.x, 0.047, m.z, 0, d, d, w[0] * 1.5, w[1] * 1.5, w[2] * 1.5, 0.45, 0.35, k);
-      decals.push(DECAL.DISC, m.x, 0.034, m.z, 0, d * (0.5 + 0.7 * k), d * (0.5 + 0.7 * k), c[0], c[1], c[2], 0.1 + 0.4 * k * k, 1, 0.1);
+      decals.push(DECAL.DISC, m.x, 0.034, m.z, 0, d * (0.5 + 0.7 * k), d * (0.5 + 0.7 * k), c[0], c[1], c[2], (0.1 + 0.4 * k * k) * q, 1, 0.1);
       const fall = k * k;
       const sx = m.x + TUNE.STAR_FROM.x * (1 - fall);
       const sy = 0.6 + TUNE.STAR_FROM.y * (1 - fall);
@@ -779,12 +850,12 @@ export class AbilityFx {
         const f = 1 - t / (TUNE.STAR_TAIL + 1);
         const size = 0.7 + 2.3 * f;
         fx.push(SPRITE.GLOW, m.x + TUNE.STAR_FROM.x * (1 - tf), 0.6 + TUNE.STAR_FROM.y * (1 - tf), m.z + TUNE.STAR_FROM.z * (1 - tf), size, size,
-          c[0] * (1 + f), c[1] * (1 + f), c[2] * (1 + f), 0.85 * f, 1, 0.8);
+          c[0] * (1 + f), c[1] * (1 + f), c[2] * (1 + f), 0.85 * f * q, 1, 0.8);
       }
-      fx.push(SPRITE.GLOW, sx, sy, sz, 4.4, 4.4, c[0] * 2.1, c[1] * 2.1, c[2] * 2.1, 1, 1, 1.8);
+      fx.push(SPRITE.GLOW, sx, sy, sz, 3.6, 3.6, c[0] * 1.8, c[1] * 1.8, c[2] * 1.8, q, 1, 1.8);
       fx.push(SPRITE.SPARK, sx, sy, sz, 1.5, 1.5, 2.6, 2.6, 2.6, 1, 1, 0, time * 6);
-      fx.push(SPRITE.GLOW, sx, sy, sz, 6, 6, w[0], w[1], w[2], 0.14, 1, 0);
-      m.acc += dt * 70 * vfx.density;
+      fx.push(SPRITE.GLOW, sx, sy, sz, 6, 6, w[0], w[1], w[2], 0.1 * q, 1, 0);
+      m.acc += dt * 70 * vfx.density * q;
       while (m.acc >= 1) {
         m.acc -= 1;
         vfx.particle(sx + (Math.random() - 0.5) * 0.9, sy + (Math.random() - 0.5) * 0.9, sz + (Math.random() - 0.5) * 0.9, (Math.random() - 0.5) * 2, 1 + Math.random() * 2,
@@ -796,11 +867,22 @@ export class AbilityFx {
       if (!p.active) continue;
       const before = p.age;
       p.age += dt;
+      const outline = this.foreign(p.slot) && CL.outlines;
       if (before < p.dur && p.age >= p.dur) {
+        vfx.owner(this.foreign(p.slot) ? OWNER.ALLY : OWNER.SELF);
         vfx.shards(p.x, 0.8, p.z, TUNE.PRISON_RIM, 14, 8, 0.5, 0.4);
         vfx.frost(p.x, 0.8, p.z, ELEMENT_COLOR.rime, 8, p.r);
+        vfx.owner(OWNER.WORLD);
       }
       if (p.age >= p.dur) { p.active = false; continue; }
+      if (outline) {
+        // an ally's cage: the frost sigil on the floor says "rooted here", no wall of ice in front of the enemies
+        const rimc = rgb(TUNE.PRISON_RIM);
+        decals.push(DECAL.FROST, p.x, 0.045, p.z, p.seed * 6, p.r * 3, p.r * 3, rimc[0] * 1.2, rimc[1] * 1.2, rimc[2] * 1.2, TUNE.OUTLINE, 0.5, 0);
+        continue;
+      }
+      // clarity: the own hero's cage is lower and translucent, so whoever stands inside can still be seen
+      const see = CL.level === 'full' ? 1 : TUNE.CAGE_SEE;
       const grow = Math.min(1, p.age * 9);
       const pop = grow < 1 ? grow * 1.15 : 1 + 0.15 * Math.max(0, 1 - (p.age - 0.11) * 8);
       const crack = p.age > p.dur - 0.4 ? 0.6 + 0.4 * Math.sin(time * 40) : 1;
@@ -811,10 +893,10 @@ export class AbilityFx {
       // back shards first, so the cage closes around whoever stands inside
       for (let k = 0; k < TUNE.PRISON_SHARDS; k++) {
         const ang = p.seed * 6.283 + (k / TUNE.PRISON_SHARDS) * Math.PI * 2;
-        const h = (2.3 + 0.9 * hash1(k * 3.7 + p.seed * 50)) * pop;
+        const h = (2.3 + 0.9 * hash1(k * 3.7 + p.seed * 50)) * pop * (see < 1 ? TUNE.CAGE_LOW : 1);
         const lean = Math.sin(ang) * -0.22;
         fx.push(SPRITE.SHARD, p.x + Math.sin(ang) * p.r, h * 0.42, p.z + Math.cos(ang) * p.r, 0.78, h, ice[0] + rim[0] * 0.12, ice[1] + rim[1] * 0.12, ice[2] + rim[2] * 0.12,
-          0.96 * crack, 0.04, 0.7, lean);
+          0.96 * crack * see, 0.04, 0.7, lean);
       }
       fx.push(SPRITE.GLOW, p.x, 1.1, p.z, p.r * 3.4, p.r * 3.4, rim[0], rim[1], rim[2], 0.12, 1, 0);
     }

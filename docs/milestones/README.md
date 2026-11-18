@@ -21,4 +21,6 @@ evidence that exists. Feel and audio items that only a human can judge are marke
 
 | 12 | Update 4: six chamber objectives shown on the doors, five enemy kinds, warded enemies, interrupt event ([spec](update-4.md)) | a run asks for something other than killing waves in several chambers and the screen says what to do | 509 unit/integration tests, 20 browser tests (one on a pinned objective), live bot session per objective, showcase/uidemo/audiodemo harnesses | done; human playtest and listening pass open |
 
-`npm test` runs 509 tests in total. Regression suite before any change is called done: `npm run typecheck && npm run lint && npm test && npm run test:e2e`.
+| 13 | Polish 1: clarity levels, merged damage numbers, reaction names, aim marker, fixtures as obstacles, enemy traits for late joiners, balance ([spec](polish-1.md)) | a four-hero fight in a special-objective chamber can be followed | 529 unit/integration tests, 20 browser tests, before/after stress captures, live bot session | done; human playtest open |
+
+`npm test` runs 529 tests in total. Regression suite before any change is called done: `npm run typecheck && npm run lint && npm test && npm run test:e2e`.

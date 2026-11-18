@@ -38,6 +38,8 @@ async function boot(): Promise<void> {
   bus.emit('assets:ready');
 
   const view = new WorldView(canvas, assets);
+  // The UI announces its words on every screen change, so the first one after this line reaches the view.
+  bus.on('ui:labels', (labels) => view.setLabels(labels));
   const net = new NetClient();
   const buffer = new SnapshotBuffer();
   const prediction = new Prediction();
@@ -52,6 +54,7 @@ async function boot(): Promise<void> {
     view.setZoom(settings.zoom);
     view.setDamageNumbers(settings.damageNumbers);
     cursor.setStyle(settings.cursor);
+    view.setClarity(settings.effects, settings.allyNumbers);
   };
   applySettings();
   bus.on('settings:changed', applySettings);
@@ -65,6 +68,7 @@ async function boot(): Promise<void> {
   let rewardPending = false;
   let endedClass: ClassId = state.profile.cls;
   const sample: InputSample = { moveX: 0, moveZ: 0, aim: 0, aimDist: 0, buttons: 0 };
+  const aimPoint = { x: 0, z: 0 };
   const toGround = (x: number, y: number, out: { x: number; z: number }): boolean => view.screenToGround(x, y, out);
 
   const resetWorld = (): void => {
@@ -144,6 +148,7 @@ async function boot(): Promise<void> {
     }
     view.setDepth(run.depth);
     view.setObjective(run.objective);
+    view.setTraits(run.traits);
     syncRoom();
     view.setMarker(run.tutorial?.marker ?? null);
     const over = run.phase === 'victory' || run.phase === 'defeat';
@@ -228,6 +233,9 @@ async function boot(): Promise<void> {
     }
     // Tests on machines without a GPU may draw only every n-th frame so the game logic keeps real-time pace.
     const draw = frameIndex++ % debug.renderEvery === 0;
+    // Ground marker under the reticle cursor while the player is aiming.
+    if (input.enabled && toGround(input.mouseX, input.mouseY, aimPoint)) view.setAim(aimPoint.x, aimPoint.z);
+    else view.setAim(null);
     view.update(dt, draw);
     const cost = performance.now() - now;
     if (draw) debug.drawFrameMs += (cost - debug.drawFrameMs) * FRAME_COST_SMOOTHING;

@@ -673,6 +673,11 @@ const HORDE = {
   SHIELD: [1.55, 1.9, 1.55],
 } as const;
 
+/** Polish 1 silhouettes. */
+const SHAMAN_FAN = { COUNT: 5, LENGTH: 1.15, SPREAD: 1.5 } as const;
+const AEGIS_SLAB = { RADIUS: 0.74, TALL: 1.42, DEPTH: 0.13, STEEL: 0xd6defc } as const;
+const SPELL_CREST = { BAND_Y: 2.0, BAND_R: 0.43, BLADE: 0.78, SIDE: 0.5 } as const;
+
 /** A cap or hood over the kit skull: a sphere section, open below `down` (0..1 of the sphere) and, for a hood, at the face. */
 function skullCap(radius: number, down: number, faceGap: number): BufferGeometry {
   const geo = new SphereGeometry(radius, 8, 4, Math.PI / 2 + faceGap / 2, Math.PI * 2 - faceGap, 0, Math.PI * down);
@@ -696,7 +701,7 @@ function shamanParts(props: Object3D): { parts: ExtraPart[]; top: Vector3 } {
   for (const side of [-1, 1]) {
     // horns: three segments curling out and forward
     const segs: [number, number, number, number, number, number][] = [
-      [0.52, 1.96, -0.02, 0.15, 0.46, 1.3], [0.86, 2.1, 0.06, 0.115, 0.42, 0.55], [0.98, 2.38, 0.2, 0.075, 0.4, -0.3],
+      [0.54, 1.96, -0.02, 0.2, 0.5, 1.3], [0.94, 2.12, 0.06, 0.155, 0.5, 0.55], [1.1, 2.48, 0.22, 0.1, 0.52, -0.3],
     ];
     for (const [x, y, z, r, len, lean] of segs) {
       parts.push(modelPart(new CylinderGeometry(r * 0.62, r, len, 5), 'head', matrixOf(side * x, y, z, 0.25, 0, -side * lean), solid, bone));
@@ -710,6 +715,16 @@ function shamanParts(props: Object3D): { parts: ExtraPart[]; top: Vector3 } {
   const back = new DodecahedronGeometry(0.3);
   back.scale(1.2, 0.85, 0.9);
   parts.push(modelPart(back, 'chest', matrixOf(0, 1.32, -0.24), solid, moss));
+  // polish 1: a fan of bone stakes with bog lights behind the shoulders, so the shaman is the widest, most
+  // ragged outline in the horde from the game camera (it used to read as "a mage with horns")
+  for (let i = 0; i < SHAMAN_FAN.COUNT; i++) {
+    const t = i / (SHAMAN_FAN.COUNT - 1) - 0.5;
+    const len = SHAMAN_FAN.LENGTH * (1 - Math.abs(t) * 0.5);
+    const lean = -t * SHAMAN_FAN.SPREAD;
+    const bx = t * 0.7;
+    parts.push(modelPart(new ConeGeometry(0.055, len, 4), 'chest', matrixOf(bx - Math.sin(lean) * len * 0.5, 1.5 + Math.cos(lean) * len * 0.5, -0.34, -0.25, 0, lean), solid, i % 2 === 0 ? bone : wood));
+    if (i % 2 === 0) parts.push(modelPart(new OctahedronGeometry(0.075), 'chest', matrixOf(bx - Math.sin(lean) * len, 1.5 + Math.cos(lean) * len, -0.42), [1, 0, 1], glow));
+  }
   // a cap of moss and bark over the skull, a bog light set in its brow and a crest of leaves down the middle
   parts.push(modelPart(skullCap(HORDE.HEAD_R * 1.1, 0.5, 0), 'head', matrixOf(0, HORDE.HEAD_Y, 0), solid, moss));
   parts.push(modelPart(new OctahedronGeometry(0.1), 'head', matrixOf(0, 2.02, 0.44), [1, 0, 1], glow));
@@ -729,30 +744,41 @@ function shamanParts(props: Object3D): { parts: ExtraPart[]; top: Vector3 } {
     parts.push(modelPart(new OctahedronGeometry(0.05), 'hips', matrixOf(-0.2 + i * 0.2, 0.62 - (i % 2) * 0.06, 0.22), [1, 0, 1], glow));
   }
   // totem staff: the kit staff, taller, with a carved head, two tines and the bog light on top
-  const staff = propPart(props, 'skel_staff', 'handslotr', matrixOf(0, 0, 0, 0, 0, 0, 1.3));
+  const staff = propPart(props, 'skel_staff', 'handslotr', matrixOf(0, 0, 0, 0, 0, 0, 1.5));
   parts.push(staff);
   const tip = farEnd(staff);
   const at = (dx: number, dy: number, dz: number): Matrix4 => new Matrix4().makeTranslation(tip.x + dx, tip.y + dy, tip.z + dz);
   const head = new DodecahedronGeometry(0.15);
   parts.push({ geometry: faceted(head), bone: 'handslotr', matrix: at(0, 0.08, 0), mask: solid, tint: wood, owned: true });
   for (const side of [-1, 1]) {
-    const tine = new ConeGeometry(0.045, 0.42, 4);
+    const tine = new ConeGeometry(0.06, 0.56, 4);
     tine.rotateZ(-side * 0.8);
     parts.push({ geometry: faceted(tine), bone: 'handslotr', matrix: at(side * 0.24, 0.26, 0), mask: solid, tint: bone, owned: true });
   }
-  const orb = new OctahedronGeometry(0.15);
+  const orb = new OctahedronGeometry(0.24);
   parts.push({ geometry: faceted(orb), bone: 'handslotr', matrix: at(0, 0.42, 0), mask: [1, 0, 1], tint: glow, owned: true });
   return { parts, top: new Vector3(tip.x, tip.y + 0.42, tip.z) };
 }
 
 /** Aegis: a slab of a tower shield with the ward stone set in it, heavy pauldrons, a helmet fin and a short mace. */
-function aegisParts(props: Object3D): ExtraPart[] {
+function aegisParts(): ExtraPart[] {
   const steel = new Color(HORDE.STEEL);
   const iron = new Color(HORDE.IRON);
   const glow = new Color(PALETTE.aegis).multiplyScalar(HORDE.GLOW);
   const solid: [number, number, number] = [0, 0, 1];
-  const [sx, sy, sz] = HORDE.SHIELD;
-  const parts: ExtraPart[] = [propPart(props, 'skel_shield', 'handslotl', scaled(sx, sy, sz))];
+  // polish 1: no longer the warrior's round shield blown up, but a tall six-sided slab of pale ward steel inside a
+  // glowing frame: a different shape and colour from anything the warrior carries, also when the dome is down
+  const pale = new Color(AEGIS_SLAB.STEEL);
+  const slab = new CylinderGeometry(AEGIS_SLAB.RADIUS, AEGIS_SLAB.RADIUS, AEGIS_SLAB.DEPTH, 6);
+  slab.rotateX(Math.PI / 2);
+  slab.scale(1, AEGIS_SLAB.TALL, 1);
+  const frame = new CylinderGeometry(AEGIS_SLAB.RADIUS * 1.13, AEGIS_SLAB.RADIUS * 1.13, AEGIS_SLAB.DEPTH * 0.5, 6);
+  frame.rotateX(Math.PI / 2);
+  frame.scale(1, AEGIS_SLAB.TALL, 1);
+  const parts: ExtraPart[] = [
+    { geometry: faceted(slab), bone: 'handslotl', matrix: new Matrix4(), mask: solid, tint: pale, owned: true },
+    { geometry: faceted(frame), bone: 'handslotl', matrix: new Matrix4().makeTranslation(0, 0, -0.03), mask: [1, 0, 1], tint: glow.clone().multiplyScalar(0.55), owned: true },
+  ];
   // the ward stone pokes through both faces of the shield, with four studs around it
   const stone = new OctahedronGeometry(0.2);
   stone.scale(1, 1.5, 2.2);
@@ -764,19 +790,19 @@ function aegisParts(props: Object3D): ExtraPart[] {
   }
   for (const side of [-1, 1]) {
     const arm = side > 0 ? 'upperarml' : 'upperarmr';
-    const plate = new DodecahedronGeometry(0.24);
-    plate.scale(1.25, 0.75, 1.2);
-    parts.push(modelPart(plate, arm, matrixOf(side * 0.36, 1.3, 0, 0, 0, -side * 0.25), solid, steel));
+    const plate = new DodecahedronGeometry(0.3);
+    plate.scale(1.3, 0.75, 1.25);
+    parts.push(modelPart(plate, arm, matrixOf(side * 0.4, 1.3, 0, 0, 0, -side * 0.25), solid, pale));
     parts.push(modelPart(new ConeGeometry(0.07, 0.3, 4), arm, matrixOf(side * 0.5, 1.46, 0, 0, 0, -side * 0.6), solid, iron));
   }
   // ward light along the top edge of the shield and on the helmet, where the game camera sees it
   for (const dx of [-0.42, 0, 0.42]) {
-    parts.push({ geometry: faceted(new OctahedronGeometry(0.11)), bone: 'handslotl', matrix: new Matrix4().makeTranslation(dx, 1.12, 0), mask: [1, 0, 1], tint: glow, owned: true });
+    parts.push({ geometry: faceted(new OctahedronGeometry(0.11)), bone: 'handslotl', matrix: new Matrix4().makeTranslation(dx * 0.8, AEGIS_SLAB.RADIUS * AEGIS_SLAB.TALL * (dx === 0 ? 1.02 : 0.8), 0), mask: [1, 0, 1], tint: glow, owned: true });
   }
   // the kit helmet reaches up to y = 2.58: a ward stone set in its crown
-  const crest = new OctahedronGeometry(0.17);
-  crest.scale(1, 1.5, 1);
-  parts.push(modelPart(crest, 'head', matrixOf(0, 2.66, 0), [1, 0, 1], glow));
+  // ... and a tall fin of ward light from brow to nape: the one enemy with a mohawk of light
+  parts.push(modelPart(new BoxGeometry(0.09, 0.62, 1.0), 'head', matrixOf(0, 2.72, -0.05), [1, 0, 1], glow.clone().multiplyScalar(0.8)));
+  parts.push(modelPart(new BoxGeometry(0.16, 0.14, 1.06), 'head', matrixOf(0, 2.44, -0.05), solid, pale));
   // mace
   parts.push({ geometry: faceted(new CylinderGeometry(0.04, 0.05, 0.75, 5)), bone: 'handslotr', matrix: new Matrix4().makeTranslation(0, 0.3, 0), mask: solid, tint: iron, owned: true });
   parts.push({ geometry: faceted(new DodecahedronGeometry(0.16)), bone: 'handslotr', matrix: new Matrix4().makeTranslation(0, 0.72, 0), mask: solid, tint: steel, owned: true });
@@ -930,6 +956,21 @@ function heroExtras(name: string, props: Object3D, knightColors: ColorSampler): 
       for (let i = 0; i < 5; i++) {
         const h = 0.62 - Math.abs(i - 1.5) * 0.1;
         parts.push(modelPart(new ConeGeometry(0.13, h, 4), 'head', matrixOf(0, 2.2 + h * 0.35, 0.28 - i * 0.16, -0.3), solid, i % 2 === 0 ? gold : goldDark));
+      }
+      return parts;
+    }
+    case 'spellCrest': {
+      // polish 1: the spellblade no longer shares the mage's wide hat. A steel circlet with three rune blades standing
+      // up from it: from the game camera a bare head under a crown of light against the mage's dark cone and brim.
+      const rune = new Color(TRIM.RUNE).multiplyScalar(TRIM.RUNE_GLOW);
+      const steel = new Color(TRIM.STEEL);
+      const parts: ExtraPart[] = [];
+      parts.push(modelPart(new CylinderGeometry(SPELL_CREST.BAND_R, SPELL_CREST.BAND_R * 1.04, 0.13, 8, 1, true), 'head', matrixOf(0, SPELL_CREST.BAND_Y, 0), solid, steel));
+      const spots: [number, number, number, number][] = [[0, SPELL_CREST.BLADE, 0.1, 0], [-0.3, SPELL_CREST.SIDE, -0.08, 0.5], [0.3, SPELL_CREST.SIDE, -0.08, -0.5]];
+      for (const [x, len, z, lean] of spots) {
+        const blade = new OctahedronGeometry(0.12);
+        blade.scale(0.55, len / 0.24, 1.1);
+        parts.push(modelPart(blade, 'head', matrixOf(x - Math.sin(lean) * len * 0.35, SPELL_CREST.BAND_Y + 0.12 + len * 0.42, z, -0.15, 0, lean), [1, 0, 1], rune));
       }
       return parts;
     }
@@ -1132,7 +1173,7 @@ export async function loadAssets(onProgress: (loaded: number, total: number) => 
     matron: { keepRigid: () => false, extras: matronParts(props) },
     stalker: { keepRigid: () => true, extras: stalkerParts(props) },
     shaman: { keepRigid: () => false, extras: shaman.parts, anchors: {} },
-    aegis: { keepRigid: () => true, extras: aegisParts(props) },
+    aegis: { keepRigid: () => true, extras: aegisParts() },
     bomber: { keepRigid: () => true, extras: bomberParts(), anchors: { fuse: { bone: 'head', at: HORDE.FUSE_TIP } } },
     necromancer: { keepRigid: () => false, extras: necromancerParts() },
     reaver: { keepRigid: (n) => !/cape/i.test(n), extras: reaverParts(props) },

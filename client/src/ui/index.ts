@@ -17,7 +17,9 @@ import './styles/update2.css';
 import './styles/pages.css';
 import './styles/update3.css';
 import './styles/update4.css';
+import './styles/polish1.css';
 
+import { REACTIONS } from '@shared/data/reactions.ts';
 import { bus } from '../core/EventBus.ts';
 import { state } from '../core/GameState.ts';
 import { settings } from '../core/Settings.ts';
@@ -35,6 +37,7 @@ import { createOverlays, createToasts, type OverlayView, type ToastView } from '
 import { createScoreboard } from './scoreboard.ts';
 import { ui, type ModalKind, type PageKind } from './store.ts';
 import { createSummary, type SummaryView } from './summary.ts';
+import { reactionName } from './text.ts';
 import type { View } from './view.ts';
 import { createWardrobe, wardrobeClass, type WardrobeView } from './wardrobe.ts';
 
@@ -157,6 +160,18 @@ function refresh(): void {
   syncShowcase();
 }
 
+/**
+ * Hands the 3D view the words it draws into the world: "Resonance" and the six reaction names, in the current
+ * language. Sent whenever the UI is (re)built — at start and on a language change — and again on every screen
+ * change, because the view is created after the UI and the bus does not replay.
+ */
+function emitLabels(): void {
+  bus.emit('ui:labels', {
+    resonance: t('hud.resonance'),
+    reactions: Object.fromEntries(REACTIONS.map((def) => [def.id, reactionName(def)])),
+  });
+}
+
 function build(): void {
   if (!rootEl) return;
   if (views) for (const view of Object.values(views) as View[]) view.dispose?.();
@@ -180,6 +195,7 @@ function build(): void {
   };
   rootEl.append(views.toasts.el);
   refresh();
+  emitLabels();
 }
 
 function handleEscape(): void {
@@ -257,6 +273,7 @@ export function initUI(root: HTMLElement): void {
   // ---- state
   bus.on('state:screen', () => {
     document.body.dataset.screen = state.screen;
+    emitLabels();
     if (state.screen !== 'game') {
       ui.tab = false;
       if (ui.pause) { ui.pause = false; ui.pauseConfirm = false; bus.emit('ui:overlay', { open: false }); }

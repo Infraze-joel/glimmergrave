@@ -1,6 +1,7 @@
 /** Projectiles are swept circles, so fast bolts never tunnel through targets, obstacles or walls. */
 import { TICK_DT, WORLD } from '../constants.ts';
 import { damageHero, isTargetable, strikeEnemy, type StrikeOpts } from './combat.ts';
+import { blocksShots } from './fixtures.ts';
 import { angleDiff, inArc, segDist, sweepHit } from './geom.ts';
 import type { Enemy, Hero, Projectile } from './state.ts';
 import { SIM } from './tuning.ts';
@@ -105,6 +106,7 @@ function blockT(w: World, ax: number, az: number, bx: number, bz: number): numbe
   if (bz > hz && dz > 0) t = Math.min(t, (hz - az) / dz);
   else if (bz < -hz && dz < 0) t = Math.min(t, (-hz - az) / dz);
   for (const o of room.obstacles) {
+    if (!blocksShots(o)) continue;
     const s = sweepHit(ax, az, bx, bz, o.x, o.z, o.r);
     if (s >= 0 && s < t) t = s;
   }

@@ -156,8 +156,10 @@ const round2 = (v: number): number => Math.round(v * 100) / 100;
 /**
  * Can a hero walk from every spawn point to every door position without touching an obstacle or stepping on a
  * hazard? (Flood fill on a coarse grid; used to guarantee clear lanes whatever the hazards do.)
+ * `around`: circles (objective fixtures) of which at least one point at distance `r` from the centre must be
+ * reachable as well.
  */
-export function hasHazardFreeRoutes(room: RoomLayout): boolean {
+export function hasHazardFreeRoutes(room: RoomLayout, around: readonly { x: number; z: number; r: number }[] = []): boolean {
   const step = BIOME.PATH_GRID;
   const cols = Math.floor(room.w / step) - 1;
   const rows = Math.floor(room.d / step) - 1;
@@ -206,6 +208,17 @@ export function hasHazardFreeRoutes(room: RoomLayout): boolean {
   }
   for (const s of room.spawns) if (!seen[cell(s.x, s.z)]) return false;
   for (const d of [...doorPositions(room, 1), ...doorPositions(room, 2)]) if (!seen[cell(d.x, d.z)]) return false;
+  for (const c of around) {
+    let reached = false;
+    for (let i = 0; i < OBJECTIVE.FIXTURE_APPROACH_POINTS && !reached; i++) {
+      const a = (i / OBJECTIVE.FIXTURE_APPROACH_POINTS) * Math.PI * 2;
+      const x = c.x + Math.sin(a) * c.r;
+      const z = c.z + Math.cos(a) * c.r;
+      if (Math.abs(x) > room.w / 2 - pad || Math.abs(z) > room.d / 2 - pad) continue;
+      reached = seen[cell(x, z)] === 1;
+    }
+    if (!reached) return false;
+  }
   return true;
 }
 
@@ -503,6 +516,7 @@ export function enterChamber(w: World, index: number, entered: DoorType, objecti
     const spawn = w.room.spawns[h.slot % w.room.spawns.length] as { x: number; z: number };
     placeHero(h, spawn.x, spawn.z);
     h.lastStandUsed = false;
+    h.cursedShards = 0;
     h.draft = [];
     h.draftOpts = null;
     h.burnTime = 0;

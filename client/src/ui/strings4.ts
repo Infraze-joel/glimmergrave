@@ -119,7 +119,7 @@ export const DE4: Record<Key4, string> = {
   'objective.bonus.lost': 'Bonus verloren',
   'objective.bonus.earned': 'Bonus verdient',
   'objective.bonus.reward': '+1 Boon zur Wahl, selten oder besser · Glimmer',
-  'objective.bonus.rewardShort': '+1 Wahl, selten oder besser',
+  'objective.bonus.rewardShort': '+1 Boon zur Wahl, selten oder besser',
   'objective.done': 'Ziel erfüllt',
   'objective.done.noBonus': 'Diesmal ohne Bonus',
   'objective.done.vault': 'Gewölbe geöffnet',
@@ -148,8 +148,8 @@ export const DE4: Record<Key4, string> = {
   'door.left': 'Linke Tür',
   'door.right': 'Rechte Tür',
   'hud.prompt.doorsObjective': 'Jede Tür zeigt das Ziel ihrer Kammer – stellt euch gemeinsam in eine',
-  'draft.bonus': 'Zielbonus: +1 Wahl, selten oder besser',
-  'draft.bonus.vault': 'Gewölbebeute: +1 Wahl, selten oder besser',
+  'draft.bonus': 'Zielbonus: +1 Boon zur Wahl, selten oder besser',
+  'draft.bonus.vault': 'Gewölbebeute: +1 Boon zur Wahl, selten oder besser',
   'summary.objectives': 'Ziele',
   'summary.objectivesValue': '{n} erfüllt',
   'summary.bonuses.one': '1 Bonus verdient',
@@ -184,7 +184,7 @@ export const DE4: Record<Key4, string> = {
   'tip.objective.body': 'Jede Tür zeigt jetzt, [[b|was ihre Kammer von euch verlangt]]. Erfüllt ihr die [[b|Bonus]]-Bedingung, bietet die Auswahl dieser Kammer einen Boon mehr, selten oder besser, und es gibt Glimmer.',
   'ward.name': '{element}-Schutzbann',
   'toast.ward': 'Gegner mit Schutzbann: {element} wirkt nicht auf sie',
-  'toast.wardOwn': 'Schutzbann gegen dein {element} – Status und Explosionen verpuffen',
+  'toast.wardOwn': 'Schutzbann gegen {element} – dein Element wirkt nicht',
 
   // ---------------------------------------------------------------- codex
   'codex.tab.bestiary': 'Bestiarium',

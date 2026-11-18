@@ -20,6 +20,8 @@
  *                 #doors-obj #doors-obj-2 #doors-obj-vault #doors-obj-same #doors-obj-deep #draft-bonus #draft-bonus-event #draft-nobonus #draft-vault
  *                 #ward #ward-own #foes #summary-objectives #codex-bestiary #codex-objectives #tip-enemy.<kind> #tip-ward
  *                 #tip-objective #boss-doors (dead boss, descend / ascend doors: no boss bar)
+ *   Polish 1      #busy #busy-down (burst of a four-hero fight: feed, callouts, tips) #obj-hunt-reload #obj-hunt-escort-reload
+ *                 #codex-tips
  *   Query params  profile=new|mid|end (progression stage for every route; default mid)   lang=en|de   bg=noisy (busy backdrop for contrast checks)   panel=0 (hide the dev panel)
  *                 freeze (stop the fake tickers)   tips=1 (leave all tips unseen)
  *   window.__uidemo  { go, fire, patchRun, screen, error, audio, nextStep, intents, missing }  for scripted checks
@@ -69,25 +71,25 @@ const look = (color: number, style = 0, head = true, cape = true): Look => ({ co
 function roster(): RosterEntry[] {
   return [
     {
-      slot: 0, name: 'Aldric', cls: 'knight', look: look(2, 1), mastery: 7, art: 1, ready: true, connected: true, host: true,
+      slot: 0, name: 'Aldric', cls: 'knight', look: look(2, 1), mastery: 7, art: 1, relics: 1, talents: 1, ready: true, connected: true, host: true,
       boons: [
         { id: 'infuse_ember_primary', level: 1 }, { id: 'keen_edge', level: 2 }, { id: 'barrier', level: 1 },
         { id: 'amplifier', level: 1 }, { id: 'spare_step', level: 1 }, { id: 'kindred_flame', level: 1 },
       ],
     },
     {
-      slot: 1, name: 'Brunhild', cls: 'templar', look: look(0), mastery: 23, art: 0, ready: true, connected: true, host: false,
+      slot: 1, name: 'Brunhild', cls: 'templar', look: look(0), mastery: 23, art: 0, relics: 2, talents: 3, ready: true, connected: true, host: false,
       boons: [{ id: 'infuse_storm_secondary', level: 1 }, { id: 'heavy_hand', level: 3 }, { id: 'iron_heart', level: 2 }],
     },
     {
-      slot: 2, name: 'Mirelle', cls: 'spellblade', look: look(5, 2, true, false), mastery: 3, art: 0, ready: false, connected: true, host: false,
+      slot: 2, name: 'Mirelle', cls: 'spellblade', look: look(5, 2, true, false), mastery: 3, art: 0, relics: 0, talents: 0, ready: false, connected: true, host: false,
       boons: [
         { id: 'infuse_rime_primary', level: 2 }, { id: 'deep_frost', level: 1 }, { id: 'echo', level: 1 },
         { id: 'quick_wits', level: 2 },
       ],
     },
     {
-      slot: 3, name: 'Schattenklinge99', cls: 'shade', look: look(4, 1, false), mastery: 112, art: 1, ready: true, connected: false, host: false,
+      slot: 3, name: 'Schattenklinge99', cls: 'shade', look: look(4, 1, false), mastery: 112, art: 1, relics: 3, talents: 1, ready: true, connected: false, host: false,
       boons: [{ id: 'deadeye', level: 1 }, { id: 'fleet_foot', level: 2 }],
     },
   ];
@@ -126,6 +128,7 @@ function run(patch: Partial<RunState> = {}): RunState {
     ],
     secondWinds: 0,
     ...patch,
+    traits: patch.traits ?? [],
   };
 }
 
@@ -241,6 +244,7 @@ const REROLLED: BoonOffer[][] = [
   [{ id: 'deadeye', level: 1 }, { id: 'infuse_rime_dash', level: 1 }, { id: 'shared_vigor', level: 1 }],
 ];
 const intentLog: string[] = [];
+const labelLog: EventMap['ui:labels'][] = [];
 type AudioDebug = typeof import('../audio/index.ts').audioDebug;
 let audioDebug: AudioDebug = () => null;
 
@@ -323,7 +327,6 @@ function baseline(): void {
   ui.hubRelic = null;
   ui.progress = null;
   ui.oathBaseline = null;
-  ui.objectives = { done: 0, bonus: 0, tracked: false };
   ui.lastObjective = null;
   stageProfile(DEFAULT_STAGE);
   Object.assign(state.profile, { cls: 'knight', looks: { ...defaultLooks(), knight: look(2, 1), mage: look(5, 2, true, false) } });
@@ -557,6 +560,62 @@ function objectiveRoute(kind: ObjectiveKind, stage: ObjectiveStage, soloRun = fa
   if (stage === 'done' || stage === 'won') fire({ e: 'objective', kind, what: 'done', bonus: stage === 'won' });
 }
 
+/**
+ * Polish 1: a realistic burst of a four-hero fight in a ritual chamber — five new foes in one wave, wards, affixes,
+ * three allied ultimates, reactions of several kinds, downs and a revive — to judge feed, callouts and tips under
+ * load. All tips are unseen. `ownDown` also drops the own hero two seconds in.
+ */
+const BUSY_MS = { STEP: 150, OWN_DOWN: 2000, REVIVE: 2300, LATE_FOE: 2700 } as const;
+let busyTimers: number[] = [];
+
+function busyFight(ownDown: boolean): void {
+  for (const id of busyTimers) window.clearTimeout(id);
+  busyTimers = [];
+  inGame({ chamber: 5, entered: 'cursed', wave: 1, waveCount: 1, objective: objectiveState('ritual', 'mid'), room: room('forge', false) });
+  state.players = players().map((p) => ({ ...p, state: 'alive', hp: Math.max(p.hp, 40), revive: 0, ult: p.slot === OWN_SLOT ? 0.97 : 0.9 }));
+  state.roster = roster().map((p) => ({ ...p, connected: true }));
+  state.enemiesAlive = 27;
+  emitAll();
+  resetTips();
+  const p = { x: 2, z: -1 };
+  const steps: (() => void)[] = [
+    () => {
+      // One wave brings all five new kinds, two wards and two affixed elites.
+      NEW_FOES.forEach((kind, i) => fire({ e: 'spawn', id: 60 + i, kind, ...p, elite: false, ...(i === 1 ? { ward: 'rime' as const } : {}) }));
+      fire({ e: 'spawn', id: 70, kind: 'warrior', ...p, elite: false, ward: 'umbra' });
+      fire({ e: 'spawn', id: 71, kind: 'warrior', ...p, elite: true, affix: 'volatile' });
+      fire({ e: 'spawn', id: 72, kind: 'archer', ...p, elite: true, affix: 'swift' });
+    },
+    () => fire({ e: 'ultReady', slot: 1 }),
+    () => fire({ e: 'resonance', ...p, r: 3, a: 'storm', b: 'umbra', by: 2 }),
+    () => { fire({ e: 'ultReady', slot: 2 }); fire({ e: 'hit', target: { t: 'e', id: 60 }, ...p, dmg: 22, crit: false, el: 'ember', by: OWN_SLOT }); },
+    () => fire({ e: 'resonance', ...p, r: 3, a: 'rime', b: 'umbra', by: 1 }),
+    () => { state.players[2] = { ...state.players[2], hp: 0, state: 'downed' }; bus.emit('state:hud'); fire({ e: 'down', slot: 2 }); },
+    () => { state.players[0].ult = 1; bus.emit('state:hud'); fire({ e: 'ultReady', slot: OWN_SLOT }); },
+    () => fire({ e: 'resonance', ...p, r: 3, a: 'storm', b: 'umbra', by: OWN_SLOT }),
+    () => fire({ e: 'objective', kind: 'ritual', what: 'site', index: 0 }),
+    () => { state.players[3] = { ...state.players[3], hp: 0, state: 'downed' }; bus.emit('state:hud'); fire({ e: 'down', slot: 3 }); },
+    () => fire({ e: 'ultReady', slot: 3 }),
+    () => fire({ e: 'resonance', ...p, r: 3, a: 'ember', b: 'rime', by: 3 }),
+    () => fire({ e: 'resonance', ...p, r: 3, a: 'storm', b: 'umbra', by: 2 }),
+  ];
+  const later = (ms: number, step: () => void): void => {
+    busyTimers.push(window.setTimeout(() => { if (state.screen === 'game') step(); }, ms));
+  };
+  steps.forEach((step, i) => later(i * BUSY_MS.STEP, step));
+  if (ownDown) {
+    later(BUSY_MS.OWN_DOWN, () => { state.players[0] = { ...state.players[0], hp: 0, state: 'downed' }; bus.emit('state:hud'); fire({ e: 'down', slot: OWN_SLOT }); });
+  }
+  later(BUSY_MS.REVIVE, () => {
+    state.players[2] = { ...state.players[2], hp: 40, state: 'alive' };
+    bus.emit('state:hud');
+    fire({ e: 'revived', slot: 2, by: 1 });
+    fire({ e: 'resonance', ...p, r: 3, a: 'rime', b: 'umbra', by: 1 });
+  });
+  // A late arrival of a kind that is already explained must not bring its tip back.
+  later(BUSY_MS.LATE_FOE, () => { fire({ e: 'spawn', id: 80, kind: 'bomber', ...p, elite: false }); fire({ e: 'objective', kind: 'ritual', what: 'site', index: 1 }); });
+}
+
 const door = (x: number, type: DoorType, objective: ObjectiveKind): Door => ({ x, z: -10, type, objective });
 
 function objectiveDoors(doors: Door[], patch: Partial<RunState> = {}): void {
@@ -633,6 +692,12 @@ const OBJECTIVE_ROUTES: Record<string, () => void> = {
     emitAll();
   },
   'draft-vault': () => objectiveDraft('vault', false, [{ id: 'encore', level: 1 }, { id: 'infuse_storm_dash', level: 1 }, { id: 'iron_heart', level: 2 }, { id: 'echo', level: 1 }]),
+  // A hunt joined in mid-chamber: one of three marked elites is left, the two dead ones must still show as pips.
+  'obj-hunt-reload': () => objectiveRoute('hunt', 'lost'),
+  'obj-hunt-escort-reload': () => { objectiveRoute('hunt', 'lost'); if (state.run?.objective) { state.run.objective = { ...state.run.objective, targets: [], progress: 1 }; emitAll(); } },
+  'codex-tips': () => { setScreen('menu'); ui.codexTab = 'tips'; ui.page = 'codex'; emitAll(); },
+  busy: () => busyFight(false),
+  'busy-down': () => busyFight(true),
   ward: () => { inGame({ entered: 'boon', chamber: 5, objective: objectiveState('slay', 'mid') }); ELEMENT_IDS.forEach((ward, i) => fire({ e: 'spawn', id: 80 + i, kind: 'warrior', x: 2, z: -1, elite: false, ward })); },
   'ward-own': () => { solo(TRAINING_BOONS.slice(0, 1), { chamber: 5, objective: objectiveState('slay', 'mid') }); fire({ e: 'spawn', id: 80, kind: 'minion', x: 2, z: -1, elite: false, ward: 'ember' }); },
   foes: () => {
@@ -642,13 +707,11 @@ const OBJECTIVE_ROUTES: Record<string, () => void> = {
     fire({ e: 'mend', id: 90, targets: [12, 13] });
   },
   'summary-objectives': () => {
-    ui.objectives = { done: 5, bonus: 3, tracked: true };
-    summary({ phase: 'victory', chamber: 7, chamberKind: 'boss', elapsed: 754, bossKind: 'matron', cleared: 1, chambersCleared: 8 },
+    summary({ phase: 'victory', chamber: 7, chamberKind: 'boss', elapsed: 754, bossKind: 'matron', cleared: 1, chambersCleared: 8, objectivesDone: 5, objectiveBonuses: 3 },
       [reward(0, 261, 372, ['storm_coil']), reward(1, 237, 340), reward(2, 237, 340, ['whetstone']), reward(3, 237, 340)], { oathBaseline: 2 });
   },
   'summary-objectives-fell': () => {
-    ui.objectives = { done: 9, bonus: 1, tracked: true };
-    summary({ phase: 'defeat', chamber: 3, chamberKind: 'elite', elapsed: 1722, depth: 1, cleared: 1, chambersCleared: 11, oath: 3 },
+    summary({ phase: 'defeat', chamber: 3, chamberKind: 'elite', elapsed: 1722, depth: 1, cleared: 1, chambersCleared: 11, oath: 3, objectivesDone: 9, objectiveBonuses: 1 },
       [reward(0, 544, 910, ['whetstone', 'phoenix']), reward(1, 498, 860, ['tome']), reward(2, 498, 860), reward(3, 498, 860)], { oathBaseline: 3 });
   },
 };
@@ -1266,6 +1329,7 @@ declare global {
       screen(screen: Screen): void;
       /** Every `ui:*` intent emitted so far, as "name payload". */
       intents: string[];
+      labels: EventMap['ui:labels'][];
       routes: string[];
       errors: ConnError[];
     };
@@ -1279,6 +1343,8 @@ function boot(): void {
   if (lang === 'en' || lang === 'de') updateSettings({ lang });
   paintBackdrop();
   baseline();
+  // What the 3D view would receive: kept for scripted checks (`__uidemo.labels`).
+  bus.on('ui:labels', (labels) => { labelLog.push(labels); });
   initUI(root);
   startAudio();
   wireIntents();
@@ -1302,6 +1368,7 @@ function boot(): void {
     patchRun: (patch) => { if (state.run) { setRun({ ...state.run, ...patch }); bus.emit('state:hud'); } },
     screen: (screen) => { setScreen(screen); emitAll(); },
     intents: intentLog,
+    labels: labelLog,
     routes: Object.keys(ROUTES),
     errors: CONN_ERRORS,
   };

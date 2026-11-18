@@ -8,7 +8,7 @@
  *   boon.<boonId>.name|desc              infusion.<element>.<slot>.name   infusion.desc   infusion.slot.<slot>
  *   door.<type>.name|desc                oath.<0..3>.name    oath.desc    oath.0.desc
  *   rarity.<rarity>   category.<category>   toast.*   error.<ErrorCode | ConnError>
- * Update 4 keys (objectives, the new foes, wards) live in strings4.ts.
+ * Update 4 keys (objectives, the new foes, wards) live in strings4.ts, polish 1 keys in strings5.ts.
  * Update 3 keys live in strings3.ts; texts that mirror a data table by id are looked up with `tx()` (strings3data.ts).
  * Update 2 keys (tutorial.* tip.* codex.* armory.* meta.* wardrobe.* look.* biome.* hazard.*) live in strings2.ts.
  * Placeholders use {name}. Boon descriptions use {v} for the value at the offered level.
@@ -20,11 +20,13 @@ import { DE2, EN2 } from './strings2.ts';
 import { DE3, EN3 } from './strings3.ts';
 import { DE_DATA, EN_DATA } from './strings3data.ts';
 import { DE4, DE4_DATA, EN4, EN4_DATA } from './strings4.ts';
+import { DE5, EN5 } from './strings5.ts';
 
 const EN = {
   ...EN2,
   ...EN3,
   ...EN4,
+  ...EN5,
   'common.title': 'Glimmergrave',
   'common.tagline': 'A co-op descent for 1–4 Wardens',
   'common.ok': 'OK',
@@ -395,6 +397,7 @@ const DE: Record<I18nKey, string> = {
   ...DE2,
   ...DE3,
   ...DE4,
+  ...DE5,
   'common.title': 'Glimmergrave',
   'common.tagline': 'Ein Koop-Abstieg für 1–4 Wächter',
   'common.ok': 'OK',

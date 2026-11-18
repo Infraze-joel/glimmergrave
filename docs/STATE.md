@@ -12,6 +12,10 @@
   history (`Contract for update 3`). Client core: `Settings.cursor`, `game:progress`, `game:localAction.slot`.
 - QA aids: server env `DEBUG_START_CHAMBER`, `DEBUG_OBJECTIVE`; `botClient --objectives --descend --meta max`;
   dev client `?autopilot&descend=N`; `tests/e2e/tools/deep-run.mjs`.
+- Polish 1 (branch `polish-1`, spec `docs/milestones/polish-1.md`) is integrated on top of update 4: clarity
+  levels (`Settings.effects`, `allyNumbers`, `WorldView.setClarity/setLabels/setAim/setTraits`), contract
+  additions `Obstacle.kind` shard/ritualBowl/reliquary, `RunState.traits`, `RosterEntry.relics/talents`,
+  `ui:labels`. Gate: 529 unit/integration tests, 20 browser tests, one live bot session.
 - Not done: human playtest of updates 3 and 4, listening pass, real GPUs, Firefox/Edge, deployment of both.
 - Next concrete step: owner deploys `update-3` or `update-4` to a Netlify preview and plays.
 - Deferred ideas live in `docs/backlog.md`.
@@ -146,3 +150,44 @@ server in which a party that prefers special objectives plays a whole run.
 - Known limits: bots do not repair the shard on purpose and a solo bot saves it in well under half of the
   chambers; ranged bots cannot shoot past the front line at a shaman; no reconnecting client learns wards or
   affixes of enemies that are already standing; the shard can be walked through.
+
+## Backend, polish 1
+
+Simulation and server for polish 1 (spec: `docs/milestones/polish-1.md`; numbers, before/after tables and what could
+not be verified: `/home/claude/reports/backend-polish1.md`).
+
+- **Fixtures are solid.** `beginObjective` (sim/objectives.ts) appends the bell shard (`shard`, r = `DEFEND.RADIUS`),
+  one `ritualBowl` per brazier (r = `OBJECTIVE.RITUAL_BOWL_RADIUS` 0.6, in the centre of the 2.4 m circle) and the
+  `reliquary` (r = `OBJECTIVE.VAULT_RADIUS`) to `room.obstacles`, after the generated obstacles, inside
+  `enterChamber` — so the first `run` message of the chamber already carries them. They stay until the party
+  leaves the room (also when the shard is shattered) and the next room starts without them. Everything that walks
+  uses `resolveCollisions` of `sim/movement.ts` (unchanged), so prediction collides too. Shots do not: projectiles,
+  lines of sight and arrow telegraph lengths skip fixture kinds (`sim/fixtures.ts`, `blocksShots`).
+- Placement: a fixture is only put where every spawn still reaches every door and the ground around the fixture
+  without touching an obstacle or hazard (`hasHazardFreeRoutes(room, around)`), and `OBJECTIVE.FIXTURE_LANE` (1.2 m)
+  stays free to every obstacle and wall. Enemy steering does not avoid an obstacle that contains its destination
+  (siege enemies walk up to the shard). Bots walk along an obstacle's edge when their way is blocked
+  (`BotBrain.steerAround`; not while dodging a telegraph, not for the fixture they want to stand next to).
+- **`RunState.traits`** is built in `World.getTraits()` from the living enemies every time a run state is
+  published (no bookkeeping, no extra messages, `runVersion` is not bumped by spawns or deaths). A client that
+  (re)joins gets the current list with its first `run` message; everyone else gets it with every `run` message
+  (structural changes; about 4 per second in special objectives). Clients should merge it with what `spawn`
+  announced, not wait for it.
+- **`RosterEntry.relics` / `.talents`**: counted from the build the simulation applies (`Room.adoptBuild`).
+- **Ultimate charge**: `ULTIMATE.PARTY_FALLOFF` 0.15 — charge from damage dealt, damage taken and Resonances is
+  divided by `1 + 0.15 x (heroes in the chamber - 1)` (`partyChargeScale`, uses `World.partySize`). Solo unchanged.
+- **Relic shards in cursed chambers**: `RELIC_TUNING.DROP_CURSED_ELITE` 0.02 per elite-flagged rank-and-file enemy
+  slain by a hero (not summoned, not crumbled), every hero rolls, at most `CURSED_SHARDS_PER_CHAMBER` (1) per hero
+  and chamber (`Hero.cursedShards`, `rollCursedShard` in sim/loot.ts, own loot stream as before).
+- Numbers changed (no id or order changed; new keys are listed in the report): `OBJECTIVE_TUNING` SURVIVE
+  SPAWN_INTERVAL 5 -> 6 and BUDGET_FRACTION 0.45 -> 0.4; RITUAL SPAWN_INTERVAL 6 -> 7 and DECAY 0.35 -> 0.25;
+  DEFEND HP 520 -> 600 and new SOLO_HP_MUL 1.3; HUNT new SECONDS_PER_EXTRA_PLAYER 5 (`huntSeconds`); knight maxHp
+  125 -> 135 and slashes 18 / 18 / 31 -> 19 / 19 / 33; `DIRECTOR.DAMAGE_PER_EXTRA_PLAYER` 0.15 -> 0.1 (sim/tuning.ts,
+  offsets the charge falloff for fresh parties).
+- Tools: `shared/test/tools/soakp1.ts [seeds] [solo|party|max|maxparty] [mixed|prefer|classic|cursed] [classes]`
+  (win rate, ultimates per hero, shards per hero, objective table with the share of chambers that ended a run);
+  bot option `preferCursed` (`RunOptions.preferCursed` in the test harness).
+- Known limits: a reaver in the air and a boss charge fly in a straight line over obstacles as before (they land
+  outside); bots still do not repair the shard on purpose; defend ends a party's run about 2.6 times as often per
+  chamber as slay; a last hero standing against necromancers can take very long (438 s in one of 300 party runs);
+  bots never choose talents or relics; depth 2+ and Oaths above 0 were not measured.

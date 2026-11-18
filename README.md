@@ -38,6 +38,13 @@ die Helden dauerhaft stärker. Vollständiges Konzept: [`docs/gameplan.md`](docs
 8. Auswertung mit Glimmer, Klassen-Erfahrung und Relikt-Splittern → Fortschritt ausgeben → nächster Run.
    Ein Sieg schaltet die nächste Oath-Stufe frei (Schwierigkeit 0–20).
 
+**Aufräum-Update (Polish 1):** ruhigeres Bild in grossen Kämpfen (zusammengefasste und begrenzte
+Schadenszahlen, gedeckelte Helligkeit, Effekte von Mitspielern nur als dünne Ringe, Angriffswarnungen immer
+obenauf, eigener Held mit Ring und Pfeil markiert). Einstellungen „Bildeffekte" (Klar / Voll / Minimal) und
+„Schadenszahlen der Verbündeten". Reaktionsnamen in der Szene, Bodenmarker unter dem Zielcursor, klarere
+Silhouetten für Aegis, Schamane und Spellblade. Splitter, Feuerschalen und Schrein blockieren den Weg. Balance:
+Ultimates laden in Gruppen langsamer, Knight etwas stärker, Sonderziele entschärft.
+
 **Update 4 – „Objectives and the Horde":**
 
 - **Kammer-Ziele:** jede Kampfkammer hat eines von sechs Zielen, das schon an der Tür steht: Gemetzel (alle
@@ -272,7 +279,7 @@ Bibliotheken: MIT (three, ws, vite, …), Cinzel: SIL Open Font License.
 | Prüfung | Ergebnis |
 |---|---|
 | Frische Installation (`npm ci` in neuem Klon), Typprüfung, Lint | fehlerfrei |
-| Unit- und Integrationstests (`npm test`) | 509 Tests in 30 Dateien bestanden |
+| Unit- und Integrationstests (`npm test`) | 529 Tests in 32 Dateien bestanden |
 | – Protokoll, Bewegung, Fähigkeiten, Status/Resonance, Boons, Draft, Gegner, Telegraph-Fairness, Director, Determinismus | enthalten |
 | – Server mit echten WebSocket-Clients: Erstellen/Beitreten/Wiederbeitritt, ungültiger Code, voller Raum, falsche Version, kaputte/zu große Nachrichten, Ratenlimit, Host-Wechsel, Abbruch im Run, Ablauf der Frist, Rückkehr zur Lobby | enthalten |
 | – Zwei Bots spielen einen ganzen Run, auch mit 150 ± 50 ms Latenz | bestanden |

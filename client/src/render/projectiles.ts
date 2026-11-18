@@ -68,6 +68,8 @@ const _s = new Vector3();
 const X_AXIS = new Vector3(1, 0, 0);
 const MESH_KEYS = ['arrow', 'dagger', 'skel_arrow', 'shield_round'] as const;
 const CORE = rgb(PALETTE.umbraCore);
+/** Diameter of the bright rim around an umbra projectile, in glow sizes. */
+const UMBRA_RIM = 0.95;
 
 export class Projectiles {
   private readonly meshes: Record<MeshKey, InstancedMesh>;
@@ -169,7 +171,13 @@ export class Projectiles {
       }
       decals.push(DECAL.DISC, p.x, 0.04, p.z, 0, style.glow * 2.2, style.glow * 2.2, c[0], c[1], c[2], 0.3, 1, 0);
       const pulse = 1 + 0.12 * Math.sin(time * 24 + p.id);
-      if (p.dark) fx.push(SPRITE.GLOW, p.x, style.y, p.z, style.glow * 0.62, style.glow * 0.62, CORE[0], CORE[1], CORE[2], 0.9, 0, 0);
+      if (p.dark) {
+        // umbra: a dark heart inside a bright rim (a flat ring at flight height and a wider pool of light below it),
+        // so it stands out on the dark floors where the pale glow alone was lost
+        fx.push(SPRITE.GLOW, p.x, style.y, p.z, style.glow * 0.56, style.glow * 0.56, CORE[0], CORE[1], CORE[2], 0.9, 0, 0);
+        decals.push(DECAL.SHOCK, p.x, style.y, p.z, 0, style.glow * UMBRA_RIM, style.glow * UMBRA_RIM, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, 0.8, 1, 0.22);
+        decals.push(DECAL.DISC, p.x, 0.041, p.z, 0, style.glow * 2.6, style.glow * 2.6, c[0], c[1], c[2], 0.18, 1, 0.2);
+      }
       fx.push(SPRITE.GLOW, p.x, style.y, p.z, style.glow * pulse, style.glow * pulse, c[0] * 1.8, c[1] * 1.8, c[2] * 1.8, 1, 1, style.mesh ? 0.4 : 1.6);
       if (p.kind === 'hexOrb') {
         // dark core with a spinning shard so hostile orbs read differently from the mage's bolts

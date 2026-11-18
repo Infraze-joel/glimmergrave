@@ -6,7 +6,8 @@ import { RUN, TICK_DT, WORLD } from '../constants.ts';
 import { OBJECTIVES, OBJECTIVE_TUNING } from '../data/objectives.ts';
 import { OBJECTIVE_KINDS, type DoorType, type ObjectiveKind, type ObjectiveState } from '../types.ts';
 import { healHero } from './combat.ts';
-import { doorPositions } from './director.ts';
+import { doorPositions, hasHazardFreeRoutes } from './director.ts';
+import { resolveCollisions } from './movement.ts';
 import { earn } from './meta.ts';
 import type { Enemy } from './state.ts';
 import { OBJECTIVE, SIM } from './tuning.ts';
@@ -47,6 +48,11 @@ const round2 = (v: number): number => Math.round(v * 100) / 100;
 
 export function surviveSeconds(chamber: number): number {
   return Math.min(T.SURVIVE.MAX_SECONDS, T.SURVIVE.SECONDS + T.SURVIVE.SECONDS_PER_CHAMBER * chamber);
+}
+
+/** Time limit of a hunt's bonus for a party of `partySize`. */
+export function huntSeconds(partySize: number): number {
+  return T.HUNT.SECONDS + T.HUNT.SECONDS_PER_EXTRA_PLAYER * (partySize - 1);
 }
 
 export function huntTargets(partySize: number): number {
@@ -95,11 +101,20 @@ export function rollDoorObjectives(w: World, types: readonly DoorType[], nextCha
 
 interface Spot { x: number; z: number; r: number }
 
-/** Smallest free distance from a circle to obstacles, hazards, walls, spawn points, door zones and `others`, each minus its wanted gap. */
-function clearance(w: World, x: number, z: number, r: number, others: readonly Spot[], otherGap: number, relax: number): number {
+/**
+ * Smallest free distance from a circle to obstacles, hazards, walls, spawn points, door zones and `others`, each
+ * minus its wanted gap. `body` > 0: a solid fixture of that radius stands in the middle; whatever the gaps have
+ * shrunk to, a hero-wide lane (FIXTURE_LANE) stays open between it and every obstacle.
+ */
+function clearance(w: World, x: number, z: number, r: number, others: readonly Spot[], otherGap: number, relax: number, body: number): number {
   const room = w.room;
   let free = Math.min(room.w / 2 - Math.abs(x) - r - OBJECTIVE.WALL_GAP * relax, room.d / 2 - Math.abs(z) - r - OBJECTIVE.WALL_GAP * relax);
-  for (const o of room.obstacles) free = Math.min(free, Math.hypot(o.x - x, o.z - z) - o.r - r - OBJECTIVE.OBSTACLE_GAP * relax);
+  for (const o of room.obstacles) {
+    const gap = Math.hypot(o.x - x, o.z - z) - o.r;
+    free = Math.min(free, gap - r - OBJECTIVE.OBSTACLE_GAP * relax);
+    if (body > 0) free = Math.min(free, gap - body - OBJECTIVE.FIXTURE_LANE);
+  }
+  if (body > 0) free = Math.min(free, room.w / 2 - Math.abs(x) - body - OBJECTIVE.FIXTURE_LANE, room.d / 2 - Math.abs(z) - body - OBJECTIVE.FIXTURE_LANE);
   for (const h of room.hazards) free = Math.min(free, Math.hypot(h.x - x, h.z - z) - h.r - r - OBJECTIVE.HAZARD_GAP * relax);
   for (const s of room.spawns) free = Math.min(free, Math.hypot(s.x - x, s.z - z) - r - OBJECTIVE.SPAWN_GAP * relax);
   for (const count of [1, 2]) {
@@ -109,31 +124,63 @@ function clearance(w: World, x: number, z: number, r: number, others: readonly S
   return free;
 }
 
+/** The fixtures are appended to the room's obstacles after the generated ones (see fixtures.ts). */
+type FixtureKind = 'shard' | 'ritualBowl' | 'reliquary';
+
+/**
+ * Would a solid fixture of radius `body` at (x, z) leave the room walkable? Every spawn point must still reach
+ * every door without touching an obstacle or a hazard, and the ground right around the fixture (where heroes
+ * stand to repair the shard, light the brazier or open the reliquary) must be part of that area.
+ */
+function fixtureFits(w: World, x: number, z: number, body: number): boolean {
+  const room = w.room;
+  room.obstacles.push({ x, z, r: body, kind: 'shard' });
+  const ok = hasHazardFreeRoutes(room, [{ x, z, r: body + WORLD.PLAYER_RADIUS + OBJECTIVE.FIXTURE_APPROACH }]);
+  room.obstacles.pop();
+  return ok;
+}
+
 /**
  * A free place for a circle of radius `r` within `spread` metres of the room's centre (Infinity = anywhere), clear
  * of obstacles, hazards, walls, spawns, doors and `others`. Random tries first; when the room is too cramped the
  * gaps shrink step by step, and as a last resort the best point of a grid scan is taken (never inside an obstacle
- * or a wall if the room has any free ground at all).
+ * or a wall if the room has any free ground at all). `body` > 0 is the radius of the solid fixture that will
+ * stand in the middle of the circle: a spot is only taken if the room stays walkable around it (`fixtureFits`).
  */
-export function findObjectiveSpot(w: World, r: number, spread: number, others: readonly Spot[], otherGap: number): { x: number; z: number } {
+export function findObjectiveSpot(w: World, r: number, spread: number, others: readonly Spot[], otherGap: number, body = 0): { x: number; z: number } {
   const hx = Math.min(spread, w.room.w / 2 - r);
   const hz = Math.min(spread, w.room.d / 2 - r);
   for (let relax = 1; relax > 0.2; relax *= 0.7) {
     for (let i = 0; i < OBJECTIVE.PLACE_ATTEMPTS; i++) {
       const x = round2(w.rng.range(-hx, hx));
       const z = round2(w.rng.range(-hz, hz));
-      if (clearance(w, x, z, r, others, otherGap, relax) >= 0) return { x, z };
+      if (clearance(w, x, z, r, others, otherGap, relax, body) >= 0 && (body <= 0 || fixtureFits(w, x, z, body))) return { x, z };
     }
   }
+  // Grid scan: the roomiest point; with a solid fixture the roomiest one that keeps the room walkable, if any does.
   let best = { x: 0, z: 0 };
   let bestFree = -Infinity;
+  let fit: { x: number; z: number } | null = null;
+  let fitFree = -Infinity;
   for (let x = -Math.floor(w.room.w / 2 - r); x <= w.room.w / 2 - r; x++) {
     for (let z = -Math.floor(w.room.d / 2 - r); z <= w.room.d / 2 - r; z++) {
-      const free = clearance(w, x, z, r, others, 0, 0);
+      const free = clearance(w, x, z, r, others, 0, 0, body);
       if (free > bestFree) { bestFree = free; best = { x, z }; }
+      if (body > 0 && free > fitFree && free >= 0 && fixtureFits(w, x, z, body)) { fitFree = free; fit = { x, z }; }
     }
   }
-  return best;
+  return fit ?? best;
+}
+
+/**
+ * Makes an objective fixture solid: its body joins the room's obstacles, so the shared movement code (server and
+ * client prediction), enemy steering, spawn points, blinks and leaps all treat it like a pillar. Only shots pass
+ * over it (fixtures.ts).
+ * Heroes that would stand inside it (only possible in a room too cramped for the usual gaps) are pushed out.
+ */
+function addFixture(w: World, x: number, z: number, r: number, kind: FixtureKind): void {
+  w.room.obstacles.push({ x, z, r, kind });
+  for (const h of w.heroes) resolveCollisions(h.body, WORLD.PLAYER_RADIUS, w.room);
 }
 
 // ---------------------------------------------------------------------------------------------- lifecycle
@@ -144,7 +191,9 @@ const emptyState = (kind: ObjectiveKind): ObjectiveState => ({
 
 /**
  * Sets up the objective of the chamber that was just entered (room, party size and scaling are final): places the
- * shard, the braziers or the reliquary, publishes `run.objective` and announces it. Returns the bookkeeping.
+ * shard, the braziers or the reliquary, adds their bodies to `room.obstacles` (kinds `shard`, `ritualBowl`,
+ * `reliquary`; they stay for as long as the party is in the room), publishes `run.objective` and announces it.
+ * Returns the bookkeeping. The room layout is final when this returns, before the run state is published.
  */
 export function beginObjective(w: World, kind: ObjectiveKind): ObjectiveRun {
   const state = emptyState(kind);
@@ -156,23 +205,27 @@ export function beginObjective(w: World, kind: ObjectiveKind): ObjectiveRun {
     obj.total = surviveSeconds(w.run.chamber);
     state.timeLeft = obj.total;
   } else if (kind === 'defend') {
-    const spot = findObjectiveSpot(w, T.DEFEND.RADIUS, OBJECTIVE.CENTRE_SCATTER, [], 0);
-    obj.anchorMaxHp = T.DEFEND.HP * w.damageMul;
+    const spot = findObjectiveSpot(w, T.DEFEND.RADIUS, OBJECTIVE.CENTRE_SCATTER, [], 0, T.DEFEND.RADIUS);
+    addFixture(w, spot.x, spot.z, T.DEFEND.RADIUS, 'shard');
+    obj.anchorMaxHp = T.DEFEND.HP * w.damageMul * (w.partySize === 1 ? T.DEFEND.SOLO_HP_MUL : 1);
     obj.anchorHp = obj.anchorMaxHp;
     state.anchor = { x: spot.x, z: spot.z, r: T.DEFEND.RADIUS, hp: 1 };
   } else if (kind === 'hunt') {
-    obj.total = T.HUNT.SECONDS;
+    obj.total = huntSeconds(w.partySize);
     obj.targetsTotal = huntTargets(w.partySize);
     state.timeLeft = obj.total;
   } else if (kind === 'ritual') {
     obj.total = T.RITUAL.BONUS_SECONDS;
     state.timeLeft = obj.total;
     for (let i = 0; i < T.RITUAL.SITES; i++) {
-      const spot = findObjectiveSpot(w, T.RITUAL.RADIUS, Infinity, state.sites, OBJECTIVE.SITE_GAP);
+      const spot = findObjectiveSpot(w, T.RITUAL.RADIUS, Infinity, state.sites, OBJECTIVE.SITE_GAP, OBJECTIVE.RITUAL_BOWL_RADIUS);
+      // Only the bowl in the middle is solid; heroes stand in the circle around it.
+      addFixture(w, spot.x, spot.z, OBJECTIVE.RITUAL_BOWL_RADIUS, 'ritualBowl');
       state.sites.push({ x: spot.x, z: spot.z, r: T.RITUAL.RADIUS, progress: 0, lit: false });
     }
   } else if (kind === 'vault') {
-    const spot = findObjectiveSpot(w, OBJECTIVE.VAULT_RADIUS, OBJECTIVE.CENTRE_SCATTER, [], 0);
+    const spot = findObjectiveSpot(w, OBJECTIVE.VAULT_RADIUS, OBJECTIVE.CENTRE_SCATTER, [], 0, OBJECTIVE.VAULT_RADIUS);
+    addFixture(w, spot.x, spot.z, OBJECTIVE.VAULT_RADIUS, 'reliquary');
     state.anchor = { x: spot.x, z: spot.z, r: OBJECTIVE.VAULT_RADIUS, hp: 1 };
   }
   w.run.objective = state;

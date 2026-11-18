@@ -25,6 +25,9 @@ export interface Session {
   /** Mastery level and secondary variant as the simulation applies them (clamped); shown on the roster. */
   mastery: number;
   art: number;
+  /** Relics equipped and talents chosen, counted from the build the simulation applies (lobby cards). */
+  relics: number;
+  talents: number;
   ready: boolean;
   /** Secret for rejoining this slot. Never logged, never sent to anyone but its owner. */
   token: string;
@@ -118,7 +121,8 @@ export class Room {
     for (const s of this.sessions) {
       if (!s) continue;
       out.push({
-        slot: s.slot, name: s.name, cls: s.cls, look: { ...s.look }, mastery: s.mastery, art: s.art, ready: s.ready, connected: s.peer !== null,
+        slot: s.slot, name: s.name, cls: s.cls, look: { ...s.look }, mastery: s.mastery, art: s.art, relics: s.relics, talents: s.talents,
+        ready: s.ready, connected: s.peer !== null,
         host: s.slot === this.hostSlot,
         boons: this.world.getBoons(s.slot),
       });
@@ -199,6 +203,9 @@ export class Room {
     const build = this.world.getBuild(session.slot);
     session.mastery = build ? build.mastery : 1;
     session.art = build ? build.art : 0;
+    session.relics = build ? build.relics.length : 0;
+    // A talent tier without a choice is 0.
+    session.talents = build ? build.talents.filter((t) => t > 0).length : 0;
   }
 
   /**
@@ -211,7 +218,7 @@ export class Room {
     if (slot < 0) return { ok: false, code: 'room_full' };
     if (!this.world.addPlayer(slot, cls, name, loadout)) return { ok: false, code: 'room_full' };
     const session: Session = {
-      slot, name, cls, look: { ...loadout.look }, mastery: 1, art: 0, ready: false, token: randomBytes(SERVER.TOKEN_BYTES).toString('hex'), peer,
+      slot, name, cls, look: { ...loadout.look }, mastery: 1, art: 0, relics: 0, talents: 0, ready: false, token: randomBytes(SERVER.TOKEN_BYTES).toString('hex'), peer,
       disconnectedAt: 0, draftSig: EMPTY_DRAFT,
     };
     this.adoptBuild(session);

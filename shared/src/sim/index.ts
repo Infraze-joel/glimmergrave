@@ -12,7 +12,9 @@ export {
   type Earnings,
 } from './meta.ts';
 export { sanitizeBuild, permanentOf, buildAbilities, maxBuild, MAX_BUILD_MASTERY } from './build.ts';
-export { dropChance } from './loot.ts';
+export { dropChance, cursedDropChance } from './loot.ts';
+export { FIXTURE_KINDS, blocksShots } from './fixtures.ts';
+export { partyChargeScale } from './combat.ts';
 export { MATRON_CD } from './matron.ts';
 export { STALKER_CD } from './stalker.ts';
 export { tutorialRoom } from './tutorial.ts';
