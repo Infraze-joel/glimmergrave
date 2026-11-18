@@ -185,7 +185,7 @@ function beginStep(w: World, t: TutorialRun, index: number): void {
     w.run.phase = 'draft';
   } else if (step === 'door') {
     const spot = doorPositions(w.room, 1)[0] as Spot;
-    w.run.doors = [{ x: spot.x, z: spot.z, type: 'boon' }];
+    w.run.doors = [{ x: spot.x, z: spot.z, type: 'boon', objective: 'slay' }];
     w.run.doorProgress = [0];
     w.run.draftPending = [];
     w.run.phase = 'doors';

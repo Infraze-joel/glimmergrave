@@ -16,6 +16,7 @@ import { enemyName, resonanceParams, statusParams } from './elements.ts';
 import type { IconName } from './icons.ts';
 import { formatInt, formatTime, roman, t } from './i18n.ts';
 import { ART_ICON, MAX_OATH, artName, depthLabel, oathName } from './model.ts';
+import { objectiveTally } from './objective.ts';
 import { RELIC_ICON } from './reliquary.ts';
 import { richEl } from './rich.ts';
 import { statsTable } from './scoreboard.ts';
@@ -287,8 +288,9 @@ export function createSummary(openModal: (kind: ModalKind) => void, openPage: (p
     const unlocked = unlockedOath();
     const earned = ownReward();
     const reward = ownRewardRow();
+    const tally = objectiveTally(run);
     const key = JSON.stringify([
-      run.phase, run.chamber, depth, run.cleared, Math.floor(run.elapsed), run.oath, run.stats, run.rewards, host, unlocked, state.conn.slot,
+      tally, run.phase, run.chamber, depth, run.cleared, Math.floor(run.elapsed), run.oath, run.stats, run.rewards, host, unlocked, state.conn.slot,
       isTraining, earned, state.profile.glimmer, run.finalBoss, ui.progress, featsReady(),
       state.roster.map((p) => [p.slot, p.name, p.cls, p.connected, p.mastery]),
     ]);
@@ -316,6 +318,13 @@ export function createSummary(openModal: (kind: ModalKind) => void, openPage: (p
         won
           ? h('div', { class: 'gg-summary-chip gg-cut gg-summary-chip--bosses', 'data-testid': 'summary-bosses', 'data-cleared': String(cleared) },
             icon('crown'), h('div', null, h('span', null, t('summary.bosses')), h('b', { class: 'gg-num' }, String(cleared))))
+          : null,
+        // Special objectives completed and bonuses earned; hidden when the run was not watched from its start.
+        tally && tally.done > 0
+          ? h('div', { class: 'gg-summary-chip gg-cut gg-summary-chip--objectives', 'data-testid': 'summary-objectives', 'data-done': String(tally.done), 'data-bonus': String(tally.bonus) },
+            icon('hunt'), h('div', null, h('span', null, t('summary.objectives')),
+              h('b', { class: 'gg-num' }, t('summary.objectivesValue', { n: tally.done })),
+              h('em', { class: 'gg-summary-bonuses gg-num' }, icon('star'), tally.bonus === 1 ? t('summary.bonuses.one') : t('summary.bonuses.many', { n: tally.bonus }))))
           : null,
         chip('hourglass', t('summary.time'), formatTime(run.elapsed)),
         // Named Oaths show numeral and name; the numbered ones above are their own name.

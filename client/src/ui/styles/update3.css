@@ -3224,11 +3224,3 @@ button.gg-relic-slot {
   font-size: 0.66em;
 }
 
-/* Three long options (German: "Großes Fadenkreuz"): tighter than the other segmented rows. */
-[data-testid='settings-cursor'] button {
-  padding-right: 0.3em;
-  padding-left: 0.3em;
-  font-size: 0.6em;
-  letter-spacing: 0;
-  white-space: nowrap;
-}

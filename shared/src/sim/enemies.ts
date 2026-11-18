@@ -5,12 +5,14 @@
  */
 import { RUN, TICK_DT, WORLD } from '../constants.ts';
 import { ENEMIES, ENEMY_TUNING, STATUS } from '../data/enemies.ts';
-import { AFFIX_IDS, type AffixId, type EnemyAnim, type EnemyKind, type Hazard } from '../types.ts';
+import { AFFIX_IDS, type AffixId, type ElementId, type EnemyAnim, type EnemyKind, type GameEvent, type Hazard } from '../types.ts';
 import { BUFFS } from '../data/classes.ts';
 import { chillSlow, clearStatus, damageHero, enemyDamage, isBoss, moveSlow, rawDamageEnemy } from './combat.ts';
 import { stepBoss, createBossState } from './boss.ts';
 import { angleTo, closestT, DEG, inArc, inLine, sweepHit, TAU } from './geom.ts';
+import { firstSpecial, flyReaver, isHorde, resolveHordeAttack, stepDome, stepHorde } from './horde.ts';
 import { resolveCollisions } from './movement.ts';
+import { damageAnchor, standingAnchor } from './objectives.ts';
 import { spawnProjectile } from './projectiles.ts';
 import type { AttackShape, Enemy, EnemyAttack, Hero } from './state.ts';
 import { AFFIX, AI, SIM } from './tuning.ts';
@@ -29,7 +31,25 @@ export interface SpawnOpts {
   reckless?: boolean;
   /** Pins the affix of an elite or champion (tests); otherwise it is drawn when the chamber calls for affixes. */
   affix?: AffixId;
+  /** Warded against this element (rank and file only; ignored for bosses and champions). */
+  ward?: ElementId;
+  /** Defend objective: attacks the bell shard instead of the heroes while it stands. */
+  siege?: boolean;
+  /** Hunt objective: a marked target. `hpMul` multiplies its health on top of everything else. */
+  marked?: boolean;
+  hpMul?: number;
+  /** Id of the necromancer that raised it. */
+  master?: number;
 }
+
+/** What an enemy goes for: a hero, or the bell shard of a `defend` chamber (slot -1). */
+export interface TargetLike {
+  body: { x: number; z: number };
+  slot: number;
+}
+
+/** The bell shard as a target (position refreshed before every use). */
+const SHARD: TargetLike = { body: { x: 0, z: 0 }, slot: -1 };
 
 const BOSS_KINDS_ALL: ReadonlySet<EnemyKind> = new Set<EnemyKind>(['champion', 'regent', 'matron', 'stalker']);
 
@@ -60,7 +80,8 @@ export function spawnEnemy(w: World, kind: EnemyKind, x: number, z: number, opts
   // Bosses swap the party health scaling of the rank and file for their own, steeper one.
   const party = w.partySize - 1;
   const bossParty = boss ? (1 + ENEMY_TUNING.BOSS_HP_PER_EXTRA_PLAYER * party) / (1 + RUN.HP_PER_EXTRA_PLAYER * party) : 1;
-  const maxHp = def.hp * w.hpMul * eliteHp * bossParty * (herald ? ENEMY_TUNING.HERALD.HP_FRACTION : 1);
+  const maxHp = def.hp * w.hpMul * eliteHp * bossParty * (herald ? ENEMY_TUNING.HERALD.HP_FRACTION : 1) * (opts.hpMul ?? 1);
+  const ward = !boss && opts.ward !== undefined ? opts.ward : null;
   // Elites and champions carry an affix once the run is deep or sworn enough (drawn only then, so shallow runs keep their random stream).
   let affix: AffixId | null = opts.affix ?? null;
   if (!affix && w.affixed && (kind === 'champion' || (elite && !boss))) affix = w.rng.pick(AFFIX_IDS);
@@ -77,14 +98,19 @@ export function spawnEnemy(w: World, kind: EnemyKind, x: number, z: number, opts
     passive: opts.passive === true, reckless: opts.reckless === true,
     affix, armored: affix === 'armored', markTime: 0, markBy: -1, sunder: 0, sunderTime: 0, rootTime: 0, slow: 0, slowTime: 0,
     smokeTime: 0, statusPower: 1, statusWeaken: 0, struckBy: 0,
+    ward, siege: opts.siege === true && !boss, marked: opts.marked === true, enraged: false, domeOn: false, domeCd: 0, domed: false,
+    specialCd: firstSpecial(kind), master: opts.master ?? -1, leapFromX: x, leapFromZ: z, leapTime: 0, mends: 0, wardCd: 0, interrupted: false,
   };
   if (w.nextEnemyId > 0xffff) w.nextEnemyId = 1;
   resolveCollisions(e, e.radius, w.room);
   const nearest = nearestHero(w, e.x, e.z);
   if (nearest) e.rot = angleTo(e.x, e.z, nearest.body.x, nearest.body.z);
   w.enemies.push(e);
-  if (affix) w.emit({ e: 'spawn', id: e.id, kind, x: e.x, z: e.z, elite, affix });
-  else w.emit({ e: 'spawn', id: e.id, kind, x: e.x, z: e.z, elite });
+  const ev: Extract<GameEvent, { e: 'spawn' }> = { e: 'spawn', id: e.id, kind, x: e.x, z: e.z, elite };
+  if (affix) ev.affix = affix;
+  if (ward) ev.ward = ward;
+  if (opts.master !== undefined && opts.master >= 0) ev.raisedBy = opts.master;
+  w.emit(ev);
   return e;
 }
 
@@ -279,6 +305,16 @@ export function landAttack(w: World, e: Enemy, a: EnemyAttack, shape: AttackShap
     else inside = inLine(a.x, a.z, a.rot, a.r, a.w, hx, hz, 0);
     if (inside) damageHero(w, h, dmg, e.id, shape === 'arc');
   }
+  // An attack that was aimed at the bell shard hurts it when it is inside the announced shape.
+  if (e.siege && a.target < 0) {
+    const shard = standingAnchor(w);
+    if (!shard) return;
+    let inside: boolean;
+    if (shape === 'arc') inside = inArc(a.x, a.z, a.rot, a.r, a.w, shard.x, shard.z, shard.r);
+    else if (shape === 'circle') inside = Math.hypot(shard.x - a.x, shard.z - a.z) <= a.r + shard.r;
+    else inside = inLine(a.x, a.z, a.rot, a.r, a.w, shard.x, shard.z, shard.r);
+    if (inside) damageAnchor(w, dmg);
+  }
 }
 
 function finishAttack(e: Enemy, anim: EnemyAnim): void {
@@ -289,17 +325,29 @@ function finishAttack(e: Enemy, anim: EnemyAnim): void {
   e.animSeq++;
 }
 
-function stepMelee(w: World, e: Enemy, target: Hero): void {
+/** Arc of the basic melee swing per kind: reach beyond the attack range and total angle (degrees). */
+function meleeArc(kind: EnemyKind): { reach: number; deg: number } {
+  if (kind === 'warrior') return WARRIOR_ARC;
+  if (kind === 'aegis') return AEGIS_ARC;
+  if (kind === 'reaver') return REAVER_ARC;
+  return MINION_ARC;
+}
+const MINION_ARC = { reach: AI.MINION_REACH_BONUS, deg: ENEMY_TUNING.MINION_ARC_DEG };
+const WARRIOR_ARC = { reach: AI.WARRIOR_REACH_BONUS, deg: ENEMY_TUNING.WARRIOR_ARC_DEG };
+const AEGIS_ARC = { reach: AI.AEGIS.REACH_BONUS, deg: AI.AEGIS.ARC_DEG };
+const REAVER_ARC = { reach: AI.REAVER.REACH_BONUS, deg: AI.REAVER.ARC_DEG };
+
+/** Walks up to the target and swings. `pad` is the target's own radius (the bell shard; 0 for heroes). */
+export function stepMelee(w: World, e: Enemy, target: TargetLike, pad = 0): void {
   const tx = target.body.x;
   const tz = target.body.z;
-  const d = Math.hypot(tx - e.x, tz - e.z);
+  const d = Math.hypot(tx - e.x, tz - e.z) - pad;
   e.rot = angleTo(e.x, e.z, tx, tz);
-  if (e.attackCd <= 0 && d <= e.def.attackRange && (w.meleeWindups[target.slot] ?? 0) < AI.MAX_MELEE_WINDUPS_PER_HERO) {
-    const warrior = e.kind === 'warrior';
-    const reach = e.def.attackRange + (warrior ? AI.WARRIOR_REACH_BONUS : AI.MINION_REACH_BONUS);
-    const arc = (warrior ? ENEMY_TUNING.WARRIOR_ARC_DEG : ENEMY_TUNING.MINION_ARC_DEG) * DEG;
-    w.meleeWindups[target.slot] = (w.meleeWindups[target.slot] ?? 0) + 1;
-    beginAttack(w, e, { type: 'melee', t: e.def.windup, x: e.x, z: e.z, rot: e.rot, r: reach, w: arc, damage: e.def.damage, target: target.slot }, 'arc', 'windup');
+  const hero = target.slot >= 0;
+  if (e.attackCd <= 0 && d <= e.def.attackRange && (!hero || (w.meleeWindups[target.slot] ?? 0) < AI.MAX_MELEE_WINDUPS_PER_HERO)) {
+    const arc = meleeArc(e.kind);
+    if (hero) w.meleeWindups[target.slot] = (w.meleeWindups[target.slot] ?? 0) + 1;
+    beginAttack(w, e, { type: 'melee', t: e.def.windup, x: e.x, z: e.z, rot: e.rot, r: e.def.attackRange + arc.reach + pad, w: arc.deg * DEG, damage: e.def.damage, target: target.slot }, 'arc', 'windup');
     return;
   }
   if (d > e.def.attackRange * AI.MELEE_STOP_FRACTION) {
@@ -312,7 +360,7 @@ function stepMelee(w: World, e: Enemy, target: Hero): void {
 }
 
 /** Shared ranged positioning: hold a distance band around the target, strafing inside it. */
-export function keepDistance(w: World, e: Enemy, target: Hero, keep: number, band: number, strafe: boolean, dt: number): void {
+export function keepDistance(w: World, e: Enemy, target: TargetLike, keep: number, band: number, strafe: boolean, dt: number): void {
   const tx = target.body.x;
   const tz = target.body.z;
   const dx = e.x - tx;
@@ -351,7 +399,7 @@ export function keepDistance(w: World, e: Enemy, target: Hero, keep: number, ban
   e.rot = angleTo(e.x, e.z, tx, tz);
 }
 
-function stepArcher(w: World, e: Enemy, target: Hero, dt: number): void {
+function stepArcher(w: World, e: Enemy, target: TargetLike, dt: number): void {
   const tx = target.body.x;
   const tz = target.body.z;
   const d = Math.hypot(tx - e.x, tz - e.z);
@@ -391,7 +439,7 @@ export function tryBlink(w: World, e: Enemy, threat: Hero, distance: number = EN
   return false;
 }
 
-function stepMage(w: World, e: Enemy, target: Hero, dt: number): void {
+function stepMage(w: World, e: Enemy, target: TargetLike, dt: number): void {
   e.blinkCd -= dt;
   const near = nearestHero(w, e.x, e.z);
   if (near && e.blinkCd <= 0 && Math.hypot(near.body.x - e.x, near.body.z - e.z) < AI.MAGE_BLINK_TRIGGER) {
@@ -425,8 +473,13 @@ function resolveAttack(w: World, e: Enemy, a: EnemyAttack): void {
       w.emit({ e: 'aoe', x: a.x, z: a.z, r: a.r, el: null, hostile: true });
       landAttack(w, e, a, 'circle');
       break;
-    default:
-      break;
+    default: {
+      const recover = resolveHordeAttack(w, e, a);
+      if (recover < 0) return;
+      finishAttack(e, 'attack');
+      e.recover = recover;
+      return;
+    }
   }
   finishAttack(e, 'attack');
 }
@@ -437,6 +490,12 @@ export function stepEnemy(w: World, e: Enemy): void {
     e.corpseTime -= dt;
     return;
   }
+  if (e.interrupted) {
+    // Announced here (the same tick for hero hits) because the interrupt path in combat.ts has no world at hand.
+    e.interrupted = false;
+    w.emit({ e: 'interrupt', id: e.id });
+  }
+  if (e.kind === 'aegis') stepDome(w, e, dt);
   if (e.status !== null) {
     e.statusTime -= dt;
     if (e.status === 'ember') {
@@ -451,6 +510,7 @@ export function stepEnemy(w: World, e: Enemy): void {
     if (e.statusTime <= SIM.EPS) clearStatus(e);
   }
   if (e.resonanceCd > 0) e.resonanceCd -= dt;
+  if (e.wardCd > 0) e.wardCd -= dt;
   if (e.markTime > 0) e.markTime -= dt;
   if (e.sunderTime > 0) e.sunderTime -= dt;
   if (e.rootTime > 0) e.rootTime -= dt;
@@ -489,6 +549,7 @@ export function stepEnemy(w: World, e: Enemy): void {
   if (e.passive) return;
   if (e.attack) {
     e.attack.t -= dt;
+    if (e.attack.type === 'pounce') flyReaver(e, e.attack);
     if (e.attack.t <= SIM.EPS) resolveAttack(w, e, e.attack);
     return;
   }
@@ -497,13 +558,23 @@ export function stepEnemy(w: World, e: Enemy): void {
     return;
   }
   if (e.attackCd > 0) e.attackCd -= dt * (1 - chillSlow(e)) * (e.affix === 'swift' ? AFFIX.SWIFT_ATTACK_RATE : 1);
-  const target = pickTarget(w, e, dt);
+  // Siege enemies of a `defend` chamber go for the bell shard while it stands (a knight's banner still pulls them off).
+  const shard = e.siege ? standingAnchor(w) : null;
+  let target: TargetLike | null = pickTarget(w, e, dt);
+  let pad = 0;
+  if (shard && !(target && taunting(w, e))) {
+    SHARD.body.x = shard.x;
+    SHARD.body.z = shard.z;
+    target = SHARD;
+    pad = shard.r;
+  }
   if (!target) {
     setAnim(e, 'idle');
     return;
   }
   if (e.kind === 'archer') stepArcher(w, e, target, dt);
   else if (e.kind === 'mage') stepMage(w, e, target, dt);
-  else stepMelee(w, e, target);
+  else if (isHorde(e.kind)) stepHorde(w, e, target, pad, dt);
+  else stepMelee(w, e, target, pad);
   resolveCollisions(e, e.radius, w.room);
 }

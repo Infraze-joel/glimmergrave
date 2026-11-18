@@ -1,7 +1,7 @@
 /** Purely visual tuning for the render kit. Gameplay numbers live in @shared. */
 import { ENEMIES } from '@shared/data/enemies.ts';
 import type { EnemyDef } from '@shared/data/enemies.ts';
-import type { AffixId, ClassId, DoorType, ElementId, EnemyKind, Hazard, Look } from '@shared/types.ts';
+import type { AffixId, ClassId, DoorType, ElementId, EnemyKind, Hazard, Look, ObjectiveKind } from '@shared/types.ts';
 import type { Quality } from '../core/Settings.ts';
 
 export const MODEL_BASE = '/assets/models/';
@@ -48,6 +48,17 @@ export const PALETTE = {
   /** Endless descent: the abyss below and the bell light above. */
   abyss: 0x8a3dff,
   bell: 0xfff3c4,
+  /** Update 4, the horde. Shaman: bog green (yellower than Glimmer). Aegis: a cold periwinkle ward, never red. */
+  mend: 0x58ff4a,
+  aegis: 0x8c9bff,
+  /** Bomber: the lit charge. Necromancer: grave violet with a pale soul light. Reaver: pale steel. */
+  fuse: 0xffd23a,
+  grave: 0x7a35d6,
+  soul: 0xd9a8ff,
+  reaver: 0xe6f4ff,
+  /** Objectives: the party's own goals are drawn in old gold, the bell shard in Glimmer. */
+  objective: 0xffd98a,
+  bronze: 0xb8863a,
 } as const;
 
 /** Hazard warnings deliberately avoid the hostile red: one colour per kind, shared by fixture, warning and impact. */
@@ -82,6 +93,16 @@ export const AFFIX_COLOR: Record<AffixId, number> = {
   armored: 0x9fb4d8,
   volatile: 0xffb52e,
   vampiric: 0xd4246e,
+};
+
+/** Emblem / tracker colour per objective (door emblems, start and done flourishes). None of them is the hostile red. */
+export const OBJECTIVE_COLOR: Record<ObjectiveKind, number> = {
+  slay: PALETTE.bone,
+  survive: PALETTE.bell,
+  defend: PALETTE.glimmer,
+  hunt: 0xffb86a,
+  ritual: 0xffa94a,
+  vault: 0xffd166,
 };
 
 export const CAMERA = {
@@ -250,6 +271,11 @@ export const ENEMY_MODEL: Record<EnemyKind, string> = {
   regent: 'skel_warrior',
   matron: 'skel_mage',
   stalker: 'skel_rogue',
+  shaman: 'skel_mage',
+  aegis: 'skel_warrior',
+  bomber: 'skel_minion',
+  necromancer: 'skel_mage',
+  reaver: 'skel_rogue',
 };
 
 export const EYE_COLOR: Record<EnemyKind, number> = {
@@ -261,6 +287,11 @@ export const EYE_COLOR: Record<EnemyKind, number> = {
   regent: 0xff2a4a,
   matron: 0x9dff3a,
   stalker: 0xffe23a,
+  shaman: PALETTE.mend,
+  aegis: PALETTE.aegis,
+  bomber: PALETTE.fuse,
+  necromancer: PALETTE.soul,
+  reaver: PALETTE.reaver,
 };
 
 /** Aura / phase-burst colours of the big enemies (primary, secondary). */
@@ -287,9 +318,9 @@ export function enemyDef(kind: EnemyKind): EnemyDef {
 }
 
 export const LIMITS = {
-  DECALS: 512,
-  FX_BILLBOARDS: 1536,
-  UI_BILLBOARDS: 640,
+  DECALS: 640,
+  FX_BILLBOARDS: 1792,
+  UI_BILLBOARDS: 704,
   PARTICLES: 1100,
   DAMAGE_NUMBERS: 48,
   TELEGRAPHS: 48,
@@ -299,4 +330,9 @@ export const LIMITS = {
   FLOATERS: 24,
   HAZARDS: 24,
   HAZARD_SPIKES: 12,
+  /** Update 4: ward domes (one aegis per two heroes), shaman beams, ritual braziers, hunt targets. */
+  DOMES: 4,
+  MEND_BEAMS: 24,
+  SITES: 4,
+  HUNT_TARGETS: 8,
 } as const;

@@ -8,6 +8,8 @@
  *   crypt   – low drone, stale air, distant drips, now and then a far creak or knock
  *   flooded – water lapping, frequent drips, a hollow tunnel resonance
  *   forge   – deep rumble, fire roar, bellows-like breathing, sparse metal ticks and ember pops
+ *   vault   – (update 4, a chamber without a fight, whatever its biome) still air, a warm hum on D and A,
+ *             small glints of metal and now and then a coin settling
  */
 import type { BiomeId } from '@shared/types.ts';
 import { MIX, noise, tone, type AudioGraph } from './engine.ts';
@@ -31,8 +33,11 @@ interface SceneDef {
   events: EventDef[];
 }
 
+/** A biome, or the sealed vault that replaces the biome's ambience while the party is in one. */
+export type SceneId = BiomeId | 'vault';
+
 interface Scene {
-  biome: BiomeId;
+  biome: SceneId;
   out: GainNode;
   sources: AudioScheduledSourceNode[];
   nextBed: number[];
@@ -46,7 +51,7 @@ export type Ambience = ReturnType<typeof createAmbience>;
 export function createAmbience(g: AudioGraph, player: Player) {
   const { ctx } = g;
   let scenes: Scene[] = [];
-  let current: BiomeId | null = null;
+  let current: SceneId | null = null;
 
   // ---------------------------------------------------------------- building blocks
   const loopNoise = (scene: Scene, t: number, type: BiquadFilterType, freq: number, q: number, gain: number, poles = 1): { filter: BiquadFilterNode; amp: GainNode } => {
@@ -104,7 +109,7 @@ export function createAmbience(g: AudioGraph, player: Player) {
   };
 
   // ---------------------------------------------------------------- the three biomes
-  const DEFS: Record<BiomeId, SceneDef> = {
+  const DEFS: Record<SceneId, SceneDef> = {
     crypt: {
       gain: 0.44,
       beds: [{ group: 'bed.drone', rate: 0.5, gain: 0.5, lpf: 260 }],
@@ -173,6 +178,35 @@ export function createAmbience(g: AudioGraph, player: Player) {
         { every: [0.4, 1.6], play: (scene, t) => noise(g, scene.out, t, { dur: 0.02, gain: 0.008 + Math.random() * 0.02, filter: 'highpass', freq: 2500 + Math.random() * 3000, send: 0.3 }) },
       ],
     },
+    vault: {
+      gain: 0.5,
+      beds: [{ group: 'bed.drone', rate: 0.5, gain: 0.22, lpf: 220 }],
+      build(scene, t) {
+        // a closed room: very little air, and the walls humming an open fifth with a major third far above
+        loopNoise(scene, t, 'lowpass', 150, 0.5, 0.16, 2);
+        hum(scene, t, 73.42, 0.05);
+        hum(scene, t, 73.9, 0.04);
+        hum(scene, t, 110, 0.03);
+        const third = loopNoise(scene, t, 'bandpass', 370, 30, 0.05);
+        lfo(scene, t, 0.06, 0.03, third.amp.gain);
+        const air = loopNoise(scene, t, 'bandpass', 2400, 0.7, 0.004);
+        lfo(scene, t, 0.09, 0.002, air.amp.gain);
+      },
+      events: [
+        // a glint: one or two high, soft notes of D major
+        {
+          every: [1.6, 5],
+          play(scene, t) {
+            const notes = [1174.7, 1480, 1760, 2349.3];
+            const f = notes[Math.floor(Math.random() * notes.length)];
+            tone(g, scene.out, t, { freq: f, dur: 0.9, gain: 0.018, send: 0.9 });
+            if (Math.random() < 0.4) tone(g, scene.out, t + 0.18, { freq: f * 1.5, dur: 0.7, gain: 0.012, send: 0.9 });
+          },
+        },
+        { every: [6, 14], play: (scene, t) => far(scene, 'ui.coins', t, 0.1, 0.85 + Math.random() * 0.3, 5000) },
+        { every: [11, 24], play: (scene, t) => far(scene, Math.random() < 0.5 ? 'pouch' : 'ping', t, 0.06, 0.8, 4000) },
+      ],
+    },
   };
 
   const between = ([min, max]: [number, number]): number => min + Math.random() * (max - min);
@@ -188,8 +222,8 @@ export function createAmbience(g: AudioGraph, player: Player) {
     }
   };
 
-  /** Crossfades to the ambience of a biome; null fades everything out. */
-  const setBiome = (biome: BiomeId | null): void => {
+  /** Crossfades to the ambience of a biome (or of the vault); null fades everything out. */
+  const setBiome = (biome: SceneId | null): void => {
     if (biome === current) return;
     current = biome;
     const now = ctx.currentTime;
@@ -243,5 +277,5 @@ export function createAmbience(g: AudioGraph, player: Player) {
 
   const bedSeconds = (bed: BedDef): number => (player.duration(bed.group) || 3) / bed.rate;
 
-  return { setBiome, schedule, biome: (): BiomeId | null => current, active: (): boolean => current !== null, sceneCount: (): number => scenes.length };
+  return { setBiome, schedule, biome: (): SceneId | null => current, active: (): boolean => current !== null, sceneCount: (): number => scenes.length };
 }

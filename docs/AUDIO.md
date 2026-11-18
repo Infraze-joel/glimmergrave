@@ -16,13 +16,13 @@ from the GitHub repositories below; for each one the licence file in the reposit
 
 | Pack | Repository | Commit | Licence file → what it states | Used for |
 |---|---|---|---|---|
-| Kenney RPG Audio | https://github.com/Boyquotes/kenney-rpg-audio-for-godot | `22eb79bb843bbcadcaa6ed119353a33265ffad11` | `LICENSE` → "CC0 1.0 Universal" (full legal code) | blades, cloth, doors, creaks, coins, latches, pots; update 3: `ui.book` |
-| Kenney Impact Sounds | https://github.com/Boyquotes/kenney-impact-sounds-for-godot | `999dd1684873f8b020a3aa5b26e713da21688924` | `LICENSE` → "CC0 1.0 Universal" (full legal code) | all impacts: bone, body, metal, glass, plate, earth, bell |
+| Kenney RPG Audio | https://github.com/Boyquotes/kenney-rpg-audio-for-godot | `22eb79bb843bbcadcaa6ed119353a33265ffad11` | `LICENSE` → "CC0 1.0 Universal" (full legal code) | blades, cloth, doors, creaks, coins, latches, pots; update 3: `ui.book`; update 4: reliquary lid (`lid`), pouches (`pouch`) |
+| Kenney Impact Sounds | https://github.com/Boyquotes/kenney-impact-sounds-for-godot | `999dd1684873f8b020a3aa5b26e713da21688924` | `LICENSE` → "CC0 1.0 Universal" (full legal code) | all impacts: bone, body, metal, glass, plate, earth, bell; update 4: dull plate (`hit.dull`) |
 | Kenney Music Jingles | https://github.com/Boyquotes/kenney-music-jingles-for-godot | `1312c1a8ab2b5830136a5f53ea8c570389bd0808` | `LICENSE` → "CC0 1.0 Universal" (full legal code) | pizzicato jingles, war-drum hits |
 | Kenney Interface Sounds | https://github.com/Calinou/kenney-interface-sounds | `4596a49eaf5a533948d49a47467f606bcdea70ff` | `LICENSE.txt` → "License: (Creative Commons Zero, CC0)" | interface, glass pings, sparks; update 3: `pluck`, `ui.rise`, `bong` |
 | Kenney UI Audio | https://github.com/Calinou/kenney-ui-audio | `8c3d81b9159d058c444f89d12d518276b0b09345` | `LICENSE.txt` → "License (Creative Commons Zero, CC0)" | hover, click, tab |
-| Kenney Sci-Fi Sounds | https://github.com/Boyquotes/kenney-sci-fi-sounds-for-godot | `c094967fe930c57ddb376f67c75f8aa0296690b7` | `LICENSE` → "CC0 1.0 Universal" (full legal code) | blasts, fire texture, force field, bolts, beds; update 3: iron impacts (`hit.iron`), umbra grain (`tex.void`) |
-| Kenney Digital Audio | https://github.com/Boyquotes/kenney-digital-audio-for-godot | `185a77e7c675341ad8d0805b3bbe4f20427c2481` | `LICENSE` → "CC0 1.0 Universal" (full legal code) | zaps; update 3: arcane rise (`arcane`), chained zap (`zap.chain`), sub drop (`sub.drop`) |
+| Kenney Sci-Fi Sounds | https://github.com/Boyquotes/kenney-sci-fi-sounds-for-godot | `c094967fe930c57ddb376f67c75f8aa0296690b7` | `LICENSE` → "CC0 1.0 Universal" (full legal code) | blasts, fire texture, force field, bolts, beds; update 3: iron impacts (`hit.iron`), umbra grain (`tex.void`); update 4: spinning hum (`tex.spin`) |
+| Kenney Digital Audio | https://github.com/Boyquotes/kenney-digital-audio-for-godot | `185a77e7c675341ad8d0805b3bbe4f20427c2481` | `LICENSE` → "CC0 1.0 Universal" (full legal code) | zaps; update 3: arcane rise (`arcane`), chained zap (`zap.chain`), sub drop (`sub.drop`); update 4: falling tone (`zap.fall`) |
 
 Notes on provenance: the five `Boyquotes/*` repositories are third-party Godot ports of the Kenney packs; their
 only licence statement is the CC0 legal code at the repository root (they do not carry Kenney's own
@@ -172,6 +172,10 @@ The same record ships with the files as `client/public/assets/audio/credits.json
 | `zap.chain.1.mp3` | Kenney Digital Audio | `addons/kenney digital audio/zap_three_tone_down.ogg` | `185a77e7c6` |
 | `tex.void.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/space_engine_low_001.ogg` | `c094967fe9` |
 | `tex.fireLow.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/thruster_fire_003.ogg` | `c094967fe9` |
+| `hit.dull.1.mp3` | Kenney Impact Sounds | `addons/kenney impact sounds/impact_plate_light_000.ogg` | `999dd16848` |
+| `hit.dull.2.mp3` | Kenney Impact Sounds | `addons/kenney impact sounds/impact_plate_light_002.ogg` | `999dd16848` |
+| `zap.fall.1.mp3` | Kenney Digital Audio | `addons/kenney digital audio/high_down.ogg` | `185a77e7c6` |
+| `tex.spin.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/engine_circular_000.ogg` | `c094967fe9` |
 | `door.open.1.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/door_open_1.ogg` | `22eb79bb84` |
 | `door.open.2.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/door_open_2.ogg` | `22eb79bb84` |
 | `door.close.1.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/door_close_4.ogg` | `22eb79bb84` |
@@ -194,6 +198,9 @@ The same record ships with the files as `client/public/assets/audio/credits.json
 | `slime.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/slime_000.ogg` | `c094967fe9` |
 | `sub.drop.1.mp3` | Kenney Digital Audio | `addons/kenney digital audio/low_down.ogg` | `185a77e7c6` |
 | `bong.1.mp3` | Kenney Interface Sounds | `addons/kenney_interface_sounds/bong_001.wav` | `4596a49eaf` |
+| `lid.1.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/book_close.ogg` | `22eb79bb84` |
+| `pouch.1.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/handle_small_leather.ogg` | `22eb79bb84` |
+| `pouch.2.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/handle_small_leather_2.ogg` | `22eb79bb84` |
 | `bed.drone.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/space_engine_low_002.ogg` | `c094967fe9` |
 | `bed.rumble.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/space_engine_large_000.ogg` | `c094967fe9` |
 <!-- sources:end -->
@@ -227,9 +234,10 @@ Firefox and Safari alike; this ffmpeg can also write AAC, but AAC in M4A depends
 Firefox and is absent in plain Chromium builds. MP3's weakness, encoder delay at the start of a file, is
 handled at run time: playback starts at the first sample above −48 dB (`leadOf` in `samples.ts`).
 
-Shipped: **160 files, 650 306 bytes** of MP3 plus `credits.json` (8.1 kB) — 635 kB of the 900 kB budget the build
-enforces since update 3 (update 2: 146 files, 593 917 bytes; the old files are byte-identical).
-Per tier: interface 89 kB, core combat 147 kB, abilities / elements / enemies 232 kB, run flow 137 kB, beds 30 kB.
+Shipped: **167 files, 681 802 bytes** of MP3 plus `credits.json` (8.3 kB) — 666 kB of the 900 kB budget the build
+enforces since update 3 (update 3: 160 files, 650 306 bytes; update 2: 146 files, 593 917 bytes; the old files are
+byte-identical each time).
+Per tier: interface 89 kB, core combat 147 kB, abilities / elements / enemies 254 kB, run flow 146 kB, beds 30 kB.
 
 ## 3. Runtime
 
@@ -542,4 +550,157 @@ talent → `talentPick`, relic → `relicEquip`, removal → `equip`, feat → `
   for the whole duration.
 - A change of depth transposes a running piece at a bar line, a semitone at a time; it is not a modulation.
 - Affix cues are limited to one per 0.35 s: two elites with different affixes spawning together sound as one.
+
+## 10. Update 4 — "Objectives and the Horde"
+
+Nothing in this section was judged by ear; all of it is measured (10.6). Code: `sfx-horde.ts` (the five new enemy
+kinds, wards), `sfx-objectives.ts` (stingers, braziers, shard, timer, reliquary), `objective-clock.ts` (the timer's
+own clock), the objective pieces in `music.ts`, the vault scene in `ambience.ts`, the wiring in `index.ts`.
+
+### 10.1 The five new enemy kinds
+
+Each kind has a register and a gesture of its own. Spawn signatures follow the common spawn sound by 0.14 s and
+have their own limiter family (`voice`, 2 per 0.2 s), so a bomber in a crowded wave still announces itself.
+
+| Kind | Spawn signature | Action | Death (on top of the common kill) |
+|---|---|---|---|
+| shaman | two hummed notes F → A ("oo" formant bands, S slime) | `cast` `mend`: a hum climbing a fifth (D → A) and swelling for the whole channel (1.4 s), three heartbeats, never resolving by itself. `mend` event: it lands on F major, one small note per healed enemy (up to 4). Interrupted: cut in 12 ms plus a swallowed, falling choke | the voice drops an octave and a half |
+| aegis | S plate + iron + clang set down, a glassy D–A ring | `dome` on: glassy swell (reversed S shimmer, S force field, S spinning hum, partials D5 A5 D6 fading in over 0.4 s, S ping on top). `dome` off: crack (S heavy + medium glass, S falling tone, falling sines, four shards) | plate coming down in two pieces |
+| bomber | flint struck twice, a hiss catching, a squeak going up | `cast` `fuse`: nine ticks whose gaps shrink by a fifth each (0.8 s in all), rising an octave, over a hiss climbing 2.4 → 8.2 kHz. Burst: S blast (bright) + sub, ~ 150 → 38 Hz, bone shrapnel | its death is its burst: slain, it hisses frantically for 0.6 s (six ticks), then bursts |
+| necromancer | muffled low bell, a breath of chant on D | `cast` `raise`: chant (low saws D2 A2 through "oo" bands, level beating at 4.6 Hz) while nine bone knocks get denser and higher; one knock together when the minions stand | the chant breaks downwards, fourteen bone knocks collapse over 0.9 s, S earth |
+| reaver | two blades drawn fast, a short snarl | `cast` `reaver_leap`: take-off, a whoosh over the air time (0.8 s) with a whistle falling 2.1 kHz → 620 Hz towards the landing, the landing scheduled at the end (S earth + thud + blade, ~ 170 → 46 Hz) | blades dropped |
+
+- **Warnings.** Bomber and reaver cues play on the `big` bus with the priority of the own hero; their limiter
+  families (`fuse` 3 per 0.15 s, `burst` 3 per 0.12 s, `leap` 2 per 0.2 s) are separate from the other enemy casts;
+  the ticks, the hiss and the whistle are synthesised, so no voice limit can take them away.
+- **Channels.** Mend, fuse, raise and leap are remembered per enemy id. The enemy's `kill` cuts them in 12 ms
+  (a reaver killed in the air does not land). The `interrupt` event (a stun or stagger broke the wind-up) does
+  the same through `sfx.interrupt(id)`: mend, raise, fuse and leap stop dead, and a scheduled landing is taken
+  back. A cut mend also gets a swallowed, falling choke of 0.1 s, so the stop reads as an interruption. An
+  `interrupt` for an enemy that channels nothing is silent.
+- **Bomber burst.** It is not scheduled with the fuse (a stun may still stop it). It answers the server's report:
+  the bomber's `kill` or the hostile `aoe`, whichever comes first within 0.2 s before / 0.3 s after the fuse's end;
+  the other one is then swallowed, so the burst sounds once and the common hostile blast does not play on top.
+  A bomber slain earlier bursts after `BOMBER.DEATH_BLAST_DELAY`: that burst is scheduled at the kill, and the
+  `aoe` that reports it is swallowed. The reaver's landing `aoe` is swallowed the same way.
+- **Necromancer.** Its death plays the collapse; the minions' own `kill` events follow through the kill limiter
+  (3 per 80 ms), so six minions crumble as one gesture and not as six.
+- Enemy `cast` ids are matched by `hordeCast()` (`mend`, `raise`, `fuse`, `reaver_leap`, also with a prefix);
+  the stalker's `leap` and all older ids still go to the boss cues.
+
+### 10.2 Wards
+
+`spawn.ward` is remembered per enemy. `warded` (the own hero's element did nothing) plays a dull deflect: S dull
+plate and tight thump, both low-passed, a 230 → 150 Hz knock, and the element's register falling and choked within
+0.1 s; nothing rings. Hits of any hero that carry the warded element lose their element layer, so a warded enemy
+never sounds as if the element had worked. Allies' `warded` events are silent.
+
+### 10.3 Objectives
+
+| Event | Sound |
+|---|---|
+| `objective` `start` | one stinger per kind, about a second: **survive** — low bell (low-passed) and two war-drum beats; **defend** — the shard rings: high bell, glass, partials D6 A6 held; **hunt** — horn call, a rising fourth over a drum pick-up; **ritual** — three flames catching, D–F–A upwards; **vault** — coins, latch, a warm D major add 9. `slay`: nothing new (the wave drums) |
+| `objective` `site` | brazier ignition: air rushing into flame (S fire), crackle, a struck bowl; the note climbs with every lit brazier (D4, F4, A4, …); the last one adds the chord of all notes and a bell |
+| `objective` `anchorHit` | short cracked bell, S dull plate, and a soft two-note alarm (a minor second) that gets higher and closer together as the shard weakens, doubled under 30 % health. At most one per 0.8 s |
+| `objective` `bonusLost` | defend: the shard shatters (bell bending down, S glass cascade, sub, a diminished chord); hunt: the enrage sting (roar breaking upwards, tritone, war drum); survive / ritual: two soft falling notes |
+| `objective` `done` | with bonus: a run up the D major chord, bell, rising sweep, Glimmer pouring; without: one low bell on an open fifth. Short, the chamber-clear jingle may follow. Vault: the reliquary opens (latches, creak, lid, shimmer, a chord unfolding, coins and pouches) |
+| timer (survive, hunt, ritual) | the last 10 seconds, one cue per second, dry on the interface bus, pitch and level climbing; the last 3 seconds get a pick-up on the half second. survive: a soft toll under the tick; hunt: a heartbeat; ritual: a spit of fire. Nothing at 0: `done` / `bonusLost` sound there |
+| vault ambience | replaces the biome's scene while `RunState.objective.kind` is `vault`: still air, a hum on D and A with an F♯ far above, sparse D major glints, a coin settling every 6–14 s |
+
+**The timer clock** (`objective-clock.ts`, unit-tested in `tests/unit/audioObjectiveClock.test.ts`):
+`RunState.objective.timeLeft` only anchors a deadline on the audio clock; the ticks are scheduled against that
+deadline 0.2 s ahead. A later report moves the deadline only when it puts the end earlier (every report is late
+by its network delay, so the earliest estimate is the best) or when it disagrees by more than 0.4 s (re-anchor).
+No tick sounds twice or within 0.5 s of the one before. For hunt and ritual the ticks stop when the bonus is lost.
+
+### 10.4 Score
+
+`music.setObjective(kind, pressure, lit)`: in a combat chamber with a special objective the `combat` state plays
+that objective's piece (track keys `obj:<kind>`); elite and boss chambers, draft and doors are unchanged. A change
+crossfades in 1.5 s like every other change of state. `pressure` and `lit` are read step by step, so tempo and
+layers move without a seam. The depth transposition and overlay of update 3 apply to all five pieces (the vault,
+like the calm interlude, gets the overlay without its pulse).
+
+| Piece | Character | Follows |
+|---|---|---|
+| survive | four on the floor, a tick-tock of bones, the bass pulsing on the root | time run: 116 → 136 bpm, eighths become sixteenths at half time, more hats, tremolo, a snare roll every second bar and the lead in the last quarter |
+| defend | tonic and fifth held under everything, a bell on D every second bar, half-time drums (back beat on three), choir, a slow wailing line | shard damage: above 50 % a tremolo on the fifth |
+| hunt | a sixteenth ostinato (Phrygian), toms galloping, a horn call every four bars, 130 bpm | enraged (bonus lost): 138 bpm, tritone stabs and tremolo |
+| ritual | drone, hand drum, bones | one layer per lit brazier: glass arpeggio; kick, bass and hats; snare, choir and lead. One bell note per burning brazier every four bars. 104 → 116 bpm |
+| vault | pad, sparse plucks, glints, no drums, 66 bpm | nothing. The only piece in the relative major (F, B♭, C) |
+
+### 10.5 Workbench
+
+`?audiodemo` has scenes `game: <objective>`, a section "Chamber objective" that runs a whole chamber as the server
+would report it (start, run states every 250 ms with jitter, milestones, the timer, done), the new kinds, wards and
+objective milestones as bus events, an "OBJECTIVE STRESS" button, and three more columns in the measurement table
+(rise, active time, onsets). `window.__audiodemo` adds `timeline(kind, seconds, bonus)`, `tickLog()`, `callLog()`,
+`renderUpdate4()`, `renderSequences()`, `objectiveStress()`, `interrupt(id)`.
+
+### 10.6 Measurements (update 4)
+
+313 offline renders after the master chain at full volume, all non-silent, largest DC offset 4·10⁻⁴. Their
+highest peak was −2.0 dBFS, in a bomber sequence; the burst's click was trimmed after that run, and three further
+runs of the 34 update 4 sequence / score renders plus the bomber cases peak at −2.6 dBFS. The full set was not
+rendered again after that one trim. Centroid as before; "active" = seconds within 30 dB of the loudest 10 ms frame; "onsets" = separate attacks.
+
+| Sound | Loudest 400 ms dBFS | Centroid Hz | Rise s | Active s | Onsets |
+|---|---|---|---|---|---|
+| spawn signature: shaman / aegis / bomber / necromancer / reaver | −21.8 / −21.0 / −17.3 / −20.5 / −21.6 | 1120 / 1310 / 7140 / 360 / 3980 | 0.25 / 0.00 / 0.25 / 0.30 / 0.10 | 1.0 / 0.9 / 0.7 / 2.8 / 0.5 | 1 / 1 / 4 / 1 / 2 |
+| for comparison: common spawn (minion, warrior, archer, mage) | −30.0 (−31.6 … −28.9) | 790–890 | | | |
+| action: mend / dome up / fuse / raise / leap | −18.5 / −19.3 / −14.9 / −16.5 / −14.4 | 860 / 7800 / 8730 / 630 / 4020 | 1.27 / 0.39 / 0.55 / 1.28 / 0.83 | 2.1 / 1.3 / 1.2 / 1.7 / 1.6 | 1 / 0 / 3 / 4 / 4 |
+| mend release / dome down / bomber burst | −22.4 / −19.2 / −12.6 | 1120 / 3110 / 3670 | | | |
+| death layer: shaman / aegis / necromancer / reaver; bomber slain | −24.9 / −17.5 / −16.4 / −22.8; −12.3 | 1070 / 1510 / 1080 / 3380; 6180 | | | |
+| for comparison: common kill −23.2, boss cues −19.8 (−27.8 … −14.3), hostile blast −18.3, own hurt −16.6, Resonance −13, ultimates −11 | | | | | |
+| ward deflect (4 elements) | −21.1 (−21.5 … −20.6) | 800–880 | 0.01 | 0.3 | 1 |
+| stinger: survive / hunt / vault / ritual / defend | −14.9 / −15.4 / −17.9 / −15.9 / −17.1 | 420 / 1300 / 2200 / 2640 / 7900 | 0.66 / 0.21 / 0.28 / 0.03 / 0.00 | 1.7 / 1.2 / 1.1 / 1.1 / 1.2 | 1 / 4 / 1 / 2 / 1 |
+| brazier 1 / 2 / 3 of 3 (strongest partial 301 / 345 / 431 Hz = D4 / F4 / A4) | −14.8 / −14.7 / −14.5 | 3500 / 3330 / 3000 | | | |
+| shard hit (full / 15 % health) | −23.0 / −21.7 | 1660 / 1730 | | 0.7 | |
+| shard shatters / hunt enrage / bonus lost (soft) | −11.6 / −11.7 / −24.2 | 1670 / 2720 / 780 | | | |
+| done with bonus / without / reliquary | −16.1 / −20.4 / −14.3 | 3140 / 360 / 3550 | | | |
+| timer, whole countdown: survive / hunt / ritual | −20.9 / −21.7 / −23.3 | 1370 / 1940 / 4120 | | | |
+| for comparison: draft countdown tick | −38.2 | | | | |
+| score: combat −22.4 RMS; survive at 0 / 60 / 100 % | RMS −23.6 / −21.4 / −21.2 | 1460 / 1560 / 1790 | | | 52 / 110 / 119 in 12 s |
+| score: defend / hunt / hunt enraged / vault | RMS −21.2 / −22.4 / −22.4 / −24.3 | 850 / 1890 / 1930 / 610 | | | 7 / 92 / 106 / 5 |
+| score: ritual with 0 / 1 / 2 / 3 braziers | RMS −23.5 / −22.9 / −21.0 / −21.0 | 360 / 480 / 930 / 1080 | | | 7 / 7 / 20 / 30 |
+| score at depth 5: survive / defend / hunt / ritual / vault | RMS −19.3 / −21.1 / −20.2 / −20.3 / −22.7 | | | | |
+| vault ambience (others −30.0 / −31.5 / −27.7) | RMS −29.5 | 1150 | | | |
+| stress: 6 bombers (spawn, fuse, burst, blows to the own hero), 2 ultimates, the last 3 timer seconds, all six reactions as a chain, reaver, mend, dome, shard shatter, 30 hits, done + chamber clear, survive piece at full pressure, depth 5 | −9.3 … −9.8, peak −2.6 | 3780 | | | |
+
+Timed sequences (level per 50 ms): a completed mend rises from −35 to −18 dBFS and resolves; interrupted at half
+time it falls from −25 to −32 within 50 ms and decays (room only); a stunned fuse falls from −19 to −36 within
+50 ms and no burst follows; an interrupted raise falls from −19 to −28 and an interrupted leap from −27 to −40
+within 50 ms, with no final knock and no landing; a fuse answered by `kill` + `aoe` in either order, 0.12 s late or 0.1 s early gives one
+burst of the same level (−12.1 … −12.9 over three runs), never two; a bomber slain at half fuse bursts once, 0.6 s
+after the kill; a reaver killed in the air does not land; a landing reported by `aoe` measures like one without.
+
+Without samples (empty bank) all 41 update 4 sound cases are non-silent (quietest: the reaver's death layer, −44).
+
+Live page (headless Chrome): 167 of 167 files decoded, every request carried `?v=`; all 204 workbench events (48 of
+them new) fired in three scenes; the score went combat → `obj:survive` → `obj:defend` → `obj:hunt` → `obj:ritual` →
+`obj:vault` (ambience `vault`) → calm → combat → elite → `obj:ritual` → calm → menu with depth 3 kept throughout and
+one track left after the fades; seven simulated objective chambers (survive, hunt kept / lost, ritual, defend kept /
+lost, vault) ran with run states every 250 ms ± 60 ms: the timer ticked 10 … 1 exactly once each, 0.998–1.000 s
+apart, no re-anchoring except where the simulated timer itself jumped; the objective stress peaked at −3.1 dBFS live;
+0 console errors or warnings; no sample voice or enemy channel left sounding.
+
+### 10.7 Known gaps of update 4
+
+- Not listened to. Most at risk: whether the five kinds are told apart by ear as the centroid / envelope figures
+  suggest; the shaman's hum and the necromancer's chant (saws and noise through band-passes); whether the fuse
+  reads as "run" or as a noise; whether the timer is alarming or annoying over a busy fight.
+- Interrupted raise, fuse and leap are only cut; the mend alone has a cut-off sound of its own. The audio side of
+  `interrupt` was checked with workbench events and offline renders, not against the sim's emit.
+- The burst / landing matching is by time, not by enemy: an unrelated hostile blast within 0.3 s of an expected
+  bomber burst or reaver landing is swallowed, and a hero's kill in the last 0.2 s of a fuse bursts 0.6 s early.
+- Spawn signatures are about 9 dB above the common spawn sound on purpose; a wave of mixed new kinds is loud for
+  half a second. The `voice` limiter lets two through per 0.2 s.
+- The enrage sting says that the hunt's targets enraged, not which enemy; enraged elites have no sound of their own.
+- Repairing the shard, standing in a brazier's circle and its progress have no sound (no events; brazier
+  progress could be read from the run state).
+- The vault's piece plays while the run is in the `combat` phase of a vault chamber; if the server shows a vault
+  in another phase, the calm interlude plays there (the ambience is the vault's either way).
+- Objective pieces change at once when a brazier is lit (next step), not at a bar line; tempo steps with it.
+- The score's `pressure` for survive / hunt is measured against the longest time the timer has shown in the
+  chamber; a client that joins late hears a lower pressure than the others.
 

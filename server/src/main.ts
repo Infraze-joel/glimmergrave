@@ -2,6 +2,7 @@
 import { pathToFileURL } from 'node:url';
 import { SERVER } from './config.ts';
 import { consoleLogger } from './log.ts';
+import { OBJECTIVE_KINDS, type ObjectiveKind } from '../../shared/src/types.ts';
 import { parseOrigins, startServer } from './server.ts';
 
 export { startServer, parseOrigins, type RunningServer, type ServerOptions } from './server.ts';
@@ -12,12 +13,18 @@ function envInt(name: string, fallback: number): number {
   return Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
+/** DEBUG_OBJECTIVE: one of OBJECTIVE_KINDS, anything else is ignored. */
+function parseObjective(raw: string | undefined): ObjectiveKind | undefined {
+  return OBJECTIVE_KINDS.find((k) => k === raw);
+}
+
 export async function main(): Promise<void> {
   const server = await startServer({
     port: envInt('PORT', SERVER.DEFAULT_PORT),
     allowedOrigins: parseOrigins(process.env.ALLOWED_ORIGINS),
     maxRooms: envInt('MAX_ROOMS', SERVER.DEFAULT_MAX_ROOMS),
     debugStartChamber: envInt('DEBUG_START_CHAMBER', 0),
+    debugObjective: parseObjective(process.env.DEBUG_OBJECTIVE),
   });
   let stopping = false;
   const stop = (signal: string): void => {

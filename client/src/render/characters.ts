@@ -3,6 +3,7 @@
  * All overlay visuals (rings, shadows, bars, icons, labels) are pushed into the shared batches each frame.
  */
 import { AnimationMixer, Color, LoopOnce, LoopRepeat } from 'three';
+import { Vector3 } from 'three';
 import type { AnimationAction, AnimationClip, Object3D, SkinnedMesh } from 'three';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import { EF, ENEMY_KINDS, PF } from '@shared/types.ts';
@@ -13,11 +14,11 @@ import { ENEMY_TUNING } from '@shared/data/enemies.ts';
 import { DEFAULT_LOOK, LOOK } from '@shared/data/meta.ts';
 import { NET } from '@shared/constants.ts';
 import { BODY_MESH_NAME } from './assets.ts';
-import type { Assets, CharacterTemplate, ShadowRange } from './assets.ts';
+import type { Anchor, Assets, CharacterTemplate, ShadowRange } from './assets.ts';
 import type { Atlas, IconName } from './atlas.ts';
 import { DECAL, SPRITE } from './batches.ts';
 import type { BillboardBatch, DecalBatch } from './batches.ts';
-import { AFFIX_COLOR, BOSS_AURA, CAMERA, ELEMENT_COLOR, ENEMY_VIS, EYE_COLOR, HERO_OUTFIT, HERO_VIS, PALETTE, SLOT_COLORS, enemyDef, isBigEnemy, lookKey } from './config.ts';
+import { AFFIX_COLOR, BOSS_AURA, CAMERA, ELEMENT_COLOR, ENEMY_VIS, EYE_COLOR, HERO_OUTFIT, HERO_VIS, LIMITS, OBJECTIVE_COLOR, PALETTE, SLOT_COLORS, enemyDef, isBigEnemy, lookKey } from './config.ts';
 import { rgb } from './vfx.ts';
 import { createCharacterMaterial } from './materials.ts';
 import type { CharacterMaterial } from './materials.ts';
@@ -145,6 +146,13 @@ const ENEMY_ATTACK: Record<EnemyKind, EnemyAttackDef> = {
   regent: { clip: '1H_Melee_Attack_Chop', impact: 0.58 },
   matron: { clip: 'Spellcast_Long', impact: 1.35, strike: 'Spellcast_Shoot', strikeStart: 0.05 },
   stalker: { clip: '2H_Ranged_Aiming', impact: 0.45, strike: '2H_Ranged_Shoot', strikeStart: 0.1 },
+  // update 4. The shaman's basic attack is its hex bolt, the aegis bashes with the shield, the bomber's only
+  // "attack" is its fuse (handled in startHorde), the necromancer only raises, the reaver cuts with both blades.
+  shaman: { clip: 'Spellcast_Long', impact: 1.35, strike: 'Spellcast_Shoot', strikeStart: 0.05 },
+  aegis: { clip: 'Block_Attack', impact: 0.35 },
+  bomber: { clip: 'Taunt', impact: 0.5 },
+  necromancer: { clip: 'Spellcast_Summon', impact: 2.9 },
+  reaver: { clip: 'Dualwield_Melee_Attack_Slice', impact: 0.55 },
 };
 
 interface SpecialDef {
@@ -175,7 +183,14 @@ const SPECIALS: Record<'sweep' | 'charge' | 'volley' | 'summon' | 'slam', Specia
   },
 };
 
-interface EnemyLook { cloth: number; clothAmount: number; emissive: number; walk: boolean; bar: boolean; glide?: boolean; clothBoost?: number }
+interface EnemyLook {
+  cloth: number; clothAmount: number; emissive: number; walk: boolean; bar: boolean; glide?: boolean; clothBoost?: number;
+  /** Forward lean of the whole body in radians (hunched shaman, crouched reaver, the bomber bent under its keg). */
+  lean?: number;
+  /** Idle clip other than Idle_Combat, and its speed. */
+  idle?: string;
+  idleSpeed?: number;
+}
 
 const ENEMY_LOOK: Record<EnemyKind, EnemyLook> = {
   minion: { cloth: 0, clothAmount: 0, emissive: 0x000000, walk: false, bar: true },
@@ -186,7 +201,35 @@ const ENEMY_LOOK: Record<EnemyKind, EnemyLook> = {
   regent: { cloth: 0x7a2cff, clothAmount: 0.95, emissive: 0x12041c, walk: true, bar: false },
   matron: { cloth: 0x6a2fd0, clothAmount: 0.96, emissive: 0x0a0416, walk: true, bar: false, glide: true },
   stalker: { cloth: 0xb9ad45, clothAmount: 0.94, emissive: 0x0c0b02, walk: false, bar: false, clothBoost: 2.4 },
+  shaman: { cloth: 0, clothAmount: 0, emissive: 0x020a02, walk: false, bar: true, lean: 0.16 },
+  aegis: { cloth: 0x4a5aa8, clothAmount: 0.92, emissive: 0x000000, walk: true, bar: true, idle: 'Blocking', idleSpeed: 0.6 },
+  bomber: { cloth: 0xc9a227, clothAmount: 0.92, emissive: 0x060300, walk: false, bar: true },
+  necromancer: { cloth: 0, clothAmount: 0, emissive: 0x05020a, walk: false, bar: true, glide: true, idle: 'Spellcasting', idleSpeed: 0.3 },
+  reaver: { cloth: 0x2b3040, clothAmount: 0.96, emissive: 0x000000, walk: false, bar: true, lean: 0.26 },
 };
+
+/**
+ * The five kinds of update 4. Their dangerous actions are announced by `cast` events (ability ids below) at the
+ * start of the windup; the clip is chosen from that id, whatever EnemyAnim the simulation shows meanwhile.
+ */
+const HORDE = {
+  MEND: 'mend', RAISE: 'raise', FUSE: 'fuse', LEAP: 'reaver_leap',
+  /** Seconds a cast event is remembered until the snapshot row shows the matching animation. */
+  CAST_MEMORY: 0.7,
+  /** A minion that spawns this long after a `raise` finished, this close to the necromancer, belongs to it. */
+  RAISE_GRACE: 0.9, RAISE_REACH: 7,
+  RAISES: 4,
+  FUSE_SPARKS: 4, FUSE_RATE: 2.2, FUSE_RATE_LIT: 13,
+  MEND_MOTES: 5,
+  WARD_SHARDS: 3,
+  NECRO_HOVER: 0.07,
+  TETHER_WIDTH: 0.2,
+  HUNT_Y: 1.2, HUNT_SIZE: 1.05,
+} as const;
+
+const ACTION_ANIMS: ReadonlySet<EnemyAnim> = new Set<EnemyAnim>(['windup', 'cast', 'summon', 'beam', 'volley', 'charge', 'slam', 'sweep', 'leap']);
+const HORDE_KINDS: ReadonlySet<EnemyKind> = new Set<EnemyKind>(['shaman', 'aegis', 'bomber', 'necromancer', 'reaver']);
+const _anchor = new Vector3();
 
 /**
  * Timings of the two newer bosses. The balance table may not expose their windups, so each special uses the
@@ -236,8 +279,18 @@ const AFFIX_VIS = {
   MARK_RING: 1.9,
 } as const;
 const SLOT = SLOT_COLORS.map((c) => new Color(c));
+const AEGIS_RGB = rgb(PALETTE.aegis);
+const SOUL_RGB = rgb(PALETTE.soul);
+const GRAVE_RGB = rgb(PALETTE.grave);
+const MEND_RGB = rgb(PALETTE.mend);
+const FUSE_RGB = rgb(PALETTE.fuse);
+const REAVER_RGB = rgb(PALETTE.reaver);
+const HUNT_RGB = rgb(OBJECTIVE_COLOR.hunt);
+const HOSTILE_RGB = rgb(PALETTE.hostile);
+const HOT_RGB = rgb(PALETTE.hostileHot);
 const UMBRA_CORE = rgb(PALETTE.umbraCore);
 const OVERLOAD_ORDER: readonly ElementId[] = ['ember', 'rime', 'storm', 'umbra'];
+const WARD_ICON: Record<ElementId, IconName> = { ember: 'burn', rime: 'chill', storm: 'shock', umbra: 'wither' };
 
 /** Shared machinery of a skinned, animated character instance. */
 class Actor {
@@ -1012,23 +1065,75 @@ class EnemyView extends Actor {
   /** Set for one frame when a leap touches down (the world adds dust). */
   landed = false;
   readonly hand: Object3D | null;
+  readonly handL: Object3D | null;
   /** Elite trait from the spawn event; armoured elites lose the plating when their guard breaks. */
   affix: AffixId | null = null;
   guardBroken = false;
   /** Death Mark (shade ultimate): seconds left / total. */
   markLeft = 0;
   markTotal = 1;
+  /** Leap in flight (Stalker, reaver): the arc is drawn by the view, the simulation moves it on the floor. */
+  leaping = false;
+  /** Element this enemy is warded against (spawn.ward). */
+  ward: ElementId | null = null;
+  /** Last `cast` event of this enemy and when it arrived; `channel` is the action it is winding up right now. */
+  castAbility = '';
+  castAt = -10;
+  channel = '';
+  channelAt = -10;
+  channelDur = 0;
+  /** The snapshot row has shown the action that belongs to `channel` (so leaving it early means: interrupted). */
+  channelSeen = false;
+  /** Aegis: ward dome raised (`dome` event), its radius and its eased visibility 0..1. */
+  domeOn = false;
+  domeR = 0;
+  domeK = 0;
+  /** Inside a raised dome of another enemy this frame. */
+  guarded = false;
+  /** Necromancer id that raised this minion, or -1. */
+  master = -1;
+  /** Hunt target of the chamber's objective. */
+  hunted = false;
+  fusePhase = 0;
+  /** Bomber: when its lit fuse runs out (-10 = not lit, or put out by a stun). */
+  fuseEnd = -10;
+  /** Set for one frame when a wound-up attack was cut short (stun, stagger): its telegraph can go. */
+  interrupted = false;
+  private readonly anchorBones = new Map<string, Object3D | null>();
+  private readonly anchors: Record<string, Anchor>;
 
   constructor(template: CharacterTemplate, clips: Map<string, AnimationClip>, kind: EnemyKind) {
     super(template, clips);
     this.kind = kind;
     this.flashTime = ENEMY_VIS.FLASH_TIME;
     this.hand = this.root.getObjectByName('handslotr') ?? null;
+    this.handL = this.root.getObjectByName('handslotl') ?? null;
+    this.anchors = template.anchors;
+    for (const name of Object.keys(template.anchors)) this.anchorBones.set(name, this.root.getObjectByName(template.anchors[name].bone) ?? null);
+  }
+
+  /** World position of a named point on the rig (fuse tip, totem head); false when the kind has none. */
+  anchor(name: string, out: Vector3): boolean {
+    const bone = this.anchorBones.get(name);
+    if (!bone) return false;
+    const a = this.anchors[name];
+    out.set(a.x, a.y, a.z).applyMatrix4(bone.matrixWorld);
+    return true;
+  }
+
+  /** Seconds the current channel still runs (0 = none). */
+  channelLeft(time: number): number {
+    return this.channel ? Math.max(0, this.channelAt + this.channelDur - time) : 0;
   }
 }
 
+interface Raise { id: number; until: number; left: number }
+
 /** Bosses other than the first are created on demand (one of three appears per run). */
-const PREWARM: Record<EnemyKind, number> = { minion: 10, warrior: 5, archer: 5, mage: 3, champion: 1, regent: 0, matron: 0, stalker: 0 };
+const PREWARM: Record<EnemyKind, number> = {
+  minion: 10, warrior: 5, archer: 5, mage: 3, champion: 1, regent: 0, matron: 0, stalker: 0,
+  shaman: 1, aegis: 1, bomber: 3, necromancer: 1, reaver: 2,
+};
 const KILL_MEMORY = 1.5;
 
 export class Enemies {
@@ -1042,6 +1147,15 @@ export class Enemies {
   private readonly killed = new Map<number, number>();
   /** Affixes announced by `spawn` before the first snapshot row of that enemy arrived. */
   private readonly affixes = new Map<number, AffixId>();
+  /** Wards and necromancer links announced before the first snapshot row of that enemy arrived. */
+  private readonly wards = new Map<number, ElementId>();
+  private readonly masters = new Map<number, number>();
+  private readonly raises: Raise[] = [];
+  private readonly hunt: number[] = [];
+  private huntCount = 0;
+  private huntEnraged = false;
+  private readonly domes = new Float32Array(LIMITS.DOMES * 3);
+  private domeCount = 0;
   private gen = 0;
   private time = 0;
   private readonly expire = (until: number, id: number): void => {
@@ -1052,6 +1166,8 @@ export class Enemies {
     this.parent = parent;
     this.assets = assets;
     this.atlas = atlas;
+    for (let i = 0; i < HORDE.RAISES; i++) this.raises.push({ id: -1, until: -1, left: 0 });
+    for (let i = 0; i < LIMITS.HUNT_TARGETS; i++) this.hunt.push(-1);
   }
 
   /** Creates pooled views ahead of the first wave so spawning does not hitch. */
@@ -1089,6 +1205,20 @@ export class Enemies {
     view.affix = this.affixes.get(snap.id) ?? null;
     view.guardBroken = false;
     view.markLeft = 0;
+    view.leaping = false;
+    view.ward = this.wards.get(snap.id) ?? null;
+    view.master = this.masters.get(snap.id) ?? -1;
+    view.castAbility = '';
+    view.castAt = -10;
+    view.channel = '';
+    view.channelSeen = false;
+    view.domeOn = false;
+    view.domeK = 0;
+    view.guarded = false;
+    view.hunted = false;
+    view.interrupted = false;
+    view.fusePhase = 0;
+    view.fuseEnd = -10;
     view.x = snap.x;
     view.z = snap.z;
     view.seed = (snap.id * 0.61803398875) % 1;
@@ -1100,6 +1230,8 @@ export class Enemies {
 
   private release(view: EnemyView): void {
     this.affixes.delete(view.id);
+    this.wards.delete(view.id);
+    this.masters.delete(view.id);
     view.root.removeFromParent();
     view.reset();
     view.id = -1;
@@ -1157,6 +1289,9 @@ export class Enemies {
     view.dying = true;
     view.deathTime = 0;
     view.deathHold = hold;
+    view.channel = '';
+    view.domeOn = false;
+    view.hunted = false;
     view.body.castShadow = false;
     if (playClip) view.play('Death_C_Skeletons', false, 0.06, 1.35);
     this.dying.push(view);
@@ -1178,7 +1313,108 @@ export class Enemies {
     view.teleAt = this.time;
     view.teleDur = dur;
     // the pose may already be running (snapshots lag events by the interpolation delay): re-time a leap in flight
-    if (view.anim === 'leap' && this.time - view.specialAt < BOSS2.TELEGRAPH_MEMORY) view.specialDur = Math.max(0.2, this.time - view.specialAt + dur);
+    if (view.leaping && this.time - view.specialAt < BOSS2.TELEGRAPH_MEMORY) view.specialDur = Math.max(0.2, this.time - view.specialAt + dur);
+    // a channel announced a moment ago ends with its telegraph
+    if (view.channel && this.time - view.channelAt < BOSS2.TELEGRAPH_MEMORY) {
+      view.channelDur = this.time - view.channelAt + dur;
+      if (view.channel === HORDE.FUSE) view.fuseEnd = this.time + dur;
+    }
+  }
+
+  /**
+   * `cast` event of an enemy. The horde's actions (mend, raise, fuse, reaver_leap) start their windup look right away;
+   * the clip follows when the snapshot row catches up (events run ahead of the interpolated snapshots).
+   */
+  cast(id: number, ability: string): void {
+    const view = this.byId.get(id);
+    if (!view) return;
+    view.castAbility = ability;
+    view.castAt = this.time;
+    if (!HORDE_KINDS.has(view.kind)) return;
+    const def = enemyDef(view.kind);
+    const dur = ability === HORDE.MEND ? ENEMY_TUNING.SHAMAN.MEND_WINDUP : ability === HORDE.LEAP ? ENEMY_TUNING.REAVER.LEAP_AIR_TIME
+      : ability === HORDE.RAISE || ability === HORDE.FUSE ? def.windup : 0;
+    if (dur <= 0) return;
+    view.channel = ability;
+    view.channelAt = this.time;
+    view.channelSeen = false;
+    // the telegraph of the same action may have arrived just before the cast
+    const since = this.time - view.teleAt;
+    view.channelDur = since >= 0 && since < BOSS2.TELEGRAPH_MEMORY && view.teleDur > 0 ? Math.max(0.1, view.teleDur - since) : dur;
+    if (ability === HORDE.FUSE) view.fuseEnd = this.time + view.channelDur;
+    if (ability !== HORDE.RAISE) return;
+    let slot = this.raises[0];
+    for (const r of this.raises) if (r.until < slot.until) slot = r;
+    slot.id = id;
+    slot.until = this.time + view.channelDur + HORDE.RAISE_GRACE;
+    slot.left = ENEMY_TUNING.NECROMANCER.RAISE_COUNT;
+  }
+
+  /**
+   * `spawn` event. A minion raised by a necromancer (`raisedBy`, or — without that field — one that rises next to a
+   * necromancer that has just finished a `raise`) is linked to it: it wears the necromancer's soul light and a tether until either is gone.
+   */
+  spawned(id: number, kind: EnemyKind, x: number, z: number, ward: ElementId | undefined, raisedBy?: number): boolean {
+    if (ward) {
+      this.wards.set(id, ward);
+      const v = this.byId.get(id);
+      if (v) v.ward = ward;
+    }
+    if (kind !== 'minion') return false;
+    // The server names the necromancer; the timing guess below only covers a server that does not.
+    if (raisedBy !== undefined) {
+      this.masters.set(id, raisedBy);
+      const linked = this.byId.get(id);
+      if (linked) linked.master = raisedBy;
+      return true;
+    }
+    for (const r of this.raises) {
+      if (r.left <= 0 || r.until < this.time) continue;
+      const master = this.byId.get(r.id);
+      if (!master || Math.hypot(master.x - x, master.z - z) > HORDE.RAISE_REACH) continue;
+      r.left--;
+      this.masters.set(id, r.id);
+      const v = this.byId.get(id);
+      if (v) v.master = r.id;
+      return true;
+    }
+    return false;
+  }
+
+  /** `interrupt` event: the wind-up of this enemy was broken; whatever it was channelling stops at once. */
+  interrupt(id: number): void {
+    const v = this.byId.get(id);
+    if (!v) return;
+    v.channel = '';
+    v.fuseEnd = -10;
+    v.teleDur = 0;
+    v.interrupted = false;
+    if (v.leaping) { v.leaping = false; if (v.airborne) this.land(v, false); }
+  }
+
+  /** `dome` event: an aegis raised or lost its ward dome. */
+  dome(id: number, on: boolean, r: number): void {
+    const v = this.byId.get(id);
+    if (!v) return;
+    v.domeOn = on;
+    if (on) v.domeR = r;
+  }
+
+  /** Hunt objective: the marked targets that are still alive, and whether the timer has run out (they enrage). */
+  setHunted(ids: readonly number[], enraged: boolean): void {
+    this.huntCount = Math.min(this.hunt.length, ids.length);
+    for (let i = 0; i < this.huntCount; i++) this.hunt[i] = ids[i];
+    this.huntEnraged = enraged;
+  }
+
+  /** Calls `fn` for every living minion raised by the necromancer `id`. */
+  forEachRaised(id: number, fn: (v: EnemyView) => void): void {
+    for (const v of this.active) if (v.master === id) fn(v);
+  }
+
+  /** Raised domes of this frame as (x, z, r, visibility) for the dome shells. */
+  forEachDome(fn: (x: number, z: number, r: number, k: number, seed: number) => void): void {
+    for (const v of this.active) if (v.domeK > 0.003) fn(v.x, v.z, v.domeR, v.domeK, v.seed);
   }
 
   /** Seconds until the special that just started lands: the remaining time of its telegraph, else a default. */
@@ -1259,6 +1495,7 @@ export class Enemies {
         const total = this.windupOf(view, anim, 0.95);
         view.play('Jump_Start', false, 0.05, 2.4, 0.2);
         view.queue({ clip: 'Jump_Idle', loop: true, fade: 0.1 }, 0.16);
+        view.leaping = true;
         mark(total);
         return true;
       }
@@ -1283,8 +1520,19 @@ export class Enemies {
   private startAnim(view: EnemyView, anim: EnemyAnim, first: boolean, changed: boolean): void {
     const def = enemyDef(view.kind);
     const attack = ENEMY_ATTACK[view.kind];
-    if (view.airborne && anim !== 'leap') this.land(view, anim === 'idle' || anim === 'move');
+    const recent = this.time - view.castAt < HORDE.CAST_MEMORY ? view.castAbility : '';
+    const leap = anim === 'leap' || (recent === HORDE.LEAP && ACTION_ANIMS.has(anim));
+    if (view.airborne && !leap) this.land(view, anim === 'idle' || anim === 'move');
+    if (!leap) view.leaping = false;
+    // an attack that was being wound up and is cut short by a stun / stagger: its telegraph is void
+    if (anim === 'stun' && !isBigEnemy(view.kind) && (this.time < view.teleAt + view.teleDur - 0.1 || view.channelLeft(this.time) > 0.1)) view.interrupted = true;
+    if (view.channel) {
+      if (ACTION_ANIMS.has(anim)) view.channelSeen = true;
+      else if (anim === 'stun' || anim === 'death' || (view.channelSeen && (anim === 'idle' || anim === 'move'))) { view.channel = ''; view.fuseEnd = -10; }
+    }
     if ((view.kind === 'matron' || view.kind === 'stalker') && this.startBoss2(view, anim, first, changed)) return;
+    if (HORDE_KINDS.has(view.kind) && this.startHorde(view, anim, recent, leap)) return;
+    const look = ENEMY_LOOK[view.kind];
     switch (anim) {
       case 'spawn': {
         const clip = 'Spawn_Ground_Skeletons';
@@ -1293,10 +1541,12 @@ export class Enemies {
         break;
       }
       case 'idle':
-        if (changed || first) view.play('Idle_Combat', true, first ? 0 : ANIM.FADE * 1.5, 1, view.seed * 4, true);
+        if (changed || first) view.play(look.idle ?? 'Idle_Combat', true, first ? 0 : ANIM.FADE * 1.5, look.idleSpeed ?? 1, look.idle ? view.seed : view.seed * 4, true);
         break;
       case 'move':
-        if (changed || first) view.play(ENEMY_LOOK[view.kind].walk ? 'Walking_D_Skeletons' : 'Running_C', true, first ? 0 : ANIM.FADE, 1, view.seed * 0.8, true);
+        // gliding robes keep their idle pose (the lean and bob are added in elevate)
+        if (look.glide) { if (changed || first) view.play(look.idle ?? 'Idle_Combat', true, first ? 0 : ANIM.FADE * 2, look.idleSpeed ?? 0.5, view.seed, view.currentClip !== (look.idle ?? 'Idle_Combat')); break; }
+        if (changed || first) view.play(look.walk ? 'Walking_D_Skeletons' : 'Running_C', true, first ? 0 : ANIM.FADE, 1, view.seed * 0.8, true);
         break;
       case 'windup':
         view.playTimed({ clip: attack.clip, impact: attack.impact, fade: 0.1 }, def.windup, true);
@@ -1337,6 +1587,42 @@ export class Enemies {
     }
   }
 
+  /** Windups of the five horde kinds. Returns false to fall through to the common mapping. */
+  private startHorde(view: EnemyView, anim: EnemyAnim, recent: string, leap: boolean): boolean {
+    if (!ACTION_ANIMS.has(anim)) return false;
+    const def = enemyDef(view.kind);
+    if (leap && view.kind === 'reaver') {
+      const total = this.windupOf(view, anim, ENEMY_TUNING.REAVER.LEAP_AIR_TIME);
+      view.play('Jump_Start', false, 0.05, 2.6, 0.2);
+      view.queue({ clip: 'Jump_Idle', loop: true, fade: 0.08 }, 0.12);
+      view.leaping = true;
+      view.specialAt = this.time;
+      view.specialDur = total;
+      return true;
+    }
+    // the mend channel: the totem is raised and held until the heal goes out (or the shaman is interrupted)
+    if (view.kind === 'shaman' && (recent === HORDE.MEND || anim === 'summon' || anim === 'beam')) {
+      const windup = this.windupOf(view, anim, ENEMY_TUNING.SHAMAN.MEND_WINDUP);
+      view.playTimed({ clip: 'Spellcast_Raise', impact: 0.9, fade: 0.12 }, windup, true);
+      if (!view.channel) { view.channel = HORDE.MEND; view.channelAt = this.time; view.channelDur = windup; view.channelSeen = true; }
+      return true;
+    }
+    if (view.kind === 'necromancer' && anim !== 'cast') {
+      const windup = this.windupOf(view, anim, def.windup);
+      view.playTimed({ clip: 'Spellcast_Summon', impact: 2.9, fade: 0.1 }, windup, false, 1.3);
+      if (!view.channel) { view.channel = HORDE.RAISE; view.channelAt = this.time; view.channelDur = windup; view.channelSeen = true; }
+      return true;
+    }
+    if (view.kind === 'bomber' && anim !== 'cast') {
+      // the fuse: it stops and shakes, faster and faster (the sparks and the blink are drawn in overlays)
+      const windup = this.windupOf(view, anim, def.windup);
+      view.play('Taunt', true, 0.06, 2.2);
+      if (!view.channel) { view.channel = HORDE.FUSE; view.channelAt = this.time; view.channelDur = windup; view.channelSeen = true; view.fuseEnd = this.time + windup; }
+      return true;
+    }
+    return false;
+  }
+
   private land(view: EnemyView, playClip: boolean): void {
     view.airborne = false;
     view.landed = true;
@@ -1348,11 +1634,21 @@ export class Enemies {
   private elevate(v: EnemyView, dt: number, time: number): void {
     let target = 0;
     let lean = 0;
-    if (v.kind === 'matron' && v.anim !== 'spawn' && v.anim !== 'death' && v.anim !== 'stun') {
+    const upright = v.anim !== 'spawn' && v.anim !== 'death' && v.anim !== 'stun';
+    if (v.kind === 'matron' && upright) {
       target = (BOSS2.HOVER + BOSS2.HOVER_BOB * Math.sin(time * 2.1 + v.seed * 6)) * v.baseScale;
       if (v.anim === 'move') lean = Math.min(0.2, v.speed * 0.05);
+    } else if (upright) {
+      const look = ENEMY_LOOK[v.kind];
+      lean = look.lean ?? 0;
+      if (look.glide) {
+        target = HORDE.NECRO_HOVER * (1 + Math.sin(time * 1.7 + v.seed * 6)) * v.baseScale;
+        if (v.anim === 'move') lean = Math.min(0.16, v.speed * 0.05);
+      }
+      // a channel straightens the caster up; a lit bomber rears back
+      if (v.channel) lean *= 0.3;
     }
-    if (v.anim === 'leap') {
+    if (v.leaping) {
       const t = time - v.specialAt;
       const crouch = Math.min(BOSS2.LEAP_CROUCH, v.specialDur * 0.3);
       const k = (t - crouch) / Math.max(0.1, v.specialDur - crouch);
@@ -1408,6 +1704,11 @@ export class Enemies {
   update(dt: number, time: number, decals: DecalBatch, ui: BillboardBatch, fx: BillboardBatch, blobShadows: boolean): void {
     this.time = time;
     if (this.killed.size > 0) this.killed.forEach(this.expire);
+    for (const v of this.active) v.hunted = false;
+    for (let i = 0; i < this.huntCount; i++) {
+      const v = this.byId.get(this.hunt[i]);
+      if (v) v.hunted = true;
+    }
 
     for (const v of this.active) {
       v.age += dt;
@@ -1419,11 +1720,29 @@ export class Enemies {
       }
       this.applyStatus(v, time);
       v.update(dt);
-      if (v.kind === 'matron' || v.kind === 'stalker' || v.lift !== 0) {
+      if (v.kind === 'matron' || v.kind === 'stalker' || HORDE_KINDS.has(v.kind) || v.lift !== 0) {
         this.elevate(v, dt, time);
         v.root.position.y = v.lift;
       }
+      if (v.channel && time >= v.channelAt + v.channelDur) v.channel = '';
+      v.domeK += ((v.domeOn ? 1 : 0) - v.domeK) * Math.min(1, dt * (v.domeOn ? 5 : 9));
+      v.guarded = false;
+      for (let d = 0; d < this.domeCount; d++) {
+        const dx = v.x - this.domes[d * 3];
+        const dz = v.z - this.domes[d * 3 + 1];
+        if (dx * dx + dz * dz < this.domes[d * 3 + 2] && v.domeK < 0.5) { v.guarded = true; break; }
+      }
       this.overlays(v, time, decals, ui, fx, blobShadows);
+      if (HORDE_KINDS.has(v.kind) || v.ward || v.master >= 0 || v.hunted || v.guarded) this.hordeFx(v, dt, time, decals, ui, fx);
+    }
+    // the domes standing this frame, for next frame's "guarded" test
+    this.domeCount = 0;
+    for (const v of this.active) {
+      if (v.domeK < 0.5 || this.domeCount >= LIMITS.DOMES) continue;
+      this.domes[this.domeCount * 3] = v.x;
+      this.domes[this.domeCount * 3 + 1] = v.z;
+      this.domes[this.domeCount * 3 + 2] = v.domeR * v.domeR;
+      this.domeCount++;
     }
 
     for (let i = this.dying.length - 1; i >= 0; i--) {
@@ -1482,9 +1801,20 @@ export class Enemies {
       tr += body.r * 0.35 * STATUS_VIS.WITHER_TINT; tg += body.g * 0.35 * STATUS_VIS.WITHER_TINT; tb += body.b * 0.35 * STATUS_VIS.WITHER_TINT; ta += STATUS_VIS.WITHER_TINT;
       rr += c.r * STATUS_VIS.RIM.wither * breathe; rg += c.g * STATUS_VIS.RIM.wither * breathe; rb += c.b * STATUS_VIS.RIM.wither * breathe;
     }
+    let rim = ta > 0;
+    if (v.ward) {
+      // the ward: a steady shell of the element it turns away
+      const c = rgb(ELEMENT_COLOR[v.ward]);
+      const k = 1.5 + 0.3 * Math.sin(time * 3.1 + v.seed * 7);
+      rr += c[0] * k; rg += c[1] * k; rb += c[2] * k;
+      rim = true;
+    }
+    if (v.guarded) { rr += AEGIS_RGB[0] * 1.3; rg += AEGIS_RGB[1] * 1.3; rb += AEGIS_RGB[2] * 1.3; rim = true; }
+    if (v.master >= 0) { rr += SOUL_RGB[0] * 0.9; rg += SOUL_RGB[1] * 0.9; rb += SOUL_RGB[2] * 0.9; rim = true; }
     if (ta > 0) u.uTint.value.set(tr / ta, tg / ta, tb / ta, Math.min(0.7, ta));
+    else if (v.master >= 0) u.uTint.value.set(GRAVE_RGB[0], GRAVE_RGB[1], GRAVE_RGB[2], 0.3);
     else u.uTint.value.w = 0;
-    u.uRim.value.set(rr, rg, rb, ta > 0 ? 1 : 0);
+    u.uRim.value.set(rr, rg, rb, rim ? 1 : 0);
 
     const look = ENEMY_LOOK[v.kind];
     _color.setHex(look.emissive);
@@ -1497,9 +1827,15 @@ export class Enemies {
     if (v.markLeft > 0) { er += 0.05; eg += 0.02; eb += 0.09; }
     if (f & EF.ENRAGED) { const p = 0.14 + 0.1 * Math.sin(time * 9); er += p; eg += p * 0.12; }
     if (f & EF.SHIELDED) { er += 0.02; eg += 0.05; eb += 0.09; }
+    if (v.channel === HORDE.FUSE) {
+      // the lit bomber blinks hot, faster towards the end
+      const k = 1 - v.channelLeft(time) / Math.max(0.1, v.channelDur);
+      const blink = Math.sin(v.fusePhase * 2.2) > 0 ? 1 : 0.15;
+      er += 0.5 * blink * (0.4 + k); eg += 0.32 * blink * (0.4 + k); eb += 0.05 * blink;
+    } else if (v.channel === HORDE.MEND) { er += 0.03; eg += 0.14; eb += 0.02; } else if (v.channel === HORDE.RAISE) { er += 0.08; eg += 0.03; eb += 0.14; }
     u.uEmissive.value.setRGB(er, eg, eb);
 
-    _color.setHex(v.elite && !isBigEnemy(v.kind) ? PALETTE.hostile : EYE_COLOR[v.kind]);
+    _color.setHex(v.master >= 0 ? PALETTE.soul : v.elite && !isBigEnemy(v.kind) ? PALETTE.hostile : EYE_COLOR[v.kind]);
     const glow = ANIM.GLOW_BOOST * (f & EF.STUNNED ? 0.35 : 1);
     u.uGlow.value.setRGB(_color.r * glow, _color.g * glow, _color.b * glow);
   }
@@ -1566,9 +1902,20 @@ export class Enemies {
     if (f & EF.ENRAGED) n++;
     const affix = spawning ? null : v.affix;
     if (affix) n++;
+    const ward = spawning ? null : v.ward;
+    if (ward) n++;
     if (n > 0) {
       const size = bossy ? 0.66 : 0.48;
       let ox = -(n - 1) * size * 0.5;
+      if (ward) {
+        // the element inside a shield: this enemy shrugs that element off
+        const wide = size * 1.5;
+        this.icon(ui, v, top, 'ward', ELEMENT_COLOR[ward], wide, ox);
+        const uv = this.atlas.icons[WARD_ICON[ward]];
+        _color.setHex(ELEMENT_COLOR[ward]);
+        ui.push(SPRITE.ATLAS, v.x, top, v.z, wide * 0.5, wide * 0.5, _color.r * 1.2, _color.g * 1.2, _color.b * 1.2, 1, 0, 0, 0, ox, 0.42, uv[0], uv[1], uv[2], uv[3]);
+        ox += size;
+      }
       if (affix) { this.icon(ui, v, top, affix, AFFIX_COLOR[affix], size, ox); ox += size; }
       if (f & EF.BURN) { this.pip(ui, v, top, 'burn', ELEMENT_COLOR.ember, size, ox); ox += size; }
       if (f & EF.CHILL) { this.pip(ui, v, top, 'chill', ELEMENT_COLOR.rime, size, ox); ox += size; }
@@ -1584,6 +1931,164 @@ export class Enemies {
         const depth = Math.sin(a);
         ui.push(SPRITE.ATLAS, v.x, v.height * 0.98, v.z, 0.36, 0.36, 1, 0.86, 0.3, 0.75 + 0.25 * depth, 0, 0, a, Math.cos(a) * 0.42 * v.baseScale, depth * 0.12, uv[0], uv[1], uv[2], uv[3]);
       }
+    }
+  }
+
+  /**
+   * Everything update 4 hangs on an enemy: the ward shell, the dome's footprint, the shaman's channel, the bomber's
+   * fuse, the necromancer's soul lights and tethers, the reaver's blades, and the hunt marker.
+   */
+  private hordeFx(v: EnemyView, dt: number, time: number, decals: DecalBatch, ui: BillboardBatch, fx: BillboardBatch): void {
+    if (v.anim === 'spawn') return;
+    const s = v.baseScale;
+    const mid = v.lift + v.height * 0.5;
+    if (v.hunted) {
+      // the quarry: a pin bobbing high over the head and two brackets closing around its feet; red once it enrages
+      const c = this.huntEnraged ? HOSTILE_RGB : HUNT_RGB;
+      // the brackets on the floor stay out of the telegraph red even then
+      const g = this.huntEnraged ? HOT_RGB : HUNT_RGB;
+      const rate = this.huntEnraged ? 3.4 : 1.2;
+      const beat = this.huntEnraged ? 0.75 + 0.25 * Math.sin(time * 11 + v.seed * 5) : 1;
+      const d = v.radius * 5.4;
+      for (let k = 0; k < 2; k++) {
+        decals.push(DECAL.PROGRESS, v.x, 0.049, v.z, time * rate + k * Math.PI, d, d, g[0] * 1.6, g[1] * 1.6, g[2] * 1.6, 0.95 * beat, 0.45, 0.2);
+        decals.push(DECAL.PROGRESS, v.x, 0.049, v.z, -time * rate * 0.7 + k * Math.PI, d * 1.28, d * 1.28, g[0] * 1.3, g[1] * 1.3, g[2] * 1.3, 0.7 * beat, 0.4, 0.1);
+      }
+      decals.push(DECAL.DISC, v.x, 0.031, v.z, 0, d * 1.2, d * 1.2, g[0], g[1], g[2], 0.16 * beat, 1, 0.2);
+      const uv = this.atlas.icons.hunt;
+      const bob = Math.abs(Math.sin(time * 2.6 + v.seed * 6)) * 0.22;
+      const y = v.lift + v.height + HORDE.HUNT_Y + bob;
+      const size = HORDE.HUNT_SIZE * (this.huntEnraged ? 1.12 : 1);
+      ui.push(SPRITE.GLOW, v.x, y, v.z, size * 1.9, size * 1.9, c[0] * 0.25, c[1] * 0.2, c[2] * 0.1, 0.75);
+      ui.push(SPRITE.ATLAS, v.x, y, v.z, size, size, c[0] * 1.25, c[1] * 1.25, c[2] * 1.25, 1, 0, 0, 0, 0, 0, uv[0], uv[1], uv[2], uv[3]);
+      if (this.huntEnraged && v.root.visible) {
+        for (let k = 0; k < 2; k++) {
+          const a = time * 2.3 + k * Math.PI + v.seed * 6;
+          const h = (0.7 + 0.25 * hash1(Math.floor(time * 10 + k * 3) + v.seed * 13)) * s;
+          fx.push(SPRITE.FLAME, v.x + Math.sin(a) * v.radius * 0.9, v.lift + v.height * 0.75 + h * 0.4, v.z + Math.cos(a) * v.radius * 0.9, h * 0.6, h, c[0] * 2, c[1] * 2 + 0.3, c[2] * 2, 0.9, 0.85, v.seed + k * 0.4);
+        }
+      }
+    }
+    if (!v.root.visible) return;
+    if (v.ward) {
+      // a rune circle and three shards of the element circling the body: that element does nothing here
+      const c = rgb(ELEMENT_COLOR[v.ward]);
+      const d = v.radius * 4.8;
+      decals.push(DECAL.RUNE, v.x, 0.044, v.z, -time * 0.8 + v.seed * 6, d, d, c[0] * 1.4, c[1] * 1.4, c[2] * 1.4, 0.8, 0.55, 0.3);
+      for (let k = 0; k < HORDE.WARD_SHARDS; k++) {
+        const a = time * 1.5 + (k / HORDE.WARD_SHARDS) * Math.PI * 2 + v.seed * 6;
+        fx.push(SPRITE.SHARD, v.x + Math.sin(a) * v.radius * 1.55, mid + 0.25 * s * Math.sin(time * 2.2 + k * 2.1), v.z + Math.cos(a) * v.radius * 1.55, 0.3 * s, 0.52 * s,
+          c[0] * 1.4, c[1] * 1.4, c[2] * 1.4, 0.95, 0.35, 1);
+      }
+      fx.push(SPRITE.GLOW, v.x, mid, v.z, v.height * 1.15, v.height * 1.4, c[0], c[1], c[2], 0.13, 1, 0);
+    }
+    if (v.guarded) {
+      const d = v.radius * 3.6;
+      decals.push(DECAL.PROGRESS, v.x, 0.046, v.z, time * 2.2 + v.seed * 6, d, d, AEGIS_RGB[0] * 1.4, AEGIS_RGB[1] * 1.4, AEGIS_RGB[2] * 1.4, 0.85, 0.5, 0.3);
+    }
+    if (v.master >= 0) {
+      const m = this.byId.get(v.master);
+      if (m) {
+        // a thin thread of grave light on the floor, brightest at the minion it holds upright
+        const dx = v.x - m.x;
+        const dz = v.z - m.z;
+        const len = Math.hypot(dx, dz);
+        if (len > 0.3) {
+          const pulse = 0.55 + 0.25 * Math.sin(time * 4 - len * 0.8 + v.seed * 6);
+          decals.push(DECAL.STREAK, (v.x + m.x) * 0.5, 0.036, (v.z + m.z) * 0.5, Math.atan2(dx, dz), HORDE.TETHER_WIDTH, len, SOUL_RGB[0] * 1.3, SOUL_RGB[1] * 1.3, SOUL_RGB[2] * 1.3, pulse, 0.9);
+        }
+      }
+      fx.push(SPRITE.GLOW, v.x, v.lift + v.height + 0.2, v.z, 0.5, 0.7, SOUL_RGB[0] * 1.4, SOUL_RGB[1] * 1.4, SOUL_RGB[2] * 1.4, 0.55 + 0.25 * Math.sin(time * 5 + v.seed * 9), 1, 0.9);
+      decals.push(DECAL.DISC, v.x, 0.03, v.z, 0, v.radius * 4, v.radius * 4, GRAVE_RGB[0], GRAVE_RGB[1], GRAVE_RGB[2], 0.28, 1, 0.1);
+    }
+    const left = v.channelLeft(time);
+    const k = v.channel ? 1 - left / Math.max(0.1, v.channelDur) : 0;
+    switch (v.kind) {
+      case 'shaman': {
+        const c = MEND_RGB;
+        if (!v.anchor('totem', _anchor)) _anchor.set(v.x, v.lift + v.height, v.z);
+        const breathe = 0.7 + 0.3 * Math.sin(time * 3.3 + v.seed * 6);
+        fx.push(SPRITE.GLOW, _anchor.x, _anchor.y, _anchor.z, 0.8 + 1.3 * k, 0.8 + 1.3 * k, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, 0.4 * breathe + 0.35 * k, 1, 0.6 + 0.4 * k);
+        decals.push(DECAL.DISC, v.x, 0.03, v.z, 0, v.radius * 5, v.radius * 5, c[0], c[1], c[2], 0.16 + 0.2 * k, 1, 0);
+        if (v.channel !== HORDE.MEND) break;
+        // the channel: a ring at the reach of the heal that fills as it completes, and motes drawn in to the totem
+        const d = ENEMY_TUNING.SHAMAN.MEND_RADIUS * 2;
+        decals.push(DECAL.PROGRESS, v.x, 0.047, v.z, 0, d, d, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, 0.55 + 0.35 * k, 0.5, k);
+        decals.push(DECAL.RUNE, v.x, 0.045, v.z, time * 1.4, v.radius * 7, v.radius * 7, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, 0.75, 0.7, k);
+        for (let i = 0; i < HORDE.MEND_MOTES; i++) {
+          const ph = (time * 0.9 + i / HORDE.MEND_MOTES + v.seed) % 1;
+          const a = i * 1.257 + ph * 2.6 + v.seed * 6;
+          const r = ENEMY_TUNING.SHAMAN.MEND_RADIUS * 0.6 * (1 - ph);
+          fx.push(SPRITE.GLOW, v.x + Math.sin(a) * r, 0.3 + (_anchor.y - 0.3) * ph, v.z + Math.cos(a) * r, 0.45, 0.45, c[0] * 1.8, c[1] * 1.8, c[2] * 1.8, 0.9 * Math.sin(ph * Math.PI), 1, 1.2);
+        }
+        fx.push(SPRITE.GLOW, v.x, v.lift + v.height * 1.3, v.z, 1.1 * k, v.height * 2.4, c[0] * 1.3, c[1] * 1.3, c[2] * 1.3, 0.3 * k, 1, 0.4);
+        break;
+      }
+      case 'aegis': {
+        const c = AEGIS_RGB;
+        const e = v.handL ? v.handL.matrixWorld.elements : null;
+        const pulse = 0.75 + 0.25 * Math.sin(time * 2.4 + v.seed * 6);
+        if (e) fx.push(SPRITE.GLOW, e[12], e[13], e[14], 1.3 * s, 1.3 * s, c[0] * 1.3, c[1] * 1.3, c[2] * 1.3, (0.3 + 0.35 * v.domeK) * pulse, 1, 0.6);
+        if (v.domeK < 0.01) break;
+        // the dome's footprint (the shell itself is a mesh, see horde.ts)
+        const d = v.domeR * 2 * (0.6 + 0.4 * v.domeK);
+        decals.push(DECAL.DISC, v.x, 0.029, v.z, 0, d, d, c[0], c[1], c[2], 0.07 * v.domeK, 1, 0.9);
+        decals.push(DECAL.PROGRESS, v.x, 0.047, v.z, time * 0.25, d, d, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, 0.85 * v.domeK, 0.45, 1);
+        decals.push(DECAL.RUNE, v.x, 0.045, v.z, -time * 0.3, d * 0.42, d * 0.42, c[0] * 1.2, c[1] * 1.2, c[2] * 1.2, 0.4 * v.domeK, 0.6, 0.2);
+        break;
+      }
+      case 'bomber': {
+        const c = FUSE_RGB;
+        const lit = v.channel === HORDE.FUSE;
+        v.fusePhase += dt * (lit ? HORDE.FUSE_RATE + (HORDE.FUSE_RATE_LIT - HORDE.FUSE_RATE) * k * k + 3 : HORDE.FUSE_RATE);
+        if (!v.anchor('fuse', _anchor)) _anchor.set(v.x, v.lift + v.height * 1.2, v.z);
+        const flick = 0.75 + 0.25 * Math.sin(v.fusePhase * 9);
+        const heat = lit ? 1 + 1.6 * k : 1;
+        fx.push(SPRITE.GLOW, _anchor.x, _anchor.y, _anchor.z, 0.3 * heat, 0.3 * heat, c[0] * 2, c[1] * 1.8, c[2] * 1.4, 0.8 * flick, 1, 0.8);
+        for (let i = 0; i < HORDE.FUSE_SPARKS; i++) {
+          const ph = (v.fusePhase + i / HORDE.FUSE_SPARKS) % 1;
+          const a = i * 2.4 + Math.floor(v.fusePhase + i / HORDE.FUSE_SPARKS) * 1.9;
+          const reach = (0.35 + 0.5 * (lit ? k : 0)) * ph;
+          fx.push(SPRITE.SPARK, _anchor.x + Math.sin(a) * reach, _anchor.y + ph * (0.5 - ph) * 1.2, _anchor.z + Math.cos(a) * reach, 0.13 * (1.2 - ph) * heat, 0.13 * (1.2 - ph) * heat,
+            2.4, 2 - ph, 0.9 - ph * 0.6, 1 - ph * 0.7, 1, 0, a);
+        }
+        // the charge itself glows through the staves
+        fx.push(SPRITE.GLOW, _anchor.x, _anchor.y - 0.6 * s, _anchor.z, 1.5 * s * heat, 1.5 * s * heat, c[0] * 1.5, c[1] * 1.1, c[2] * 0.6, (lit ? 0.1 + 0.5 * k : 0) * flick, 1, 0.3);
+        if (lit) decals.push(DECAL.CRACKLE, v.x, 0.046, v.z, time * 2, v.radius * (3 + 3 * k), v.radius * (3 + 3 * k), c[0] * 1.6, c[1] * 1.3, c[2], 0.5 + 0.4 * k, 1, 0.35, 1);
+        break;
+      }
+      case 'necromancer': {
+        const c = SOUL_RGB;
+        const breathe = 0.7 + 0.3 * Math.sin(time * 2.2 + v.seed * 6);
+        // a pool of grave dark under the robe and a soul light in each palm
+        decals.push(DECAL.SMOKE, v.x, 0.032, v.z, time * 0.3 + v.seed * 6, v.radius * 6.2, v.radius * 6.2, UMBRA_CORE[0], UMBRA_CORE[1], UMBRA_CORE[2], 0.8, 0, 0.9, GRAVE_RGB[0], GRAVE_RGB[1], GRAVE_RGB[2]);
+        for (let n = 0; n < 2; n++) {
+          const hand = n === 0 ? v.hand : v.handL;
+          if (!hand) continue;
+          const e = hand.matrixWorld.elements;
+          fx.push(SPRITE.GLOW, e[12], e[13] + 0.16 * s, e[14], 0.7 + 1.1 * k, 0.7 + 1.1 * k, c[0] * 1.6, c[1] * 1.6, c[2] * 1.6, 0.55 * breathe + 0.4 * k, 1, 1 + k);
+        }
+        if (v.channel !== HORDE.RAISE) break;
+        const g = GRAVE_RGB;
+        decals.push(DECAL.RUNE, v.x, 0.046, v.z, -time * 1.5, v.radius * 9, v.radius * 9, g[0] * 1.8, g[1] * 1.8, g[2] * 1.8, 0.85, 0.75, k);
+        decals.push(DECAL.PROGRESS, v.x, 0.048, v.z, 0, v.radius * 10.5, v.radius * 10.5, c[0] * 1.4, c[1] * 1.4, c[2] * 1.4, 0.8, 0.5, k);
+        fx.push(SPRITE.GLOW, v.x, v.lift + v.height * 1.4, v.z, 1.2 * k, v.height * 2.6, g[0] * 1.6, g[1] * 1.6, g[2] * 1.6, 0.35 * k, 1, 0.4);
+        break;
+      }
+      case 'reaver': {
+        // pale edges: a glint in each hand, a longer one while it is in the air
+        const c = REAVER_RGB;
+        const air = v.leaping ? 1 : 0;
+        for (let n = 0; n < 2; n++) {
+          const hand = n === 0 ? v.hand : v.handL;
+          if (!hand) continue;
+          const e = hand.matrixWorld.elements;
+          fx.push(SPRITE.GLOW, e[12], e[13] + 0.35 * s, e[14], 0.45 + 0.9 * air, 0.9 + 1.2 * air, c[0], c[1], c[2], 0.28 + 0.45 * air, 1, 0.8);
+        }
+        break;
+      }
+      default:
+        break;
     }
   }
 
@@ -1762,6 +2267,12 @@ export class Enemies {
     this.byId.clear();
     this.killed.clear();
     this.affixes.clear();
+    this.wards.clear();
+    this.masters.clear();
+    for (const r of this.raises) { r.id = -1; r.until = -1; r.left = 0; }
+    this.huntCount = 0;
+    this.huntEnraged = false;
+    this.domeCount = 0;
   }
 }
 

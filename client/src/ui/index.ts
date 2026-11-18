@@ -16,6 +16,7 @@ import './styles/overlays.css';
 import './styles/update2.css';
 import './styles/pages.css';
 import './styles/update3.css';
+import './styles/update4.css';
 
 import { bus } from '../core/EventBus.ts';
 import { state } from '../core/GameState.ts';
@@ -29,6 +30,7 @@ import { getLang, setLang, t } from './i18n.ts';
 import { createLoading } from './loading.ts';
 import { createLobby, type LobbyView } from './lobby.ts';
 import { createMenu, readJoinParam, type MenuView } from './menu.ts';
+import { trackObjectiveEvent, trackObjectiveRun } from './objective.ts';
 import { createOverlays, createToasts, type OverlayView, type ToastView } from './overlays.ts';
 import { createScoreboard } from './scoreboard.ts';
 import { ui, type ModalKind, type PageKind } from './store.ts';
@@ -269,7 +271,7 @@ export function initUI(root: HTMLElement): void {
   });
   bus.on('net:status', refresh);
   bus.on('state:roster', refresh);
-  bus.on('state:run', () => { trackOathBaseline(); trackBiomes(); refresh(); });
+  bus.on('state:run', () => { trackOathBaseline(); trackBiomes(); trackObjectiveRun(); refresh(); });
   bus.on('state:draft', refresh);
   bus.on('state:profile', refresh);
   bus.on('state:hud', () => { if (views?.hud.el.isConnected) views.hud.syncHud(); });
@@ -283,7 +285,13 @@ export function initUI(root: HTMLElement): void {
   bus.on('game:progress', (progress) => { ui.progress = progress; refresh(); });
 
   // ---- gameplay feedback
-  bus.on('game:event', (ev) => { if (views?.hud.el.isConnected) views.hud.onEvent(ev); });
+  bus.on('game:event', (ev) => {
+    // The tally for the run summary must not depend on the HUD being on screen.
+    if (ev.e === 'objective') trackObjectiveEvent(ev);
+    if (views?.hud.el.isConnected) views.hud.onEvent(ev);
+    // A finished objective can change what the draft says about itself.
+    if (ev.e === 'objective' && ev.what === 'done' && views?.draft.el.isConnected) views.draft.sync();
+  });
   bus.on('game:localAction', (payload) => {
     // `slot` is not part of the contract yet (see the UI report): read it when the game sends it.
     const slot = (payload as { slot?: unknown }).slot;

@@ -15,6 +15,8 @@ import type { SampleGroup } from './manifest.ts';
 import { createPlayer, VOICES, type Bank } from './samples.ts';
 import { createAbilitySfx, isLegacyClass, type LegacyClass } from './sfx-abilities.ts';
 import { LIMITS, NOTE, rnd, TUNED, type Family, type Layer, type Mix, type SfxKit } from './sfx-kit.ts';
+import { createHordeSfx } from './sfx-horde.ts';
+import { createObjectiveSfx } from './sfx-objectives.ts';
 import { createProgressSfx } from './sfx-progress.ts';
 import { createSynthSfx } from './sfx-synth.ts';
 
@@ -403,6 +405,8 @@ export function createSfx(g: AudioGraph, bank: Bank) {
   };
   const abilities = createAbilitySfx(kit);
   const progress = createProgressSfx(kit);
+  const horde = createHordeSfx(kit);
+  const objectives = createObjectiveSfx(kit);
 
   // ---------------------------------------------------------------- hero abilities (the four first classes)
   const primary = (cls: LegacyClass, step: number, own: boolean, stackLevel: number, t: number): void => {
@@ -724,8 +728,12 @@ export function createSfx(g: AudioGraph, bank: Bank) {
         tone(out, t, { freq: 320, freqEnd: 760, dur: 0.13, gain: 0.05 });
       }, () => synth.dash(own));
     },
-    /** An enemy ability. Bosses' big attacks get a signature cue chosen from the ability id. */
-    enemyCast(ability = '', kind: EnemyKind | null = null): void {
+    /**
+     * An enemy ability. Bosses' big attacks get a signature cue chosen from the ability id; the casts of the
+     * update 4 kinds (`mend`, `raise`, `fuse`, `reaver_leap`) are channels tied to the caster `enemyId`.
+     */
+    enemyCast(ability = '', kind: EnemyKind | null = null, enemyId = -1): void {
+      if (horde.api.hordeAction(ability, enemyId)) return;
       const t = now();
       const id = ability.toLowerCase();
       const match = CUES.find(([part]) => id.includes(part));
@@ -856,8 +864,11 @@ export function createSfx(g: AudioGraph, bank: Bank) {
       if (named) reaction(named.id, t2 + 0.02, level, pri, rate);
       g.duckMusic(0.5, 0.3, 0.6);
     },
-    kill(kind: EnemyKind, own: boolean): void {
+    /** `enemyId` lets the death cut what that enemy was channelling (a mend, a fuse, a leap). */
+    kill(kind: EnemyKind, own: boolean, enemyId = -1): void {
       const t = now();
+      // the new kinds die with a layer of their own; a bomber's death is its burst and nothing else
+      if (horde.api.hordeDeath(kind, enemyId)) return;
       if (isBig(kind)) {
         if (take('big', t) < 0) return;
         use(['boom', 'boom.sub', 'bell', 'bone.tick', 'hit.bone', 'bone.tap'], () => {
@@ -907,6 +918,8 @@ export function createSfx(g: AudioGraph, bank: Bank) {
         }, () => synth.spawn(kind, elite));
         return;
       }
+      // the signature of a new kind has its own limiter: a bomber in a crowded wave must still announce itself
+      horde.api.hordeSpawn(kind);
       const stack = take('spawn', t);
       if (stack < 0) return;
       use(['earth', 'bone.tick'], () => {
@@ -930,6 +943,8 @@ export function createSfx(g: AudioGraph, bank: Bank) {
       }, () => synth.telegraph(seconds));
     },
     aoe(el: ElementId | null, hostile: boolean): void {
+      // a bomber's blast has its own sound, timed by its fuse
+      if (hostile && horde.api.claimBurst()) return;
       const t = now();
       const stack = take('aoe', t);
       if (stack < 0) return;
@@ -1175,6 +1190,9 @@ export function createSfx(g: AudioGraph, bank: Bank) {
     // ------------------------------------------------------------ update 3: zones, buffs, marks, progression, descent
     ...abilities.api,
     ...progress.api,
+    // ------------------------------------------------------------ update 4: the horde, wards, chamber objectives
+    ...horde.api,
+    ...objectives.api,
 
     /** Dev workbench: play the synthesised fallbacks even though the samples are there (A/B listening). */
     setForceSynth(on: boolean): void {

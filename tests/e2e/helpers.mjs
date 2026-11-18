@@ -28,13 +28,14 @@ export function build() {
   execFileSync('npm', ['run', 'build'], { cwd: ROOT, env, stdio: 'pipe' });
 }
 
-export async function startBackend() {
-  const proc = spawn('node', ['server/dist/server.js'], { cwd: ROOT, env: { ...process.env, PORT: String(SERVER_PORT), ALLOWED_ORIGINS: BASE }, stdio: ['ignore', 'pipe', 'pipe'] });
+/** `port` / `origin` / `env` let a spec run its own differently configured server next to the shared one. */
+export async function startBackend(port = SERVER_PORT, origin = BASE, env = {}) {
+  const proc = spawn('node', ['server/dist/server.js'], { cwd: ROOT, env: { ...process.env, PORT: String(port), ALLOWED_ORIGINS: origin, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
   const logs = [];
   proc.stdout.on('data', (d) => logs.push(String(d)));
   proc.stderr.on('data', (d) => logs.push(String(d)));
   for (let i = 0; i < 50; i++) {
-    try { if ((await fetch(`http://127.0.0.1:${SERVER_PORT}/health`)).ok) break; } catch { /* not up yet */ }
+    try { if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) break; } catch { /* not up yet */ }
     await sleep(100);
   }
   return { logs, stop: () => new Promise((r) => { proc.once('exit', r); proc.kill('SIGTERM'); }) };

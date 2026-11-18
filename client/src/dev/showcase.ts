@@ -19,16 +19,29 @@
  *         doors                 a descend and an ascend door
  *         ready                 every hero with a full ultimate charge
  *         lineup                the four heroes shoulder to shoulder (use with face=south&focus=0,5.4,0.24)
+ * Update 4:
+ *       demo=horde      the nine rank-and-file kinds in a row (old four left, new five right), idle
+ *       demo=hordeact   the five new kinds each do their thing at `at`: mend channel and heal, ward dome with a telegraph
+ *                       inside, a bomber's fuse and a slain bomber's delayed burst, a raise with tethered minions, a leap
+ *       demo=wards      four warded enemies (ember, rime, storm, umbra); at `at` each is hit with its own element
+ *       demo=dome       an aegis with its dome up, enemies inside, hostile telegraphs across it; &drop=1 drops it at `at`
+ *       demo=mend       a shaman mends four wounded enemies at `at`; &interrupt=1 staggers it (and a mage) mid-windup instead
+ *       demo=objective&obj=defend|ritual|hunt|survive|vault&prog=0..1 [&objdone=1] [&bonus=0]
+ *                       the objective in that state; defend: prog = shard health, heroes stand next to it;
+ *                       ritual: prog 0.5 = one lit, one half filled, one untouched; hunt: bonus=0 = enraged
+ *       demo=objdoors   doors with objective emblems (&set=1 for the second set)
+ *       stress mode now includes the five new kinds, wards, a dome and (obj=) an objective; default obj=defend
  */
 import { AnimationMixer, Vector3 } from 'three';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import { loadAssets, WorldView } from '../render/index.ts';
 import type { Assets } from '../render/index.ts';
-import { AFFIX_IDS, BIOME_IDS, BOSS_KINDS, CLASS_IDS, EF, ELEMENT_IDS, PF } from '@shared/types.ts';
+import { AFFIX_IDS, BIOME_IDS, BOSS_KINDS, CLASS_IDS, EF, ELEMENT_IDS, OBJECTIVE_KINDS, PF } from '@shared/types.ts';
 import type {
-  BiomeId, BossKind, ClassId, Door, ElementId, EnemyAnim, EnemyKind, EnemySnap, GameEvent, Hazard, Look, Obstacle, PlayerAnim, PlayerSnap,
-  ProjectileKind, ProjectileSnap, RoomLayout,
+  BiomeId, BossKind, ClassId, Door, ElementId, EnemyAnim, EnemyKind, EnemySnap, GameEvent, Hazard, Look, ObjectiveKind, ObjectiveState, Obstacle, PlayerAnim,
+  PlayerSnap, ProjectileKind, ProjectileSnap, RoomLayout,
 } from '@shared/types.ts';
+import { OBJECTIVE_TUNING } from '@shared/data/objectives.ts';
 import type { ChamberKind } from '@shared/constants.ts';
 import { CLASSES, DASH, ULTIMATE } from '@shared/data/classes.ts';
 import type { AbilityDef } from '@shared/data/classes.ts';
@@ -50,7 +63,11 @@ const NAMES = ['Aldric', 'Brunhild', 'Cyrene', 'Dax'];
 const SLOTS = NET.MAX_PLAYERS;
 const OLD_CLASSES: ClassId[] = ['knight', 'barbarian', 'mage', 'rogue'];
 const NEW_CLASSES: ClassId[] = ['templar', 'spellblade', 'shade', 'mage'];
-const DEMOS = ['art', 'ult', 'primary', 'zones', 'reactions', 'umbra', 'affix', 'doors', 'ready', 'lineup'] as const;
+const DEMOS = ['art', 'ult', 'primary', 'zones', 'reactions', 'umbra', 'affix', 'doors', 'ready', 'lineup',
+  'horde', 'hordeact', 'wards', 'dome', 'mend', 'objective', 'objdoors'] as const;
+const HORDE_KINDS: EnemyKind[] = ['shaman', 'aegis', 'bomber', 'necromancer', 'reaver'];
+const OLD_KINDS: EnemyKind[] = ['minion', 'warrior', 'archer', 'mage'];
+const HT = ENEMY_TUNING;
 type Demo = (typeof DEMOS)[number];
 /** Zone / trap / buff line-up of the `zones` demo: [ability id, x]. */
 const ZONE_DEMO: [string, number][] = [['templar_consecrate', -12], ['templar_sanctuary', -4.5], ['rogue_volley', 5], ['shade_smoke', 12.5]];
@@ -136,8 +153,29 @@ function enemyScript(kind: EnemyKind): EnemyStep[] {
       { anim: 'idle', dur: 0.5 }, { anim: 'stun', dur: 1.2 }, { anim: 'idle', dur: 1.2 }, { anim: 'death', dur: 2.6 },
     ];
   }
+  const spawn: EnemyStep = { anim: 'spawn', dur: def.spawnTime + 0.15 };
+  const end: EnemyStep[] = [{ anim: 'stun', dur: 1.2 }, { anim: 'idle', dur: 0.8 }, { anim: 'death', dur: 2.6 }];
+  if (kind === 'shaman') {
+    // hex bolt, then the mend channel (announced as `cast` with the ability id `mend`)
+    return [spawn, { anim: 'idle', dur: 0.8 }, { anim: 'move', dur: 1.8 }, { anim: 'windup', dur: def.windup }, { anim: 'attack', dur: 0.7 },
+      { anim: 'idle', dur: 0.5 }, { anim: 'cast', dur: HT.SHAMAN.MEND_WINDUP }, { anim: 'attack', dur: 0.8 }, { anim: 'idle', dur: 0.6 }, ...end];
+  }
+  if (kind === 'aegis') {
+    return [spawn, { anim: 'idle', dur: 1.6 }, { anim: 'move', dur: 2.2 }, { anim: 'windup', dur: def.windup }, { anim: 'attack', dur: 0.7 }, { anim: 'idle', dur: 1.2 }, ...end];
+  }
+  if (kind === 'bomber') {
+    // odd cycles: slain on the run (delayed burst); even cycles: the fuse runs out
+    return [spawn, { anim: 'idle', dur: 0.6 }, { anim: 'move', dur: 1.8 }, { anim: 'windup', dur: def.windup }, { anim: 'attack', dur: 0.05 }];
+  }
+  if (kind === 'necromancer') {
+    return [spawn, { anim: 'idle', dur: 1.0 }, { anim: 'move', dur: 1.8 }, { anim: 'summon', dur: def.windup }, { anim: 'attack', dur: 0.6 }, { anim: 'idle', dur: 3.2 }, ...end];
+  }
+  if (kind === 'reaver') {
+    return [spawn, { anim: 'idle', dur: 0.8 }, { anim: 'move', dur: 1.6 }, { anim: 'leap', dur: HT.REAVER.LEAP_AIR_TIME }, { anim: 'windup', dur: def.windup },
+      { anim: 'attack', dur: 0.6 }, { anim: 'idle', dur: 0.4 }, { anim: 'leap', dur: HT.REAVER.LEAP_AIR_TIME }, { anim: 'idle', dur: 0.6 }, ...end];
+  }
   const base: EnemyStep[] = [
-    { anim: 'spawn', dur: def.spawnTime + 0.15 }, { anim: 'idle', dur: 0.8 }, { anim: 'move', dur: 1.8 },
+    spawn, { anim: 'idle', dur: 0.8 }, { anim: 'move', dur: 1.8 },
     { anim: 'windup', dur: def.windup }, { anim: 'attack', dur: 0.7 }, { anim: 'idle', dur: 0.4 },
     { anim: 'windup', dur: def.windup }, { anim: 'cast', dur: 0.7 }, { anim: 'stun', dur: 1.3 },
   ];
@@ -175,6 +213,17 @@ class Showcase {
   private looks: Look[] = OLD_CLASSES.map(() => ({ ...DEFAULT_LOOK }));
   private classes: ClassId[] = [...OLD_CLASSES];
   private demo: Demo | null = null;
+  /** Update 4: objective shown by the objective demo / stress mode, its progress knob, and extra switches. */
+  private obj: ObjectiveKind = 'defend';
+  private objProg = 0.5;
+  private objDone = false;
+  private objBonus = true;
+  private objective: ObjectiveState | null = null;
+  private doorSet = 0;
+  private drop = false;
+  private interrupt = false;
+  /** Minions raised by the scripted necromancers: [necromancer actor, minion actor]. */
+  private raised: [EnemyActor, EnemyActor][] = [];
   private demoAt = 1;
   private demoDone = false;
   private depth = 0;
@@ -246,7 +295,15 @@ class Showcase {
     const list = (params.get('classes') ?? '').split(',').filter((c): c is ClassId => CLASS_IDS.includes(c as ClassId));
     if (list.length > 0) this.classes = OLD_CLASSES.map((_, i) => list[i % list.length]);
     const demo = params.get('demo') as Demo | null;
-    if (demo && DEMOS.includes(demo)) { this.demo = demo; this.calm = true; this.markerOn = false; this.doorsOn = demo === 'doors'; }
+    if (demo && DEMOS.includes(demo)) { this.demo = demo; this.calm = true; this.markerOn = false; this.doorsOn = demo === 'doors' || demo === 'objdoors'; }
+    const obj = params.get('obj') as ObjectiveKind | null;
+    if (obj && OBJECTIVE_KINDS.includes(obj)) this.obj = obj;
+    if (params.has('prog')) this.objProg = Number(params.get('prog'));
+    this.objDone = params.get('objdone') === '1';
+    this.objBonus = params.get('bonus') !== '0';
+    this.doorSet = Number(params.get('set') ?? 0);
+    this.drop = params.get('drop') === '1';
+    this.interrupt = params.get('interrupt') === '1';
     if (params.has('at')) this.demoAt = Number(params.get('at'));
     if (params.has('depth')) this.depth = Number(params.get('depth'));
     const free = (params.get('focus') ?? '').split(',').map(Number);
@@ -341,6 +398,8 @@ class Showcase {
     this.enemies = [];
     this.shots = [];
     this.pending = [];
+    this.raised = [];
+    this.objective = null;
     this.timers = { tele: 0.5, reso: 1.2, shot: 0.3, event: 2, hit: 0.4, stressFx: 0 };
     const hd = this.room.d / 2;
     this.classes.forEach((cls, slot) => {
@@ -360,19 +419,29 @@ class Showcase {
       for (const h of this.heroes) { h.snap.hp = h.snap.maxHp; h.snap.shield = 0; }
       this.setupDemo();
     } else if (this.stress) {
+      // 44 enemies as before, a third of them the update 4 kinds; every fifth one warded
       const mix: EnemyKind[] = [];
-      for (let i = 0; i < 20; i++) mix.push('minion');
-      for (let i = 0; i < 8; i++) mix.push('warrior');
-      for (let i = 0; i < 8; i++) mix.push('archer');
-      for (let i = 0; i < 6; i++) mix.push('mage');
+      for (let i = 0; i < 12; i++) mix.push('minion');
+      for (let i = 0; i < 6; i++) mix.push('warrior');
+      for (let i = 0; i < 6; i++) mix.push('archer');
+      for (let i = 0; i < 4; i++) mix.push('mage');
+      mix.push('shaman', 'shaman', 'aegis', 'aegis', 'bomber', 'bomber', 'bomber', 'bomber', 'necromancer', 'necromancer', 'reaver', 'reaver', 'reaver', 'reaver');
       mix.push('champion', this.boss ?? BIOME_BOSS[this.biome]);
-      mix.forEach((kind, i) => {
-        const a = (i / mix.length) * Math.PI * 2;
+      // deterministic shuffle, so the kinds are spread around the ring
+      const order = mix.map((kind, i) => ({ kind, key: (i * 17) % mix.length })).sort((a, b) => a.key - b.key).map((m) => m.kind);
+      order.forEach((kind, i) => {
+        const a = (i / order.length) * Math.PI * 2;
         const r = 5 + (i % 5) * 1.6;
         this.addEnemy(kind, Math.sin(a) * r * 1.3, Math.cos(a) * r * 0.8 - 1, i % 7 === 0, false);
+        const actor = this.enemies[this.enemies.length - 1];
+        const ward = i % 5 === 2 && OLD_KINDS.includes(kind) ? ELEMENT_IDS[i % ELEMENT_IDS.length] : undefined;
+        this.emit({ e: 'spawn', id: actor.snap.id, kind, x: actor.snap.x, z: actor.snap.z, elite: false, ward });
+        if (kind === 'aegis') this.later(0.3, () => this.emit({ e: 'dome', id: actor.snap.id, on: true, r: HT.AEGIS.DOME_RADIUS }));
       });
+      this.objective = this.makeObjective(this.obj, this.objProg);
     } else {
       (['minion', 'warrior', 'archer', 'mage', 'champion'] as EnemyKind[]).forEach((kind, i) => this.addEnemy(kind, -11 + i * 3.6, -2.4, false, false));
+      HORDE_KINDS.forEach((kind, i) => this.addEnemy(kind, -11.5 + i * 3.4, -4.9, false, false));
       this.addEnemy(this.boss ?? BIOME_BOSS[this.biome], 8.4, -4.4, false, false);
       (['minion', 'warrior', 'archer', 'mage'] as EnemyKind[]).forEach((kind, i) => this.addEnemy(kind, -8.5 + i * 2.6, -7, true, true));
     }
@@ -497,6 +566,117 @@ class Showcase {
     } else if (anim === 'idle' && prev === 'stun') {
       this.emit({ e: 'bossPhase', phase: 2 });
     }
+  }
+
+  // ---------------------------------------------------------------------------------------------- update 4
+
+  /** An objective state as the server would send it, for the given knob (0..1). */
+  private makeObjective(kind: ObjectiveKind, prog: number): ObjectiveState | null {
+    if (kind === 'slay') return null;
+    const state: ObjectiveState = { kind, progress: prog, timeLeft: 0, bonus: this.objBonus, status: this.objDone ? 'done' : 'active', anchor: null, sites: [], targets: [] };
+    const T = OBJECTIVE_TUNING;
+    // bonus=0: the shard still stands (barely) until `at`, so the shatter itself can be captured
+    if (kind === 'defend') state.anchor = { x: 0, z: -1, r: T.DEFEND.RADIUS, hp: this.objBonus ? prog : Math.max(0.12, prog) };
+    else if (kind === 'vault') state.anchor = { x: 0, z: -2, r: 1.2, hp: 1 };
+    else if (kind === 'survive') state.timeLeft = T.SURVIVE.SECONDS * (1 - prog);
+    else if (kind === 'ritual') {
+      // prog 0.5: one burning, one half way, one untouched
+      const fill = [Math.min(1, prog * 2), Math.max(0, Math.min(1, prog * 2 - 0.5)) , Math.max(0, prog * 2 - 1.5)];
+      [[-8, -2], [0, 2.5], [8, -2]].forEach(([x, z], i) => state.sites.push({ x, z, r: T.RITUAL.RADIUS, progress: fill[i], lit: fill[i] >= 1 }));
+    } else if (kind === 'hunt') {
+      state.timeLeft = this.objBonus ? T.HUNT.SECONDS * (1 - prog) : 0;
+      state.targets = this.enemies.filter((e) => (e.snap.flags & EF.ELITE) !== 0 && e.gone <= 0).slice(0, T.HUNT.TARGETS).map((e) => e.snap.id);
+    }
+    return state;
+  }
+
+  /** What sim/enemies.ts would announce for the five kinds of update 4 (ability ids: mend, raise, fuse, reaver_leap). */
+  private hordeStep(e: EnemyActor, anim: EnemyAnim, prev: EnemyAnim): void {
+    const s = e.snap;
+    const id = s.id;
+    const def = enemyDef(s.kind);
+    const alive = (): boolean => e.snap.id === id && e.gone <= 0;
+    const cast = (ability: string, x = s.x, z = s.z): void => this.emit({ e: 'cast', who: { t: 'e', id }, ability, x, z, rot: s.rot });
+    if (s.kind === 'shaman') {
+      if (anim === 'windup') {
+        this.tele(e, 'line', s.x + Math.sin(s.rot), s.z + Math.cos(s.rot), s.rot, 9, 0.6, def.windup);
+      } else if (anim === 'attack' && prev === 'windup') {
+        cast('shaman_bolt');
+        this.shoot('hexOrb', s.x, s.z + 1, 0, HT.SHAMAN.BOLT_SPEED, 9, 0, true);
+      } else if (anim === 'cast') {
+        cast('mend');
+      } else if (anim === 'attack' && prev === 'cast') {
+        // everyone wounded within reach is mended
+        const targets = this.enemies.filter((o) => o !== e && o.gone <= 0 && Math.hypot(o.snap.x - s.x, o.snap.z - s.z) <= HT.SHAMAN.MEND_RADIUS).map((o) => o.snap.id);
+        for (const o of this.enemies) if (targets.includes(o.snap.id)) o.snap.hp = Math.min(1, o.snap.hp + HT.SHAMAN.MEND_FRACTION);
+        this.emit({ e: 'mend', id, targets });
+      }
+    } else if (s.kind === 'aegis') {
+      if (anim === 'idle' && (prev === 'spawn' || prev === 'stun')) this.later(prev === 'stun' ? 0.5 : 0.2, () => { if (alive()) this.emit({ e: 'dome', id, on: true, r: HT.AEGIS.DOME_RADIUS }); });
+      else if (anim === 'stun' || anim === 'death') this.emit({ e: 'dome', id, on: false, r: HT.AEGIS.DOME_RADIUS });
+      else if (anim === 'windup') this.emit({ e: 'telegraph', shape: 'arc', x: s.x, z: s.z, rot: s.rot, r: def.attackRange + 0.6, w: 110 * DEG, dur: def.windup, src: id });
+      else if (anim === 'attack') cast('aegis_attack');
+    } else if (s.kind === 'bomber') {
+      const B = HT.BOMBER;
+      if (anim === 'move' && e.cycle % 2 === 1) {
+        // slain on the run: the charge lies there and goes off after the delay
+        this.later(1.1, () => {
+          if (!alive()) return;
+          const x = s.x;
+          const z = s.z;
+          this.emit({ e: 'kill', id, kind: s.kind, x, z, by: 0 });
+          this.emit({ e: 'telegraph', shape: 'circle', x, z, rot: 0, r: B.BLAST_RADIUS, w: 0, dur: B.DEATH_BLAST_DELAY });
+          e.gone = 3.2;
+          this.later(B.DEATH_BLAST_DELAY, () => this.emit({ e: 'aoe', x, z, r: B.BLAST_RADIUS, el: null, hostile: true }));
+        });
+      } else if (anim === 'windup') {
+        this.tele(e, 'circle', s.x, s.z, 0, B.BLAST_RADIUS, 0, def.windup);
+        cast('fuse');
+      } else if (anim === 'attack') {
+        this.emit({ e: 'aoe', x: s.x, z: s.z, r: B.BLAST_RADIUS, el: null, hostile: true });
+        this.emit({ e: 'kill', id, kind: s.kind, x: s.x, z: s.z, by: -1 });
+        e.gone = 3.2;
+      }
+    } else if (s.kind === 'necromancer') {
+      if (anim === 'summon') cast('raise');
+      else if (anim === 'attack') {
+        for (let i = 0; i < HT.NECROMANCER.RAISE_COUNT; i++) {
+          const minion = this.dummy('minion', s.x + (i === 0 ? -2.2 : 2.2), s.z + 2.2);
+          minion.snap.anim = 'spawn';
+          minion.script = [{ anim: 'spawn', dur: enemyDef('minion').spawnTime }, { anim: 'idle', dur: 1e9 }];
+          minion.t = enemyDef('minion').spawnTime;
+          this.emit({ e: 'spawn', id: minion.snap.id, kind: 'minion', x: minion.snap.x, z: minion.snap.z, elite: false });
+          this.raised.push([e, minion]);
+        }
+      } else if (anim === 'death') {
+        this.crumble(e);
+      }
+    } else if (s.kind === 'reaver') {
+      const R = HT.REAVER;
+      if (anim === 'leap') {
+        const tx = e.leapBack ? e.homeX : e.homeX + 1.5;
+        const tz = e.leapBack ? e.homeZ : e.homeZ + 7;
+        e.leapBack = !e.leapBack;
+        e.fromX = s.x; e.fromZ = s.z; e.toX = tx; e.toZ = tz;
+        s.rot = Math.atan2(tx - s.x, tz - s.z);
+        this.tele(e, 'circle', tx, tz, 0, R.LEAP_RADIUS, 0, R.LEAP_AIR_TIME);
+        cast('reaver_leap', tx, tz);
+        this.later(R.LEAP_AIR_TIME, () => { if (alive()) this.emit({ e: 'aoe', x: tx, z: tz, r: R.LEAP_RADIUS, el: null, hostile: true }); });
+      } else if (anim === 'windup') {
+        this.emit({ e: 'telegraph', shape: 'arc', x: s.x, z: s.z, rot: s.rot, r: def.attackRange + 0.6, w: 100 * DEG, dur: def.windup, src: id });
+      } else if (anim === 'attack') cast('reaver_attack');
+    }
+  }
+
+  /** A necromancer is gone: the minions it raised crumble with it. */
+  private crumble(necro: EnemyActor): void {
+    for (const [master, minion] of this.raised) {
+      if (master !== necro || minion.gone > 0) continue;
+      this.emit({ e: 'kill', id: minion.snap.id, kind: 'minion', x: minion.snap.x, z: minion.snap.z, by: -1 });
+      minion.gone = 1e9;
+    }
+    this.raised = this.raised.filter(([master]) => master !== necro);
+    this.enemies = this.enemies.filter((e) => e.gone < 1e8 || e.script.length !== 2);
   }
 
   // ---------------------------------------------------------------------------------------------- heroes
@@ -652,7 +832,16 @@ class Showcase {
 
   // ---------------------------------------------------------------------------------------------- demos (update 3)
 
-  private dummy(kind: EnemyKind, x: number, z: number, flags = 0, affix?: (typeof AFFIX_IDS)[number]): EnemyActor {
+  /** An enemy that idles until `at` and then runs `steps` once (the horde demos); it ends idling. */
+  private scripted(kind: EnemyKind, x: number, z: number, steps: EnemyStep[]): EnemyActor {
+    const actor = this.dummy(kind, x, z);
+    actor.script = [{ anim: 'idle', dur: this.demoAt }, ...steps, { anim: 'idle', dur: 1e9 }];
+    actor.step = 0;
+    actor.t = this.demoAt;
+    return actor;
+  }
+
+  private dummy(kind: EnemyKind, x: number, z: number, flags = 0, affix?: (typeof AFFIX_IDS)[number], ward?: ElementId): EnemyActor {
     const actor: EnemyActor = {
       homeX: x, homeZ: z, step: 0, t: 1e9, cycle: 0, gone: 0, script: [{ anim: 'idle', dur: 1e9 }], statusDemo: false, slamCount: 0,
       leapBack: false, fromX: x, fromZ: z, toX: x, toZ: z,
@@ -660,6 +849,7 @@ class Showcase {
     };
     this.enemies.push(actor);
     if (affix) this.emit({ e: 'spawn', id: actor.snap.id, kind, x, z, elite: true, affix });
+    else if (ward) this.emit({ e: 'spawn', id: actor.snap.id, kind, x, z, elite: false, ward });
     return actor;
   }
 
@@ -687,6 +877,78 @@ class Showcase {
     } else if (demo === 'zones') {
       this.heroes.forEach((h, i) => { h.homeX = -12 + i * 4.5; h.snap.x = h.homeX; h.homeZ = hd - 2.2; h.snap.z = h.homeZ; });
       for (let i = 0; i < 4; i++) this.dummy(row[i], -12 + i * 8, -3.4);
+    } else if (demo === 'horde') {
+      [...OLD_KINDS, ...HORDE_KINDS].forEach((kind, i) => this.dummy(kind, -12 + i * 3, -1));
+    } else if (demo === 'hordeact') {
+      const def = (kind: EnemyKind): number => enemyDef(kind).windup;
+      // shaman with two wounded allies in reach
+      this.scripted('shaman', -11.5, -2.5, [{ anim: 'cast', dur: HT.SHAMAN.MEND_WINDUP }, { anim: 'attack', dur: 0.8 }]);
+      this.dummy('warrior', -13.2, 0.8).snap.hp = 0.35;
+      this.dummy('minion', -9.6, 1.2).snap.hp = 0.5;
+      // aegis with its dome up, three enemies under it and an archer aiming out of it
+      const aegis = this.dummy('aegis', -3.8, -1.5);
+      this.later(0.2, () => this.emit({ e: 'dome', id: aegis.snap.id, on: true, r: HT.AEGIS.DOME_RADIUS }));
+      this.dummy('minion', -5.6, 0.6);
+      this.dummy('warrior', -2.2, 0.9);
+      this.scripted('archer', -4.2, -4.2, [{ anim: 'windup', dur: def('archer') }, { anim: 'attack', dur: 0.6 }]);
+      // one bomber whose fuse runs out, one that is slain (runDemo)
+      this.scripted('bomber', 2.2, -1.5, [{ anim: 'windup', dur: def('bomber') }, { anim: 'attack', dur: 0.05 }]);
+      this.dummy('bomber', 5.4, 2.2);
+      this.scripted('necromancer', 8.6, -3.5, [{ anim: 'summon', dur: def('necromancer') }, { anim: 'attack', dur: 0.6 }]);
+      this.scripted('reaver', 12.2, -6, [{ anim: 'leap', dur: HT.REAVER.LEAP_AIR_TIME }, { anim: 'windup', dur: def('reaver') }, { anim: 'attack', dur: 0.6 }]);
+    } else if (demo === 'wards') {
+      ELEMENT_IDS.forEach((el, i) => this.dummy(row[i], -7.5 + i * 5, -0.5, 0, undefined, el));
+      this.dummy('reaver', 11.5, -3, 0, undefined, 'ember');
+    } else if (demo === 'dome') {
+      const steps: EnemyStep[] = this.drop ? [{ anim: 'stun', dur: 1.6 }] : [];
+      const aegis = this.scripted('aegis', 0, -1.5, steps);
+      this.later(0.2, () => this.emit({ e: 'dome', id: aegis.snap.id, on: true, r: HT.AEGIS.DOME_RADIUS }));
+      this.dummy('minion', -2.2, 0.6);
+      this.dummy('warrior', 2.4, 0.2);
+      this.dummy('archer', 0.4, -4.2);
+      this.dummy('mage', -2.8, -3);
+      this.dummy('minion', 7.5, -1);
+    } else if (demo === 'mend') {
+      // &interrupt=1: the shaman is staggered half way through the channel, and a mage next to it in the middle of its windup
+      this.scripted('shaman', 0, -4.5, this.interrupt ? [{ anim: 'cast', dur: 0.7 }, { anim: 'stun', dur: 1.4 }] : [{ anim: 'cast', dur: HT.SHAMAN.MEND_WINDUP }, { anim: 'attack', dur: 0.8 }]);
+      ([['warrior', -3.2, -1.2], ['minion', 3, -1], ['archer', -4.4, -5.5]] as [EnemyKind, number, number][])
+        .forEach(([kind, x, z]) => { this.dummy(kind, x, z).snap.hp = 0.35; });
+      const mage = this.interrupt ? this.scripted('mage', 4.2, -5.8, [{ anim: 'windup', dur: 0.7 }, { anim: 'stun', dur: 1.4 }]) : this.dummy('mage', 4.2, -5.8);
+      mage.snap.hp = 0.35;
+    } else if (demo === 'objective') {
+      const obj = this.obj;
+      if (obj === 'defend') {
+        // two heroes at the shard (they mend it), two further out; part of the horde is on it
+        const spots = [[-2.2, 0.6], [2.4, -0.2], [-7, 4], [7, 4.5]];
+        this.heroes.forEach((h, i) => { h.homeX = spots[i][0]; h.homeZ = spots[i][1]; h.snap.x = h.homeX; h.snap.z = h.homeZ; });
+        this.dummy('minion', -1.2, -3.2);
+        this.dummy('warrior', 1.6, -3.4);
+        this.dummy('minion', 5.5, -5);
+      } else if (obj === 'ritual') {
+        const spots = [[-8.6, -0.6], [0.8, 3.4], [-0.9, 2.2], [9, 4]];
+        this.heroes.forEach((h, i) => { h.homeX = spots[i][0]; h.homeZ = spots[i][1]; h.snap.x = h.homeX; h.snap.z = h.homeZ; });
+        this.dummy('minion', 5, -3);
+        this.dummy('archer', -3.5, -5.5);
+      } else if (obj === 'hunt') {
+        const flags = EF.ELITE | (this.objBonus ? 0 : EF.ENRAGED);
+        this.dummy('warrior', -4, -2, flags);
+        this.dummy('mage', 4.5, -3.5, flags);
+        this.dummy('minion', -1, -0.5);
+        this.dummy('minion', 1.5, -5);
+        this.dummy('archer', 8, -6);
+        // one more elite that is not a target, marked for death, to compare the markers
+        const other = this.dummy('archer', -9, -4, EF.ELITE, 'swift');
+        this.later(0.3, () => this.emit({ e: 'mark', id: other.snap.id, dur: 60 }));
+      } else if (obj === 'survive') {
+        for (let i = 0; i < 6; i++) this.dummy(row[i % 4], -9 + i * 3.6, -3 + (i % 2) * 2.4);
+      } else if (obj === 'vault') {
+        const spots = [[-2.6, 0.4], [2.8, 0.2], [-5, 4], [5, 4.5]];
+        this.heroes.forEach((h, i) => { h.homeX = spots[i][0]; h.homeZ = spots[i][1]; h.snap.x = h.homeX; h.snap.z = h.homeZ; });
+      }
+      this.objective = this.makeObjective(obj, this.objProg);
+      // the state says `done` only from `at` on, so the moment itself can be captured
+      if (this.objective && this.objDone) this.objective.status = 'active';
+      this.later(0.15, () => this.emit({ e: 'objective', kind: obj, what: 'start' }));
     }
   }
 
@@ -737,6 +999,44 @@ class Showcase {
       this.emit({ e: 'cast', who: { t: 'p', id: 3 }, ability: 'knight_bulwark', x: this.heroes[3].snap.x, z: this.heroes[3].snap.z, rot: NORTH });
     } else if (demo === 'ready') {
       for (const h of this.heroes) this.emit({ e: 'ultReady', slot: h.snap.slot });
+    } else if (demo === 'hordeact') {
+      // the second bomber is slain: its charge lies there for the delay, announced like any hostile blast
+      const b = this.enemies.find((e) => e.snap.kind === 'bomber' && e.script.length === 1);
+      if (b) {
+        const B = HT.BOMBER;
+        const { x, z } = b.snap;
+        this.emit({ e: 'kill', id: b.snap.id, kind: 'bomber', x, z, by: 0 });
+        this.emit({ e: 'telegraph', shape: 'circle', x, z, rot: 0, r: B.BLAST_RADIUS, w: 0, dur: B.DEATH_BLAST_DELAY });
+        b.gone = 1e9;
+        this.later(B.DEATH_BLAST_DELAY, () => this.emit({ e: 'aoe', x, z, r: B.BLAST_RADIUS, el: null, hostile: true }));
+      }
+      // a blast announced inside the dome: it has to stay as readable as anywhere else
+      this.emit({ e: 'telegraph', shape: 'circle', x: -2.6, z: -2.6, rot: 0, r: 2.2, w: 0, dur: 2.5 });
+    } else if (demo === 'wards') {
+      this.enemies.forEach((e, i) => {
+        const el: ElementId = i < ELEMENT_IDS.length ? ELEMENT_IDS[i] : 'ember';
+        this.emit({ e: 'hit', target: { t: 'e', id: e.snap.id }, x: e.snap.x, z: e.snap.z, dmg: 24, crit: false, el, by: 0 });
+        this.emit({ e: 'warded', id: e.snap.id, el, x: e.snap.x, z: e.snap.z, by: 0 });
+      });
+    } else if (demo === 'dome') {
+      this.emit({ e: 'telegraph', shape: 'circle', x: 1.4, z: 1.6, rot: 0, r: 2.2, w: 0, dur: 3 });
+      this.emit({ e: 'telegraph', shape: 'line', x: -8, z: -2.6, rot: Math.PI / 2, r: 16, w: 1.4, dur: 3 });
+      this.emit({ e: 'telegraph', shape: 'arc', x: 2.4, z: 0.2, rot: 0.3, r: 3.2, w: 110 * DEG, dur: 3 });
+      // a hit on a guarded enemy
+      const guarded = this.enemies[1];
+      this.emit({ e: 'hit', target: { t: 'e', id: guarded.snap.id }, x: guarded.snap.x, z: guarded.snap.z, dmg: 6, crit: false, el: null, by: 0 });
+    } else if (demo === 'objective') {
+      const obj = this.obj;
+      const state = this.objective;
+      if (obj === 'defend') this.emit({ e: 'objective', kind: obj, what: 'anchorHit' });
+      if (obj === 'defend' && !this.objBonus && state && state.anchor) { state.anchor.hp = 0; state.bonus = false; this.emit({ e: 'objective', kind: obj, what: 'bonusLost' }); }
+      if (obj === 'ritual' && state && state.sites[0].lit) this.emit({ e: 'objective', kind: obj, what: 'site', index: 0 });
+      if (obj === 'hunt' && !this.objBonus) this.emit({ e: 'objective', kind: obj, what: 'bonusLost' });
+      if (this.objDone && state) {
+        state.status = 'done';
+        this.emit({ e: 'objective', kind: obj, what: 'done', bonus: this.objBonus });
+        if (obj !== 'vault') this.emit({ e: 'chamberClear' });
+      }
     }
   }
 
@@ -790,11 +1090,13 @@ class Showcase {
     const T = ENEMY_TUNING;
     const big = s.kind === 'regent' ? T.REGENT : T.CHAMPION;
     if (anim === 'windup') {
-      if (s.kind === 'minion') this.emit({ e: 'telegraph', shape: 'arc', x: s.x, z: s.z, rot: s.rot, r: def.attackRange + 0.6, w: T.MINION_ARC_DEG * DEG, dur: def.windup });
-      else if (s.kind === 'warrior') this.emit({ e: 'telegraph', shape: 'arc', x: s.x, z: s.z, rot: s.rot, r: def.attackRange + 0.6, w: T.WARRIOR_ARC_DEG * DEG, dur: def.windup });
-      else if (s.kind === 'archer') this.emit({ e: 'telegraph', shape: 'line', x: fx, z: fz, rot: s.rot, r: 9, w: 0.6, dur: def.windup });
-      else if (s.kind === 'mage') this.emit({ e: 'telegraph', shape: 'circle', x: s.x + Math.sin(s.rot) * 5, z: s.z + Math.cos(s.rot) * 5, rot: 0, r: T.MAGE_BLAST_RADIUS, w: 0, dur: def.windup });
-      else this.emit({ e: 'telegraph', shape: 'arc', x: s.x, z: s.z, rot: s.rot, r: def.attackRange, w: 120 * DEG, dur: def.windup });
+      // like the simulation, every basic attack names its source, so a stun or a kill can take the warning away
+      const src = s.id;
+      if (s.kind === 'minion') this.emit({ e: 'telegraph', shape: 'arc', x: s.x, z: s.z, rot: s.rot, r: def.attackRange + 0.6, w: T.MINION_ARC_DEG * DEG, dur: def.windup, src });
+      else if (s.kind === 'warrior') this.emit({ e: 'telegraph', shape: 'arc', x: s.x, z: s.z, rot: s.rot, r: def.attackRange + 0.6, w: T.WARRIOR_ARC_DEG * DEG, dur: def.windup, src });
+      else if (s.kind === 'archer') this.emit({ e: 'telegraph', shape: 'line', x: fx, z: fz, rot: s.rot, r: 9, w: 0.6, dur: def.windup, src });
+      else if (s.kind === 'mage') this.emit({ e: 'telegraph', shape: 'circle', x: s.x + Math.sin(s.rot) * 5, z: s.z + Math.cos(s.rot) * 5, rot: 0, r: T.MAGE_BLAST_RADIUS, w: 0, dur: def.windup, src });
+      else this.emit({ e: 'telegraph', shape: 'arc', x: s.x, z: s.z, rot: s.rot, r: def.attackRange, w: 120 * DEG, dur: def.windup, src });
     } else if (anim === 'sweep') {
       this.emit({ e: 'telegraph', shape: 'arc', x: s.x, z: s.z, rot: s.rot, r: big.SWEEP_REACH, w: big.SWEEP_ARC_DEG * DEG, dur: def.windup });
     } else if (anim === 'charge') {
@@ -847,14 +1149,25 @@ class Showcase {
       s.rot = 0;
       s.flags &= ~EF.STUNNED;
       if (step.anim === 'stun') s.flags |= EF.STUNNED;
+      // a stun in the middle of a wind-up is announced, as the simulation does
+      if (step.anim === 'stun' && (prevAnim === 'windup' || prevAnim === 'cast' || prevAnim === 'summon')) this.emit({ e: 'interrupt', id: s.id });
       const boss2 = s.kind === 'matron' || s.kind === 'stalker';
-      if (boss2 && step.anim !== 'death') {
+      if (HORDE_KINDS.includes(s.kind)) {
+        this.hordeStep(e, step.anim, prevAnim);
+        if (step.anim === 'death') {
+          s.hp = 0;
+          if (e.gone <= 0) { this.emit({ e: 'kill', id: s.id, kind: s.kind, x: s.x, z: s.z, by: 0 }); e.gone = 2.8; }
+          return false;
+        }
+        if (e.gone > 0) return false;
+      } else if (boss2 && step.anim !== 'death') {
         const before = e.step > 0 ? e.script[e.step - 1].anim : prevAnim;
         this.boss2Step(e, step.anim, e.step >= 2 && step.anim === 'volley' ? e.script[e.step - 2].anim : before);
       } else if (step.anim === 'slam') e.slamCount++; else e.slamCount = 0;
-      if (!boss2) this.telegraphFor(e, step.anim === 'slam' ? 'slam' : step.anim);
+      const horde = HORDE_KINDS.includes(s.kind);
+      if (!boss2 && !horde) this.telegraphFor(e, step.anim === 'slam' ? 'slam' : step.anim);
       if (step.anim === 'slam') e.slamCount = Math.max(1, e.slamCount);
-      if (boss2 && step.anim !== 'death') { /* scripted above */ } else if (step.anim === 'attack' || step.anim === 'cast') {
+      if ((boss2 && step.anim !== 'death') || horde) { /* scripted above */ } else if (step.anim === 'attack' || step.anim === 'cast') {
         this.emit({ e: 'cast', who: { t: 'e', id: s.id }, ability: `${s.kind}_${step.anim}`, x: s.x, z: s.z, rot: s.rot });
         if (s.kind === 'archer') this.shoot('boneArrow', s.x, s.z + 1, 0, ENEMY_TUNING.ARROW_SPEED, 9, 0, true);
         if (s.kind === 'mage') this.emit({ e: 'aoe', x: s.x, z: s.z + 5, r: ENEMY_TUNING.MAGE_BLAST_RADIUS, el: null, hostile: true });
@@ -887,6 +1200,8 @@ class Showcase {
     } else if (step.anim === 'leap') {
       s.x = e.fromX + (e.toX - e.fromX) * Math.min(1, k);
       s.z = e.fromZ + (e.toZ - e.fromZ) * Math.min(1, k);
+    } else if (s.kind === 'reaver' && step.anim !== 'idle') {
+      // stays where it landed until it leaps back
     } else if (step.anim === 'charge' && s.kind === 'stalker') {
       s.z = e.homeZ + Math.max(0, Math.min(1, (step.dur - e.t - 0.8) / 0.4)) * 8;
     } else if (step.anim === 'charge') {
@@ -894,7 +1209,7 @@ class Showcase {
       const el = step.dur - e.t - big.CHARGE_WINDUP;
       const len = big.CHARGE_LENGTH * 0.7;
       s.z = e.homeZ + Math.max(0, Math.min(1, el / (len / big.CHARGE_SPEED))) * len;
-    } else if (step.anim === 'idle' && s.kind !== 'stalker') {
+    } else if (step.anim === 'idle' && s.kind !== 'stalker' && s.kind !== 'reaver') {
       s.z += (e.homeZ - s.z) * Math.min(1, dt * 6);
       s.x = e.homeX;
     }
@@ -917,6 +1232,10 @@ class Showcase {
       if (e.gone > 0) return false;
       s.id = this.nextId++; s.hp = 1; s.anim = 'spawn'; s.animSeq++; e.t = enemyDef(s.kind).spawnTime; e.step = 0;
       this.emit({ e: 'spawn', id: s.id, kind: s.kind, x: s.x, z: s.z, elite: (s.flags & EF.ELITE) !== 0 });
+      if (s.kind === 'aegis') {
+        const id = s.id;
+        this.later(enemyDef(s.kind).spawnTime, () => { if (e.snap.id === id) this.emit({ e: 'dome', id, on: true, r: HT.AEGIS.DOME_RADIUS }); });
+      }
     }
     const target = this.heroes[i % this.heroes.length].snap;
     const dx = target.x - s.x;
@@ -937,7 +1256,24 @@ class Showcase {
       s.anim = next;
       s.animSeq++;
       e.t = next === 'move' ? 1.2 + Math.random() * 2.5 : next === 'windup' ? def.windup : 0.5;
-      if (next === 'windup') this.telegraphFor(e, 'windup');
+      if (next === 'windup' && s.kind === 'bomber') {
+        this.tele(e, 'circle', s.x, s.z, 0, HT.BOMBER.BLAST_RADIUS, 0, def.windup);
+        this.emit({ e: 'cast', who: { t: 'e', id: s.id }, ability: 'fuse', x: s.x, z: s.z, rot: s.rot });
+      } else if (next === 'windup' && s.kind === 'shaman') {
+        this.emit({ e: 'cast', who: { t: 'e', id: s.id }, ability: 'mend', x: s.x, z: s.z, rot: s.rot });
+        e.t = HT.SHAMAN.MEND_WINDUP;
+      } else if (next === 'windup' && s.kind === 'necromancer') {
+        this.emit({ e: 'cast', who: { t: 'e', id: s.id }, ability: 'raise', x: s.x, z: s.z, rot: s.rot });
+      } else if (next === 'windup') this.telegraphFor(e, 'windup');
+      if (next === 'attack' && s.kind === 'shaman') {
+        const targets = this.enemies.filter((o) => o !== e && o.gone <= 0 && Math.hypot(o.snap.x - s.x, o.snap.z - s.z) <= HT.SHAMAN.MEND_RADIUS).slice(0, 6).map((o) => o.snap.id);
+        this.emit({ e: 'mend', id: s.id, targets });
+      } else if (next === 'attack' && s.kind === 'bomber') {
+        this.emit({ e: 'aoe', x: s.x, z: s.z, r: HT.BOMBER.BLAST_RADIUS, el: null, hostile: true });
+        this.emit({ e: 'kill', id: s.id, kind: s.kind, x: s.x, z: s.z, by: -1 });
+        e.gone = 1.2;
+        return false;
+      }
       if (next === 'attack') {
         if (s.kind === 'archer') this.shoot('boneArrow', s.x, s.z, s.rot, ENEMY_TUNING.ARROW_SPEED, 16, 0, true);
         if (s.kind === 'mage') this.emit({ e: 'aoe', x: s.x + Math.sin(s.rot) * 5, z: s.z + Math.cos(s.rot) * 5, r: ENEMY_TUNING.MAGE_BLAST_RADIUS, el: null, hostile: true });
@@ -1111,9 +1447,13 @@ class Showcase {
       if (this.doors.length === 0) {
         // after a final boss the two doors of the endless descent stand side by side
         const types: Door['type'][] = this.demo === 'doors' ? ['descend', 'ascend']
-          : this.kind === 'combat' ? ['boon', 'blessing', 'cursed'] : this.kind === 'elite' ? ['boon', 'boss'] : ['descend', 'ascend'];
-        const span = this.kind === 'boss' ? 26 : 16;
-        this.doors = types.map((type, i) => ({ type, x: types.length === 1 ? 0 : -span / 2 + (i / (types.length - 1)) * span, z: -hd + 2.4 }));
+          : this.demo === 'objdoors' ? (this.doorSet === 1 ? ['boon', 'cursed', 'blessing'] : ['boon', 'blessing', 'cursed', 'boon'])
+            : this.kind === 'combat' ? ['boon', 'blessing', 'cursed'] : this.kind === 'elite' ? ['boon', 'boss'] : ['descend', 'ascend'];
+        // what the chamber behind each door asks for; the ordinary carousel shows two of them as well
+        const goals: ObjectiveKind[] = this.demo === 'objdoors' ? (this.doorSet === 1 ? ['vault', 'ritual', 'slay'] : ['survive', 'defend', 'hunt', 'ritual'])
+          : this.kind === 'combat' ? ['slay', 'defend', 'hunt'] : ['slay', 'slay'];
+        const span = this.kind === 'boss' ? 26 : this.demo === 'objdoors' ? 20 : 16;
+        this.doors = types.map((type, i) => ({ type, x: types.length === 1 ? 0 : -span / 2 + (i / (types.length - 1)) * span, z: -hd + 2.4, objective: goals[i] ?? 'slay' }));
         this.doorProgress = types.map(() => 0);
       }
       this.doors.forEach((_, i) => { this.doorProgress[i] = i === 0 ? Math.max(0, Math.sin(this.time * 0.9)) : i === 1 ? ((this.time * 0.25) % 1) : 0; });
@@ -1172,6 +1512,7 @@ class Showcase {
       if (step > 0) this.simulate(step);
       this.view.setServerTick(this.time * NET.TICK_HZ);
       if (!this.menu) this.applyFocus();
+      this.view.setObjective(this.menu ? null : this.objective);
       this.view.syncPlayers(this.playerRows, 0);
       this.view.syncEnemies(this.enemyRows);
       this.view.syncProjectiles(this.projectileRows);
@@ -1186,7 +1527,7 @@ class Showcase {
       + `frame JS ${this.jsMs.toFixed(1)} ms   ${(1000 / this.frameMs).toFixed(0)} fps\n`
       + `enemies ${d.enemies}  proj ${d.projectiles}  particles ${d.particles}\n`
       + `decals ${d.decals}  fx ${d.fxSprites}  ui ${d.uiSprites}  geo ${s.geometries} tex ${s.textures}\n`
-      + `zones ${d.zones}  depth ${d.depth}${this.demo ? `  demo ${this.demo}` : ''}\n`
+      + `zones ${d.zones}  depth ${d.depth}  domes ${d.domes}  objective ${d.objective ?? '-'}${this.demo ? `  demo ${this.demo}` : ''}\n`
       + `hazards ${d.hazards}  hero bakes ${d.heroTemplates}  cursor ${this.cursor.x.toFixed(1)}, ${this.cursor.z.toFixed(1)}\n`
       + '[1/2/3] chamber [4/5/6] biome [B]oss [L]ooks [M]enu [T] marker [C]lasses de[X]cend\n'
       + '[Q]uality [S]tress [D]oors [Z]oom [N]umbers [F]ocus [P]ause';

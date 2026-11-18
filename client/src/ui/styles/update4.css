@@ -1,0 +1,709 @@
+/* Update 4 "Objectives and the Horde": objective tracker and banner, objective doors, draft mark, codex pages. */
+
+:root {
+  --gg-obj-survive: #9ff3e6;
+  --gg-obj-defend: #ffe7ad;
+  --gg-obj-hunt: #ff8b96;
+  --gg-obj-ritual: #ffab6b;
+  --gg-obj-vault: #f3d589;
+  --gg-obj-slay: #c9cfdb;
+}
+
+[data-kind='slay'], [data-objective='slay'] { --obj: var(--gg-obj-slay); }
+[data-kind='survive'], [data-objective='survive'] { --obj: var(--gg-obj-survive); }
+[data-kind='defend'], [data-objective='defend'] { --obj: var(--gg-obj-defend); }
+[data-kind='hunt'], [data-objective='hunt'] { --obj: var(--gg-obj-hunt); }
+[data-kind='ritual'], [data-objective='ritual'] { --obj: var(--gg-obj-ritual); }
+[data-kind='vault'], [data-objective='vault'] { --obj: var(--gg-obj-vault); }
+
+/* ---------------------------------------------------------------- tracker (under the chamber track) */
+.gg-obj {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28em;
+  width: min(27.5em, 100%);
+  padding: 0.4em 0.75em 0.45em;
+  border: 1px solid color-mix(in srgb, var(--obj) 55%, transparent);
+  border-left-width: 3px;
+  border-radius: 0.35em;
+  background: rgba(6, 7, 11, 0.86);
+  box-shadow: 0 0.2em 0.9em rgba(0, 0, 0, 0.55);
+}
+
+.gg-obj[hidden] { display: none; }
+
+.gg-obj-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+}
+
+.gg-obj-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 2em;
+  height: 2em;
+  border: 1px solid color-mix(in srgb, var(--obj) 70%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--obj) 14%, #0a0c12);
+  color: var(--obj);
+}
+
+.gg-obj-icon .gg-icon {
+  width: 1.25em;
+  height: 1.25em;
+}
+
+.gg-obj-title {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.gg-obj-name {
+  font-family: var(--gg-font-display);
+  font-size: 0.98em;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--obj);
+}
+
+.gg-obj-goal {
+  font-size: 0.8em;
+  color: var(--gg-text);
+}
+
+.gg-obj-clock {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1;
+}
+
+.gg-obj-clock[hidden] { display: none; }
+
+.gg-obj-clock-label {
+  font-size: 0.6em;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gg-gold);
+}
+
+.gg-obj-clock-label:empty { display: none; }
+
+.gg-obj-clock b {
+  font-family: var(--gg-font-display);
+  font-size: 1.55em;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  color: var(--gg-text);
+  text-shadow: var(--gg-shadow-text);
+}
+
+.gg-obj-clock.is-urgent b {
+  color: #ffb3bb;
+  animation: gg-pulse 0.6s linear infinite;
+}
+
+.gg-obj-measure[hidden] { display: none; }
+
+.gg-obj-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  min-height: 1.3em;
+  font-size: 0.82em;
+}
+
+.gg-obj-bar {
+  position: relative;
+  flex: 1;
+  height: 0.5em;
+  min-width: 4em;
+  border-radius: 0.3em;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+
+.gg-obj-measure > .gg-obj-bar { height: 0.32em; }
+
+.gg-obj-bar i {
+  display: block;
+  width: var(--w, 0%);
+  height: 100%;
+  background: var(--obj);
+  transition: width var(--gg-fast) linear;
+}
+
+.gg-obj-bar-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--obj);
+}
+
+.gg-obj-bar-label .gg-icon {
+  width: 1.05em;
+  height: 1.05em;
+}
+
+.gg-obj-row > b {
+  min-width: 2.6em;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.gg-obj-note {
+  white-space: nowrap;
+  color: var(--gg-text-dim);
+}
+
+.gg-obj[data-kind='hunt'] .gg-obj-note,
+.gg-obj[data-kind='vault'] .gg-obj-note {
+  font-weight: 700;
+  color: var(--gg-text);
+}
+
+/* defend: the shard is a health bar and behaves like one */
+.gg-obj[data-kind='defend'] .gg-obj-bar { height: 0.7em; border: 1px solid rgba(255, 255, 255, 0.3); }
+.gg-obj[data-kind='defend'] .gg-obj-bar i { background: linear-gradient(180deg, #fff3cf, #e9c46a 55%, #9a7230); }
+.gg-obj.is-low .gg-obj-bar i { background: linear-gradient(180deg, #ff9a8a, #e2414f 55%, #8a1b2a); }
+.gg-obj.is-low .gg-obj-row > b { color: #ffb3bb; }
+.gg-obj.is-shattered .gg-obj-row > b { color: var(--gg-danger); min-width: 0; text-transform: uppercase; letter-spacing: 0.08em; }
+.gg-obj.is-shattered .gg-obj-bar-label { color: var(--gg-text-faint); text-decoration: line-through; }
+.gg-obj.is-hit .gg-obj-bar { animation: gg-obj-hit 320ms linear; }
+
+@keyframes gg-obj-hit {
+  0% { box-shadow: 0 0 0 0 rgba(255, 77, 94, 0.9); filter: brightness(1.8); }
+  100% { box-shadow: 0 0 0 0.5em rgba(255, 77, 94, 0); filter: none; }
+}
+
+/* hunt: one skull per marked elite */
+.gg-obj-pips {
+  display: inline-flex;
+  gap: 0.25em;
+}
+
+.gg-obj-pips i {
+  display: grid;
+  place-items: center;
+  width: 1.5em;
+  height: 1.5em;
+  border: 1px solid var(--obj);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--obj) 22%, #0a0c12);
+  color: var(--obj);
+}
+
+.gg-obj-pips .gg-icon {
+  width: 1em;
+  height: 1em;
+}
+
+.gg-obj-pips i.is-dead {
+  border-color: var(--gg-line-strong);
+  background: transparent;
+  color: var(--gg-text-faint);
+  opacity: 0.6;
+}
+
+.gg-obj-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  margin-left: auto;
+  padding: 0.05em 0.6em;
+  border: 1px solid var(--gg-danger);
+  border-radius: 1em;
+  background: rgba(70, 12, 20, 0.9);
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #ffd9dd;
+  animation: gg-pulse 0.8s linear infinite;
+}
+
+.gg-obj-tag[hidden] { display: none; }
+
+.gg-obj-tag .gg-icon {
+  width: 1em;
+  height: 1em;
+}
+
+.gg-obj.is-enraged { border-color: var(--gg-danger); }
+
+/* ritual: three braziers that fill clockwise and stay lit */
+.gg-obj-braziers {
+  display: inline-flex;
+  gap: 0.45em;
+}
+
+.gg-obj-brazier {
+  --p: 0%;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 1.9em;
+  height: 1.9em;
+  border-radius: 50%;
+  background: conic-gradient(var(--obj) var(--p), rgba(255, 255, 255, 0.16) 0);
+  color: var(--gg-text-faint);
+}
+
+.gg-obj-brazier::before {
+  content: '';
+  position: absolute;
+  inset: 0.2em;
+  border-radius: 50%;
+  background: #0b0d13;
+}
+
+.gg-obj-brazier .gg-icon {
+  position: relative;
+  width: 1.05em;
+  height: 1.05em;
+}
+
+.gg-obj-brazier.is-filling { color: var(--gg-text); }
+
+.gg-obj-brazier.is-lit {
+  color: #2a1404;
+  box-shadow: 0 0 0.7em rgba(255, 140, 60, 0.8);
+}
+
+.gg-obj-brazier.is-lit::before { background: linear-gradient(180deg, #ffd08a, #ff7a2e); }
+.gg-obj-brazier.is-new { animation: gg-obj-lit 600ms var(--gg-ease); }
+
+@keyframes gg-obj-lit {
+  0% { transform: scale(1.6); filter: brightness(2); }
+  100% { transform: none; filter: none; }
+}
+
+/* bonus line */
+.gg-obj-bonus {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  padding-top: 0.22em;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 0.76em;
+  line-height: 1.25;
+  color: var(--gg-gold-hi);
+}
+
+.gg-obj-bonus[hidden] { display: none; }
+
+.gg-obj-bonus-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--gg-gold);
+}
+
+.gg-obj-bonus-icon .gg-icon {
+  width: 1em;
+  height: 1em;
+}
+
+.gg-obj-bonus-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.gg-obj-bonus-tag {
+  flex: none;
+  padding: 0 0.55em;
+  border: 1px solid var(--gg-gold-lo);
+  border-radius: 1em;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--gg-gold);
+}
+
+.gg-obj[data-bonus='lost'] .gg-obj-bonus { color: #939bad; }
+.gg-obj[data-bonus='lost'] .gg-obj-bonus-text { text-decoration: line-through; }
+.gg-obj[data-bonus='lost'] .gg-obj-bonus-icon { color: var(--gg-text-faint); }
+.gg-obj[data-bonus='lost'] .gg-obj-bonus-tag { border-color: #8a3340; background: rgba(60, 14, 22, 0.9); color: #ffb3bb; }
+.gg-obj[data-bonus='earned'] .gg-obj-bonus { color: var(--gg-glimmer-hi); }
+.gg-obj[data-bonus='earned'] .gg-obj-bonus-icon { color: var(--gg-glimmer); }
+.gg-obj[data-bonus='earned'] .gg-obj-bonus-tag { border-color: var(--gg-glimmer); background: rgba(10, 48, 42, 0.9); color: var(--gg-glimmer-hi); }
+.gg-obj-bonus.is-flip { animation: gg-obj-flip 700ms var(--gg-ease); }
+
+@keyframes gg-obj-flip {
+  0% { transform: scale(1.12); filter: brightness(2.2); }
+  100% { transform: none; filter: none; }
+}
+
+.gg-obj.is-done {
+  border-color: var(--gg-glimmer);
+  --obj: var(--gg-glimmer-hi);
+}
+
+.gg-obj.is-complete { animation: gg-obj-flip 700ms var(--gg-ease); }
+
+/* the wave pill has nothing to say in a chamber without waves */
+.gg-wave[hidden] { display: none; }
+
+/* current chamber on the track wears the objective's icon */
+.gg-track-node.has-objective {
+  border-color: var(--obj, var(--gg-gold));
+  color: var(--obj, var(--gg-gold-hi));
+  box-shadow: 0 0 0.9em color-mix(in srgb, var(--obj, #e9c46a) 60%, transparent);
+}
+
+/* ---------------------------------------------------------------- intro / completion banner */
+.gg-banner-slot {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.gg-obj-banner-slot {
+  position: absolute;
+  top: 0.5em;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.gg-obj-banner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1em;
+  padding: 0.5em 4em 0.7em;
+  background: radial-gradient(closest-side, rgba(6, 7, 11, 0.86), rgba(6, 7, 11, 0.6) 62%, transparent);
+  text-align: center;
+  white-space: nowrap;
+  opacity: 0;
+}
+
+.gg-obj-banner.is-on { animation: gg-banner var(--banner-ms, 2.5s) var(--gg-ease) both; }
+
+.gg-obj-banner-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+  font-size: 0.78em;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--obj);
+}
+
+.gg-obj-banner-head .gg-icon {
+  width: 1.35em;
+  height: 1.35em;
+}
+
+.gg-obj-banner-title {
+  font-family: var(--gg-font-display);
+  font-size: 2.3em;
+  font-weight: 900;
+  line-height: 1.1;
+  letter-spacing: 0.14em;
+  text-indent: 0.14em;
+  text-transform: uppercase;
+  color: var(--obj);
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.95), 0 0 0.6em rgba(0, 0, 0, 0.9), 0 0 1.2em color-mix(in srgb, var(--obj) 55%, transparent);
+}
+
+.gg-obj-banner-sub {
+  font-size: 1.05em;
+  font-weight: 700;
+  color: var(--gg-text);
+  text-shadow: var(--gg-shadow-text);
+}
+
+.gg-obj-banner-bonus {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  margin-top: 0.25em;
+  padding: 0.05em 0.9em;
+  border: 1px solid var(--gg-gold-lo);
+  border-radius: 1em;
+  background: rgba(6, 7, 11, 0.8);
+  font-size: 0.82em;
+  color: var(--gg-gold-hi);
+}
+
+.gg-obj-banner-bonus[hidden] { display: none; }
+
+.gg-obj-banner-bonus .gg-icon {
+  width: 1em;
+  height: 1em;
+  color: var(--gg-gold);
+}
+
+.gg-obj-banner[data-phase='done'] { --obj: var(--gg-glimmer-hi); }
+.gg-obj-banner[data-phase='done'][data-bonus='earned'] { --obj: var(--gg-gold-hi); }
+.gg-obj-banner[data-phase='done'][data-bonus='earned'] .gg-obj-banner-bonus { border-color: var(--gg-glimmer); color: var(--gg-glimmer-hi); }
+.gg-obj-banner[data-phase='lost'] { --obj: #ffb3bb; }
+.gg-obj-banner[data-phase='lost'] .gg-obj-banner-title { font-size: 1.7em; }
+
+.gg-hud--draft .gg-obj-banner,
+.gg-hud--draft .gg-obj {
+  display: none;
+}
+
+/* ---------------------------------------------------------------- feed lines */
+.gg-feed-item[data-tone='objective'] { border-color: #8a4a1c; color: #ffd9b8; }
+.gg-feed-item[data-tone='anchor'] { border-color: #8a1b2a; color: #ffc9ce; }
+.gg-feed-item[data-tone^='ward'] { max-width: 26em; border-color: var(--gg-line-strong); color: var(--gg-text); }
+.gg-feed-item[data-tone^='ward'] span { white-space: normal; }
+.gg-feed-item[data-tone='ward-ember'] .gg-icon { color: var(--gg-ember); }
+.gg-feed-item[data-tone='ward-rime'] .gg-icon { color: var(--gg-rime); }
+.gg-feed-item[data-tone='ward-storm'] .gg-icon { color: var(--gg-storm); }
+.gg-feed-item[data-tone='ward-umbra'] .gg-icon { color: var(--gg-umbra); }
+.gg-tip[data-tone='umbra'] { --tone: var(--gg-umbra); }
+
+/* ---------------------------------------------------------------- doors: one card per door, type + objective */
+.gg-prompt[data-kind='doors'] { max-width: min(58em, 94vw); }
+
+.gg-door-legend {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(12em, 1fr);
+  align-items: stretch;
+  max-width: 46em;
+}
+
+.gg-door {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35em;
+  min-width: 0;
+}
+
+.gg-door .gg-door-type span {
+  white-space: normal;
+  line-height: 1.3;
+}
+
+.gg-door-type {
+  display: flex;
+  align-items: center;
+  gap: 0.55em;
+}
+
+.gg-door-type > .gg-icon {
+  flex: none;
+  width: 1.7em;
+  height: 1.7em;
+  color: var(--door);
+}
+
+.gg-door-side {
+  margin-left: 0.7em;
+  font-family: var(--gg-font-body);
+  font-size: 0.78em;
+  font-style: normal;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--gg-text-dim);
+}
+
+.gg-door-obj {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5em;
+  padding-top: 0.35em;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.gg-door-obj > .gg-icon {
+  flex: none;
+  width: 1.5em;
+  height: 1.5em;
+  margin-top: 0.1em;
+  color: var(--obj);
+}
+
+.gg-door .gg-door-obj b {
+  font-size: 0.84em;
+  color: var(--obj);
+}
+
+.gg-door .gg-door-obj-text > span {
+  white-space: normal;
+  line-height: 1.3;
+}
+
+.gg-door-obj[data-kind='slay'] { opacity: 0.85; }
+
+.gg-door-obj-bonus {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.3em;
+  margin-top: 0.15em;
+  font-size: 0.72em;
+  font-style: normal;
+  line-height: 1.3;
+  color: var(--gg-gold-hi);
+}
+
+.gg-door-obj-bonus .gg-icon {
+  flex: none;
+  width: 1em;
+  height: 1em;
+  margin-top: 0.12em;
+  color: var(--gg-gold);
+}
+
+.gg-door .gg-door-obj-bonus span {
+  font-size: 1em;
+  white-space: normal;
+  color: inherit;
+}
+
+/* ---------------------------------------------------------------- draft: upgraded by an objective bonus */
+.gg-draft-bonus {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  margin-top: 0.3em;
+  padding: 0.2em 1em;
+  border: 1px solid var(--gg-gold);
+  border-radius: 1em;
+  background: rgba(44, 36, 18, 0.92);
+  font-weight: 700;
+  color: var(--gg-gold-hi);
+  box-shadow: 0 0 1em rgba(233, 196, 106, 0.35);
+}
+
+.gg-draft-bonus[hidden] { display: none; }
+
+.gg-draft-bonus .gg-icon {
+  width: 1.1em;
+  height: 1.1em;
+  color: var(--gg-gold);
+}
+
+/* ---------------------------------------------------------------- summary chip */
+.gg-summary-chip--objectives .gg-icon { color: var(--gg-obj-hunt); }
+
+.gg-summary-chip .gg-summary-bonuses {
+  display: flex;
+  align-items: center;
+  gap: 0.3em;
+  font-size: 0.74em;
+  font-style: normal;
+  white-space: nowrap;
+  color: var(--gg-gold-hi);
+}
+
+.gg-summary-chip .gg-summary-bonuses .gg-icon {
+  width: 1em;
+  height: 1em;
+  color: var(--gg-gold);
+}
+
+/* ---------------------------------------------------------------- codex: bestiary + objectives */
+.gg-enemy-from {
+  margin-left: auto;
+  padding: 0 0.6em;
+  border: 1px solid var(--gg-line-strong);
+  border-radius: 1em;
+  font-size: 0.72em;
+  white-space: nowrap;
+  color: var(--gg-text-dim);
+}
+
+.gg-codex-enemies[data-group='special'] .gg-enemy-card { --tone: var(--gg-gold); }
+.gg-codex-ward .gg-codex-card-icon { color: var(--gg-rime); }
+.gg-codex-bonus .gg-codex-card-icon { color: var(--gg-gold); }
+
+.gg-codex-objectives {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7em;
+}
+
+.gg-objective-card {
+  --cut: 0.7em;
+  --fill: rgba(14, 17, 25, 0.92);
+  --edge: color-mix(in srgb, var(--obj) 45%, var(--gg-line));
+  display: flex;
+  align-items: flex-start;
+  gap: 0.9em;
+  padding: 0.75em 1.1em 0.8em;
+}
+
+.gg-objective-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 2.8em;
+  height: 2.8em;
+  border: 1px solid var(--obj);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--obj) 12%, rgba(6, 7, 11, 0.6));
+  color: var(--obj);
+}
+
+.gg-objective-icon .gg-icon {
+  width: 1.7em;
+  height: 1.7em;
+}
+
+.gg-objective-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.25em;
+  min-width: 0;
+}
+
+.gg-objective-top {
+  display: flex;
+  align-items: baseline;
+  gap: 0.8em;
+}
+
+.gg-objective-top h4 {
+  font-family: var(--gg-font-display);
+  letter-spacing: 0.06em;
+  color: var(--obj);
+}
+
+.gg-objective-main p {
+  font-size: 0.88em;
+  line-height: 1.4;
+  color: var(--gg-text-dim);
+}
+
+.gg-objective-main p.gg-objective-goal {
+  font-size: 0.95em;
+  font-weight: 700;
+  color: var(--gg-text);
+}
+
+.gg-objective-main p.gg-objective-bonus {
+  color: var(--gg-gold-hi);
+}
+
+.gg-objective-bonus .gg-icon {
+  width: 1em;
+  height: 1em;
+  margin-right: 0.3em;
+  vertical-align: -0.12em;
+  color: var(--gg-gold);
+}
+
+.gg-objective-main p.gg-objective-bonus.is-none {
+  font-style: italic;
+  color: var(--gg-text-faint);
+}

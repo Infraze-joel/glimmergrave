@@ -1,17 +1,19 @@
 # State
 
-- Phase: release candidate for update 3 "The Endless Descent" on branch `update-3` (spec:
-  `docs/milestones/update-3.md`). Quality gate passed locally: typecheck, lint, 435 unit/integration tests,
-  19 browser tests on the production build.
-- Last session: wrote the update 3 contract (types, data tables, protocol v3, client profile), ran four work
-  streams (sim/server, render, UI, audio), integrated them, added three browser tests and the aim cursor.
-- Contract changes of update 3 (all consumers updated): `CLASS_IDS` +3, `ELEMENT_IDS` + `umbra`, `BTN.ULTIMATE`,
-  `PlayerSnap.ult`, `EF.WITHER`, 3-bit projectile element, `Loadout` (paragon, mastery, art, talents, relics),
-  `RosterEntry.mastery/art`, `RunReward`, `RunState.depth/cleared/chambersCleared`, new events, `sanitizeLoadout(raw, cls)`,
-  new data files `mods`, `reactions`, `mastery`, `relics`, `feats`; client core: profile fields and helpers in
-  `GameState.ts`, `game:progress`, `game:localAction.slot`, `Settings.cursor`.
-- Not done: human playtest of update 3, listening pass, real GPUs, Firefox/Edge, deployment of update 3.
-- Next concrete step: owner merges `update-3`, Netlify deploys, owner plays a run with a new class.
+- Phase: release candidate for update 4 "Objectives and the Horde" on branch `update-4`, which contains
+  update 3 (`update-3`, spec `docs/milestones/update-3.md`). Spec: `docs/milestones/update-4.md`. Quality gate
+  passed locally: typecheck, lint, 509 unit/integration tests, 20 browser tests on the production build.
+- Last session: update 3 (seven classes, ultimates, umbra and reactions, mastery, Ascension, relics, Chronicle,
+  endless descent, aim cursor), then update 4 (objectives, five enemy kinds, wards), each as a contract plus
+  four work streams (sim/server, render, UI, audio) and an integration pass with live bot sessions.
+- Contract changes of update 4 (all consumers updated): `ENEMY_KINDS` +5, `OBJECTIVE_KINDS`, `Door.objective`,
+  `ObjectiveState`, `RunState.objective/objectivesDone/objectiveBonuses`, `spawn.ward/raisedBy`, events
+  `objective`, `dome`, `mend`, `warded`, `interrupt`; new `data/objectives.ts`. Update 3's are listed in git
+  history (`Contract for update 3`). Client core: `Settings.cursor`, `game:progress`, `game:localAction.slot`.
+- QA aids: server env `DEBUG_START_CHAMBER`, `DEBUG_OBJECTIVE`; `botClient --objectives --descend --meta max`;
+  dev client `?autopilot&descend=N`; `tests/e2e/tools/deep-run.mjs`.
+- Not done: human playtest of updates 3 and 4, listening pass, real GPUs, Firefox/Edge, deployment of both.
+- Next concrete step: owner deploys `update-3` or `update-4` to a Netlify preview and plays.
 - Deferred ideas live in `docs/backlog.md`.
 
 ## Fix after the first deploy of update 2: stale model cache
@@ -105,3 +107,42 @@ Simulation and server for update 3 "The Endless Descent". Verified with `tsc -p 
 - Known limits: a maxed hero wins depth 0 at Oath 0 every time (its challenge is depth and Oath); relic shards do
   not drop from elite-flagged rank and file (only champion, herald, final boss); Wither leech emits one `heal`
   event per hit; bots never choose a cursed door and do not pick talents or relics by themselves.
+
+## Backend, update 4
+
+Simulation and server for update 4 "Objectives and the Horde" (spec: `docs/milestones/update-4.md`; measured numbers
+and what could not be verified: `/home/claude/reports/backend-update4.md`). Verified with `tsc -p shared`,
+`tsc -p server`, `eslint shared server`, `vitest run`, both server builds and a bot smoke test against the built
+server in which a party that prefers special objectives plays a whole run.
+
+- New sim files: `sim/objectives.ts` (door rolls, placement of shard / braziers / reliquary, the live
+  `ObjectiveState`, bonus, counters) and `sim/horde.ts` (shaman, aegis, bomber, necromancer, reaver). The chamber
+  flow stays in `sim/director.ts`: `enterChamber(w, index, door, objective)`, `director.obj` (bookkeeping),
+  timed groups for survive / ritual (`sendGroup`), `queueGroup` (wards, siege share), `composeWave(..., standing)`.
+- Objectives: slay and defend use waves; hunt is one wave (marked elites first); survive, ritual and vault have
+  `waveCount 0` (`wave` counts the groups sent). Survive / ritual / vault end by themselves: everything crumbles,
+  `objective done`, and the chamber is cleared `DIRECTOR.CLEAR_DELAY` later. The others emit `done` together with
+  `chamberClear`. The survive bonus is lost the moment a hero is down. `ObjectiveState.timeLeft` also counts the
+  ritual's bonus limit. The vault's reliquary is `ObjectiveState.anchor` with `hp 1`; `progress` is the hold.
+  The training session has `objective: null`.
+- The shard, the braziers and the reliquary are not obstacles (nothing collides with them).
+- Run state: `World.objectiveLive` is true while a special objective is active; `Room` then re-sends `run` every
+  `SERVER.RUN_BROADCAST_TICKS` (about 4 per second), as it already did during draft and doors.
+- Wards: precise rule above `wardedAgainst` in `sim/combat.ts`. A share of every group from chamber 4 on, one random
+  element per enemy, never the whole group, never bosses, champions or summoned minions. No snapshot flag is free:
+  the ward is only in the `spawn` event (like affixes).
+- Events without a world at hand: `interrupt` is sent by the enemy's next step (same tick for hero hits).
+- Sim-only rules added while balancing (all in `sim/tuning.ts`): an enemy can be mended `AI.SHAMAN.MAX_MENDS` (2)
+  times; shamans are capped alive like aegis and necromancers; support kinds take at most 40 % of a wave's budget;
+  survive / ritual groups stop while more than `OBJECTIVE.MAX_ALIVE_BUDGET` wave budgets stand and count every
+  capped kind that is alive; a brazier takes `1 + (party - 1)` times as long in a party; marked hunt elites have
+  `OBJECTIVE.HUNT_HP_MUL` (3) times the health of an elite.
+- Numbers changed in contract data (no shape, id or order changed): costs of shaman 4 -> 3, aegis 5 -> 4,
+  necromancer 5 -> 4; `OBJECTIVE_TUNING` SURVIVE.BUDGET_FRACTION 0.45, DEFEND.HP 520 / ATTACKER_SHARE 0.3 /
+  REPAIR_PER_SECOND 0.02, HUNT.SECONDS 45, RITUAL.BONUS_SECONDS 60 / BUDGET_FRACTION 0.4.
+- Tools: `RunOverrides.objective` pins the first door's objective (`slay` pins every door: a classic run); server
+  option `debugObjective` / env `DEBUG_OBJECTIVE`; bot option `preferObjectives` (`botClient --objectives`);
+  balance soak `npx tsx --tsconfig server/tsconfig.json shared/test/tools/soak4.ts [seeds] [solo|party|max|maxparty] [mixed|prefer|classic]`.
+- Known limits: bots do not repair the shard on purpose and a solo bot saves it in well under half of the
+  chambers; ranged bots cannot shoot past the front line at a shaman; no reconnecting client learns wards or
+  affixes of enemies that are already standing; the shard can be walked through.

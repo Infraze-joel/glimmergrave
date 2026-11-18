@@ -28,7 +28,8 @@ const arena = (cls: ClassId, meta?: number[], seed = 1): World => {
 const run = (classes: ClassId[], metas: (number[] | undefined)[], seed = 5, oath = 0): World => {
   const w = new World();
   classes.forEach((cls, slot) => w.addPlayer(slot, cls, `P${slot}`, metas[slot]));
-  expect(w.start(oath, seed)).toBe(true);
+  // Classic chambers only: these tests are about upgrades and the classic rewards (objectives: update4-*.test.ts).
+  expect(w.start(oath, seed, 0, { objective: 'slay' })).toBe(true);
   return w;
 };
 const category = (id: string): string => BOON_BY_ID.get(id)!.category;
@@ -205,7 +206,7 @@ describe('permanent upgrades: every effect matches its summary', () => {
       expect(w.rerollDraft(0)).toBe(true);
       expect(w.getRerolls(0)).toBe(v - 1);
       w.reset();
-      w.start(0, 9);
+      w.start(0, 9, 0, { objective: 'slay' });
       expect(w.getRerolls(0)).toBe(v);
     });
   });

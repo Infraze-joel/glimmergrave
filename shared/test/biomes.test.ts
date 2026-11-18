@@ -44,7 +44,7 @@ describe('biome sequence', () => {
       const w = new World();
       w.addPlayer(0, 'knight', 'A');
       w.addPlayer(1, 'mage', 'B');
-      w.start(0, seed);
+      w.start(0, seed, 0, { objective: 'slay' });
       const seen: BiomeId[] = [];
       for (let chamber = 0; chamber < RUN.CHAMBERS.length; chamber++) {
         const room = w.getRunState().room!;
@@ -301,7 +301,8 @@ describe('biome enemy mix', () => {
         const cost = kinds.reduce((a, k: EnemyKind) => a + ENEMIES[k].cost, 0);
         expect(cost).toBeLessThanOrEqual(budget + 1e-6);
         expect(budget - cost).toBeLessThan(ENEMIES.minion.cost);
-        for (const k of kinds) { counts[k]!++; total++; }
+        // The shares are of the whole wave; the kinds of update 4 have no biome bias and are not listed.
+        for (const k of kinds) { if (k in counts) counts[k]!++; total++; }
       }
       for (const k of Object.keys(counts)) counts[k]! /= total;
       return counts;
@@ -515,7 +516,7 @@ describe('hazard effects', () => {
   it('hazards do nothing outside combat (draft, doors) and reset with the room', () => {
     const w = new World();
     w.addPlayer(0, 'knight', 'A');
-    w.start(0, 4);
+    w.start(0, 4, 0, { objective: 'slay' });
     clearChamber(w);
     draftAll(w);
     takeDoor(w, 0);

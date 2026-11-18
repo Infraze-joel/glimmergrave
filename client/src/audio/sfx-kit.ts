@@ -41,6 +41,22 @@ export const LIMITS = {
   affix: [1, 0.35],
   progress: [1, 0.12],
   set: [1, 0.5],
+  // update 4
+  /** Spawn signatures of the five new kinds: a pack arriving together is told by its first two. */
+  voice: [2, 0.2],
+  mend: [2, 0.25],
+  dome: [2, 0.2],
+  /** Bombers are warnings: three fuses may start together, each later one ducked, a fourth is one too many to count anyway. */
+  fuse: [3, 0.15],
+  burst: [3, 0.12],
+  raise: [1, 0.4],
+  leap: [2, 0.2],
+  ward: [1, 0.16],
+  objective: [1, 0.3],
+  site: [1, 0.2],
+  /** The server sends at most one shard hit per second; the alarm never repeats faster than this. */
+  anchor: [1, 0.8],
+  timer: [2, 0.2],
 } as const;
 
 export type Family = keyof typeof LIMITS;
@@ -49,6 +65,7 @@ export type Family = keyof typeof LIMITS;
 export const NOTE = {
   D2: 38, A2: 45, D3: 50, F3: 53, A3: 57, D4: 62, E4: 64, F4: 65, Fs4: 66, G4: 67, A4: 69, B4: 71, D5: 74, E5: 76, F5: 77, Fs5: 78,
   A5: 81, D6: 86, E6: 88, F6: 89, Fs6: 90, A6: 93,
+  C4: 60, C5: 72, Bb3: 58, Bb4: 70, Cs5: 73, G5: 79, Eb3: 51, Gs4: 68, G3: 55, C6: 84,
 } as const;
 
 /** Playback rates that land tuned samples on D. bell.1 hums at 380 Hz, bell.2 at 240 Hz (measured). */

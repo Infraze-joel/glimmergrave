@@ -15,8 +15,9 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { EF, PF } from '@shared/types.ts';
 import type {
-  ClassId, Door, ElementId, EnemyKind, EnemySnap, GameEvent, Look, PlayerSnap, ProjectileSnap, RoomLayout,
+  ClassId, Door, ElementId, EnemyKind, EnemySnap, GameEvent, Look, ObjectiveKind, ObjectiveState, PlayerSnap, ProjectileSnap, RoomLayout,
 } from '@shared/types.ts';
+import { ENEMY_TUNING } from '@shared/data/enemies.ts';
 import type { ChamberKind } from '@shared/constants.ts';
 import { CLASSES } from '@shared/data/classes.ts';
 import type { AbilityDef } from '@shared/data/classes.ts';
@@ -28,10 +29,12 @@ import { BillboardBatch, DECAL, DecalBatch, SPRITE } from './batches.ts';
 import { AbilityFx } from './abilityfx.ts';
 import { Enemies, HeroPreview, Heroes, classColor } from './characters.ts';
 import type { EnemyView, HeroView, Infusions } from './characters.ts';
-import { AFFIX_COLOR, BLOOM, BOSS_AURA, CAMERA, ELEMENT_COLOR, HERO_VIS, LIMITS, PALETTE, QUALITY, SLOT_COLORS, enemyDef, isBigEnemy } from './config.ts';
+import { AFFIX_COLOR, BLOOM, BOSS_AURA, CAMERA, ELEMENT_COLOR, EYE_COLOR, HERO_VIS, LIMITS, PALETTE, QUALITY, SLOT_COLORS, enemyDef, isBigEnemy } from './config.ts';
 import type { QualityProfile } from './config.ts';
 import { Doors } from './doors.ts';
 import { Hazards } from './hazards.ts';
+import { HordeFx } from './horde.ts';
+import { Objectives } from './objectives.ts';
 import { LevelView } from './level.ts';
 import { Projectiles } from './projectiles.ts';
 import { Vfx, rgb } from './vfx.ts';
@@ -120,6 +123,8 @@ export class WorldView implements FollowSource {
   private readonly assets: Assets;
   private readonly vfx: Vfx;
   private readonly ability: AbilityFx;
+  private readonly horde: HordeFx;
+  private readonly objectives: Objectives;
   private readonly decals: DecalBatch;
   private readonly fx: BillboardBatch;
   private readonly ui: BillboardBatch;
@@ -174,6 +179,12 @@ export class WorldView implements FollowSource {
     _sphere.radius = VIEW.CULL_RADIUS * v.baseScale;
     v.root.visible = _frustum.intersectsSphere(_sphere);
     if (v.dying) return;
+    if (v.interrupted) {
+      // stunned or staggered in the middle of a windup: that attack never lands, so its warning goes
+      v.interrupted = false;
+      this.vfx.cancelTelegraphs(v.id);
+      this.vfx.puff(v.x, v.lift + v.height * 0.8, v.z, VIEW.DUST, 3, v.radius, 0.3);
+    }
     const boss = isBigEnemy(v.kind);
     if (boss && (v.kind !== 'champion' || !this.bossSeen)) {
       this.bossX = v.x; this.bossZ = v.z; this.bossSeen = true; this.bossKind = v.kind;
@@ -182,7 +193,7 @@ export class WorldView implements FollowSource {
       v.landed = false;
       this.vfx.puff(v.x, 0.25, v.z, VIEW.DUST, 10, v.radius * 1.6, 0.4);
       this.vfx.ring(v.x, v.z, v.radius * 2, v.radius * 7, 0.4, BOSS_AURA[v.kind]?.[0] ?? PALETTE.hostile, 0.4, 1.6);
-      this.shake(0.3);
+      this.shake(boss ? 0.3 : 0.12);
     }
     if (!v.root.visible) return;
     const f = v.flags;
@@ -231,6 +242,8 @@ export class WorldView implements FollowSource {
     this.preview = new HeroPreview(this.scene, assets);
     this.vfx = new Vfx(this.atlas);
     this.ability = new AbilityFx(this.vfx, this.atlas, this.heroes, this.enemies);
+    this.horde = new HordeFx(this.scene, this.vfx, this.atlas, this.enemies);
+    this.objectives = new Objectives(this.scene, assets, this.atlas, this.level.stoneUv, this.vfx, this.enemies, this.heroes, this.level);
     this.enemies.prewarm();
 
     this.setQuality('high');
@@ -326,9 +339,22 @@ export class WorldView implements FollowSource {
     this.updateFog();
     this.vfx.clear();
     this.ability.clear();
+    this.horde.clear();
+    this.objectives.clear();
     this.doors.clear();
     this.snapCamera = true;
     this.bossSeen = false;
+  }
+
+  /**
+   * Objective of the current chamber (RunState.objective). Call on every run-state update, and with null in the
+   * lobby / when the run is over; it only copies numbers unless the kind changes. Draws the bell shard (defend),
+   * the braziers and their circles (ritual), the markers on the hunt targets, the tolling bell (survive) and the
+   * treasure chamber (vault). A new chamber (setRoom with another room) drops the old objective by itself.
+   * The `objective` events (start, site, anchorHit, bonusLost, done) go through handleEvent as usual.
+   */
+  setObjective(state: ObjectiveState | null): void {
+    this.objectives.set(state);
   }
 
   /**
@@ -514,6 +540,20 @@ export class WorldView implements FollowSource {
           vfx.stamp(DECAL.CRACKLE, ev.x, ev.z, 1, 4, 0.6, AFFIX_COLOR.volatile, 1.8, 1, 0.4, 1);
           vfx.sparks(ev.x, s, ev.z, AFFIX_COLOR.volatile, 14, 8);
         }
+        // by contract a dead enemy's wound-up attack never lands
+        vfx.cancelTelegraphs(ev.id);
+        if (ev.kind === 'bomber') {
+          // its own fuse ran out: the keg goes off here and now. Slain earlier: the charge lies there, lit, and
+          // bursts after the delay the simulation announces with its own telegraph.
+          const own = dead !== null && dead.fuseEnd > 0 && this.time >= dead.fuseEnd - HORDE_VIS.FUSE_SLACK;
+          if (own) this.horde.kegBurst(ev.x, ev.z, ENEMY_TUNING.BOMBER.BLAST_RADIUS);
+          else this.horde.kegDrop(ev.x, ev.z, ENEMY_TUNING.BOMBER.DEATH_BLAST_DELAY, ENEMY_TUNING.BOMBER.BLAST_RADIUS);
+        } else if (ev.kind === 'necromancer') {
+          // the hand that held them up is gone: every minion it raised comes apart with it
+          this.enemies.forEachRaised(ev.id, this.sever);
+          vfx.ring(ev.x, ev.z, 1, 9, 0.6, PALETTE.grave, 0.3, 1.6);
+          vfx.smoke(ev.x, 1, ev.z, PALETTE.umbraCore, 5, 0.8, 0.4, 1.2, 1.4);
+        }
         this.enemies.kill(ev.id);
         vfx.sparks(ev.x, s, ev.z, VIEW.BONE, big ? 30 : 9, big ? 11 : 6);
         vfx.motes(ev.x, 0.6 * s, ev.z, PALETTE.glimmer, big ? 40 : 7, 0.5 * s, 2.4, big ? 1.8 : 1);
@@ -571,7 +611,7 @@ export class WorldView implements FollowSource {
         break;
       }
       case 'telegraph': {
-        vfx.telegraph(ev.shape, ev.x, ev.z, ev.rot, ev.r, ev.w, ev.dur);
+        vfx.telegraph(ev.shape, ev.x, ev.z, ev.rot, ev.r, ev.w, ev.dur, ev.src ?? -1);
         if (ev.src === undefined) break;
         this.enemies.telegraphed(ev.src, ev.dur);
         const src = this.enemies.get(ev.src);
@@ -632,7 +672,16 @@ export class WorldView implements FollowSource {
       case 'spawn': {
         const def = enemyDef(ev.kind);
         const big = isBigEnemy(ev.kind);
-        const hex = big ? BOSS_AURA[ev.kind]?.[0] ?? PALETTE.hostile : ev.elite ? PALETTE.hostile : PALETTE.glimmer;
+        const raised = this.enemies.spawned(ev.id, ev.kind, ev.x, ev.z, ev.ward, ev.raisedBy);
+        // a raised minion claws its way up in grave violet; the new kinds rise in their own colour
+        const hex = big ? BOSS_AURA[ev.kind]?.[0] ?? PALETTE.hostile : ev.elite ? PALETTE.hostile : raised ? PALETTE.grave
+          : HORDE_VIS.SPAWN_TINT.has(ev.kind) ? EYE_COLOR[ev.kind] : PALETTE.glimmer;
+        if (ev.ward) {
+          // warded: the element it shrugs off closes around it as it rises
+          const w = ELEMENT_COLOR[ev.ward];
+          vfx.ring(ev.x, ev.z, def.radius * 9, def.radius * 2.4, def.spawnTime, w, 0.3, 1.7);
+          vfx.motes(ev.x, 0.1, ev.z, w, 8, def.radius * 1.4, 2.4, def.spawnTime);
+        }
         vfx.rune(ev.x, ev.z, def.radius * (big ? 4.6 : 4.2), def.spawnTime + 0.25, hex);
         vfx.puff(ev.x, 0.2, ev.z, VIEW.DUST, big ? 8 : 3, def.radius, 0.35);
         vfx.motes(ev.x, 0.1, ev.z, hex, big ? 22 : 5, def.radius * 1.2, 2.2, def.spawnTime);
@@ -731,6 +780,42 @@ export class WorldView implements FollowSource {
         vfx.motes(h.x, 0.2, h.z, hex, 18, 0.8, 3.6, 1.1);
         break;
       }
+      case 'objective':
+        this.objectives.event(ev.kind, ev.what, ev.index, ev.bonus);
+        this.shake(this.objectives.takeShake());
+        break;
+      case 'dome': {
+        const v = this.enemies.get(ev.id);
+        this.enemies.dome(ev.id, ev.on, ev.r);
+        if (!v) break;
+        if (ev.on) {
+          vfx.ring(v.x, v.z, 1, ev.r * 2, 0.45, PALETTE.aegis, 0.25, 1.5);
+          vfx.motes(v.x, 0.2, v.z, PALETTE.aegis, 12, ev.r * 0.6, 2.6, 0.9);
+        } else {
+          // the ward breaks: the shell falls in shards, the enemies under it are bare again
+          vfx.ring(v.x, v.z, ev.r * 2, ev.r * 2.5, 0.35, PALETTE.aegis, 0.2, 1.8);
+          vfx.shards(v.x, 2.2, v.z, PALETTE.aegis, 14, 8, 0.45, 0.5);
+          vfx.flash(v.x, 1.6, v.z, PALETTE.aegis, ev.r * 1.4, 0.2, 1.3);
+        }
+        break;
+      }
+      case 'mend':
+        this.horde.mend(ev.id, ev.targets);
+        break;
+      case 'warded': {
+        // the element of that hit did nothing: a spark of it glances off the ward shell
+        const v = this.enemies.get(ev.id);
+        this.horde.deflect(ev.x, v ? v.lift + v.height * 0.55 : 1.1, ev.z, ev.el, v ? v.radius : 0.45);
+        break;
+      }
+      case 'interrupt': {
+        // a wind-up broken by a stun or stagger: its warning on the floor and its channel end right now
+        vfx.cancelTelegraphs(ev.id);
+        const v = this.enemies.get(ev.id);
+        this.enemies.interrupt(ev.id);
+        if (v) vfx.puff(v.x, v.lift + v.height * 0.8, v.z, VIEW.DUST, 3, v.radius, 0.3);
+        break;
+      }
       case 'descend': {
         // the floor gives way to the dark below: violet rushes in from the edges while the light is pulled down
         this.setDepth(ev.depth);
@@ -757,6 +842,39 @@ export class WorldView implements FollowSource {
     }
   }
 
+  private readonly sever = (v: EnemyView): void => {
+    this.vfx.smoke(v.x, v.height * 0.5, v.z, PALETTE.umbraCore, 3, v.radius, 0.4, 0.9, 1.1);
+    this.vfx.sparks(v.x, v.height * 0.6, v.z, PALETTE.soul, 8, 5);
+    this.vfx.motes(v.x, v.height * 0.5, v.z, PALETTE.soul, 6, v.radius, 3, 0.8);
+  };
+
+  /** The windups the five kinds of update 4 announce with a `cast` event. Returns true when it was one of them. */
+  private hordeCast(v: EnemyView, ability: string, x: number, z: number): boolean {
+    const vfx = this.vfx;
+    switch (ability) {
+      case 'mend':
+        // the channel itself (reach ring, motes, the raised totem) is drawn on the shaman while it lasts
+        vfx.ring(v.x, v.z, ENEMY_TUNING.SHAMAN.MEND_RADIUS * 2, v.radius * 3, ENEMY_TUNING.SHAMAN.MEND_WINDUP * 0.6, PALETTE.mend, 0.15, 1.2);
+        vfx.motes(v.x, 0.2, v.z, PALETTE.mend, 8, v.radius * 2, 2.6, 1);
+        return true;
+      case 'raise':
+        vfx.motes(v.x, 0.2, v.z, PALETTE.soul, 12, v.radius * 3, 2.2, 1.2);
+        vfx.smoke(v.x, 0.5, v.z, PALETTE.umbraCore, 3, v.radius * 2, 0.35, 1.2, 1.4);
+        return true;
+      case 'fuse':
+        vfx.sparks(v.x, v.lift + v.height * 1.2, v.z, PALETTE.fuse, 10, 6);
+        vfx.flash(v.x, v.lift + v.height, v.z, PALETTE.fuse, 2.4, 0.2, 1.6);
+        return true;
+      case 'reaver_leap':
+        // take-off where it stands; the landing circle is the simulation's telegraph at (x, z)
+        vfx.puff(v.x, 0.25, v.z, VIEW.DUST, 5, v.radius * 1.3, 0.35);
+        vfx.streak(v.x, v.z, Math.atan2(x - v.x, z - v.z), Math.hypot(x - v.x, z - v.z), 0.5, 0.45, PALETTE.reaver);
+        return true;
+      default:
+        return false;
+    }
+  }
+
   private elementBurst(el: ElementId, x: number, y: number, z: number, radius: number, amount: number): void {
     this.ability.elementBurst(el, x, y, z, radius, amount);
   }
@@ -766,6 +884,8 @@ export class WorldView implements FollowSource {
     if (who === 'e') {
       // Enemy ability ids are owned by the simulation; telegraph / aoe events carry the shapes. Keep this generic.
       const v = this.enemies.get(id);
+      this.enemies.cast(id, ability);
+      if (v && this.hordeCast(v, ability, x, z)) return;
       const h = v ? v.lift + v.height * 0.6 : 1.2;
       const aura = v ? BOSS_AURA[v.kind] : undefined;
       const magic = v ? v.kind === 'mage' || v.kind === 'regent' || v.kind === 'matron' : false;
@@ -889,6 +1009,9 @@ export class WorldView implements FollowSource {
     this.doors.update(step, time, this.decals, this.fx, this.ui, this.vfx);
     this.projectiles.update(step, time, this.decals, this.fx, this.vfx);
     // lasting friendly ground effects go in before the timed pool, whose telegraphs are drawn last (always on top)
+    this.objectives.update(step, time, this.decals, this.fx, this.ui);
+    this.horde.update(step, time, this.decals, this.fx);
+    this.shake(this.objectives.takeShake() + this.horde.takeShake());
     this.ability.update(step, time, this.decals, this.fx);
     this.shake(this.ability.takeShake());
     this.vfx.update(step, this.decals, this.fx, this.ui, this);
@@ -1115,13 +1238,13 @@ export class WorldView implements FollowSource {
   /** Debug counters for the showcase overlay. */
   getDebug(): {
     quality: Quality; particles: number; decals: number; fxSprites: number; uiSprites: number; enemies: number; projectiles: number;
-    hazards: number; heroTemplates: number; showcase: boolean; zones: number; depth: number;
+    hazards: number; heroTemplates: number; showcase: boolean; zones: number; depth: number; domes: number; objective: ObjectiveKind | null;
   } {
     return {
       quality: this.quality, particles: this.vfx.particleCount, decals: this.decals.used, fxSprites: this.fx.used,
       uiSprites: this.ui.used, enemies: this.enemies.count, projectiles: this.projectiles.count,
       hazards: this.hazards.active, heroTemplates: this.assets.heroTemplateCount(), showcase: this.level.diorama,
-      zones: this.ability.activeZones, depth: this.descent,
+      zones: this.ability.activeZones, depth: this.descent, domes: this.horde.activeDomes, objective: this.objectives.activeKind,
     };
   }
 
@@ -1139,6 +1262,8 @@ export class WorldView implements FollowSource {
     this.projectiles.clear();
     this.vfx.clear();
     this.ability.clear();
+    this.horde.clear();
+    this.objectives.reset();
     this.doors.clear();
     this.hazards.clear();
     this.marker = null;
@@ -1161,6 +1286,8 @@ export class WorldView implements FollowSource {
     this.endShowcase();
     this.disposed = true;
     this.hazards.dispose();
+    this.horde.dispose();
+    this.objectives.dispose();
     this.level.dispose();
     this.projectiles.dispose();
     this.doors.dispose();
@@ -1175,4 +1302,10 @@ export class WorldView implements FollowSource {
 }
 
 const DOOR_GOLD = 0xffd166;
+const HORDE_VIS = {
+  /** A bomber that dies within this many seconds of its fuse running out died of its own burst. */
+  FUSE_SLACK: 0.15,
+  /** Kinds whose summoning circle takes their own colour instead of the common Glimmer. */
+  SPAWN_TINT: new Set<EnemyKind>(['shaman', 'aegis', 'bomber', 'necromancer', 'reaver']),
+} as const;
 const ABYSS_RGB = rgb(PALETTE.abyss);

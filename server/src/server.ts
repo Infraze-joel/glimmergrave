@@ -7,6 +7,7 @@ import type { AddressInfo } from 'node:net';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 import { NET } from '../../shared/src/constants.ts';
+import type { ObjectiveKind } from '../../shared/src/types.ts';
 import {
   decodeInput, parseClientMsg, sanitizeName, type ClientMsg, type ErrorCode, type ServerMsg,
 } from '../../shared/src/protocol.ts';
@@ -35,6 +36,11 @@ export interface ServerOptions {
   timeScale?: number;
   /** QA aid: every run starts in this chamber index (0 = normal). Never set this in production. */
   debugStartChamber?: number;
+  /**
+   * QA aid: this objective is put on the first door of every choice (and on the starting chamber if it is a combat
+   * chamber), wherever the rolling rules allow it. Never set this in production.
+   */
+  debugObjective?: ObjectiveKind;
   /** Fixed run seed for every room. */
   seed?: number;
 }
@@ -114,6 +120,7 @@ export function startServer(opts: ServerOptions = {}): Promise<RunningServer> {
     idleRoomTtlMs: opts.idleRoomTtlMs ?? NET.IDLE_ROOM_TTL_MS,
     timeScale: Math.max(0.1, opts.timeScale ?? 1),
     debugStartChamber: opts.debugStartChamber ?? 0,
+    debugObjective: opts.debugObjective,
     seed: opts.seed,
     log,
     now,

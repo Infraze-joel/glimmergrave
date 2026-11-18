@@ -52,3 +52,25 @@ Generated in code, no external source: the templar's pauldrons, tabard, belt and
 shards, the shade's scarf, every new icon in the sprite atlas (wither, mark, descend, ascend, bell and the four affix
 icons) and all new VFX (zones, traps, banner, falling star, reactions, door surfaces).
 
+
+## Update 4 subset
+
+Added to the pipeline (same three CC0 packs, no new sources); total model payload 5.02 MB (budget 6 MB). Only
+`anims_skel.glb` changed (1.22 -> 1.30 MB); the other twelve files came out byte-identical:
+
+- `anims_skel.glb` — additional clips `Blocking` (aegis stance), `Block_Attack` (aegis shield bash) and
+  `Dualwield_Melee_Attack_Slice` (reaver).
+
+The five new enemy kinds have no model files of their own. They are baked from the four skeleton bodies with the
+kit's own weapons and procedural parts built in `client/src/render/assets.ts`:
+
+- shaman — mage body without the hat; `Skeleton_Staff`; moss cap, ram horns, mantle, totem head and bog light in code.
+- aegis — warrior body; `Skeleton_Shield_Large_A` enlarged to a tower shield; ward stones, pauldrons and mace in code.
+- bomber — minion body; the powder keg on its head, bands, wick and ember in code.
+- necromancer — mage body without the hat; robe, cowl, collar, sleeves and soul lights in code.
+- reaver — rogue body without the cape; two `Skeleton_Blade`; scarf tails in code.
+
+Objectives use only pieces that were already in `dungeon.glb` (`chest_gold` with its lid as a separate mesh, `chest`,
+`trunk_large_A`, `keg_decorated`, the three `coin_stack_*`, `candle_triple`, `candle_lit`). The bell shard (plinth,
+bronze bell fragment, crystals), the ritual braziers, the vault dais, the ward dome and every emblem and effect are
+generated in code and have no external source.

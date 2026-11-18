@@ -49,6 +49,12 @@ A full run takes 10–15 minutes. The first enemy is on screen within ~15 second
 - Acts and biomes: act 1 is the Crypt; acts 2 and 3 are the Flooded Catacombs and the Ember Forge in seeded
   order. Each biome has its own room shapes, obstacles and floor hazard (spikes, frost mist, fire vents).
   Hazards cycle idle → warning → active, hurt heroes and enemies alike, and never hit dashing heroes.
+- Chamber objectives (update 4, `docs/milestones/update-4.md`): every combat chamber has one of six objectives
+  shown on its door — slay, survive, defend the bell shard, hunt marked elites, light three braziers, or a
+  vault without a fight. Special objectives have a bonus condition that upgrades the draft and pays Glimmer.
+- Enemies since update 4: Shaman (mends, interruptible), Aegis (ward dome), Bomber (fuse, also bursts when
+  slain), Necromancer (raises minions that crumble with it), Reaver (leaps onto the backline); warded enemies
+  ignore one element from chamber 5 on.
 - Endless progression (update 3, `docs/milestones/update-3.md`): Armory (18 upgrades), Ascension (endless
   ranks, diminishing returns), class mastery (levels without a cap, an art and 6 talents per class), relics
   (20, ranks 1–10 from shards, 1–3 slots) and the Chronicle (16 feats that pay Glimmer). Oath levels 0–20.
