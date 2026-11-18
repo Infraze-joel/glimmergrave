@@ -300,7 +300,7 @@ export const DIRECTOR = {
   /** Support kinds (shaman, aegis, necromancer) never take more than this share of a wave's budget. */
   SUPPORT_BUDGET_SHARE: 0.4,
   /** Extra enemy damage per additional hero (parties share the pressure and can revive each other). */
-  DAMAGE_PER_EXTRA_PLAYER: 0.15,
+  DAMAGE_PER_EXTRA_PLAYER: 0.1,
   CLEAR_DELAY: 0.8,
   /** Room generation details. */
   OBSTACLE_GRID: 0.25, CENTRED_OBSTACLE_CHANCE: 0.2, BOSS_PILLAR_INSET: 3, BOSS_PILLAR_RADIUS: 0.9,

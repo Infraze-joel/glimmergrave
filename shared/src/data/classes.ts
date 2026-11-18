@@ -88,10 +88,10 @@ export const ULTIMATE = {
   MAX_PER_HIT: 6,
   /**
    * Polish 1: a party shares the stage. Charge earned by fighting (damage dealt, damage taken, Resonances) is
-   * divided by 1 + PARTY_FALLOFF x (heroes in the chamber - 1): x1 solo, x0.83 for two, x0.71 for three, x0.63
+   * divided by 1 + PARTY_FALLOFF x (heroes in the chamber - 1): x1 solo, x0.87 for two, x0.77 for three, x0.69
    * for four. Charge that boons hand out directly (opening_act, encore, the overflow set) is not reduced.
    */
-  PARTY_FALLOFF: 0.2,
+  PARTY_FALLOFF: 0.15,
   /** Shade ultimate: damage taken bonus on marked enemies, burst when they die, enemies marked at most. */
   MARK_VULNERABILITY: 0.3, MARK_BURST_DAMAGE: 45, MARK_BURST_RADIUS: 3, MARK_MAX_TARGETS: 6,
   /** Templar sanctuary: seconds a downed ally must lie inside to be raised. */

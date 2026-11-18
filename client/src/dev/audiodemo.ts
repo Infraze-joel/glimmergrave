@@ -100,7 +100,7 @@ function roster(): RosterEntry[] {
   const look = { color: 0, head: true, cape: true, style: 0 };
   return CLASS_IDS.map((cls, i) => ({
     slot: i, name: i === DEMO.OWN_SLOT ? 'You' : `Ally ${i}`, cls: i === DEMO.OWN_SLOT ? ownClass : cls, look,
-    mastery: 1, art: i === DEMO.OWN_SLOT ? ownArt : 0, ready: true, connected: true, host: i === DEMO.OWN_SLOT, boons: [],
+    mastery: 1, art: i === DEMO.OWN_SLOT ? ownArt : 0, relics: 0, talents: 0, ready: true, connected: true, host: i === DEMO.OWN_SLOT, boons: [],
   }));
 }
 
@@ -118,6 +118,7 @@ function fakeRun(phase: RunPhase, chamberKind: RunState['chamberKind'], boss: Bo
   return {
     objective: phase === 'combat' || phase === 'draft' || phase === 'doors' ? fakeObjective(chamberKind === 'combat' ? objectiveKind : 'slay') : null,
     phase, oath: 0, chamber, chamberKind, entered: 'boon', wave: 1, waveCount: 3,
+    traits: [],
     room: { seed: 1, biome, w: 30, d: 30, obstacles: [], hazards: [], spawns: [] },
     doors: [], doorProgress: [], bossId: chamberKind === 'combat' ? -1 : DEMO.BOSS_ID, draftPending: [], draftTime: 0, elapsed: 0,
     stats: [], secondWinds: 0, bossKind: chamberKind === 'boss' ? boss : chamberKind === 'elite' ? 'champion' : null,
