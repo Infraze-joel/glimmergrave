@@ -11,6 +11,7 @@ import { dotHero, reviveHero } from './combat.ts';
 import { clamp, finite, TAU } from './geom.ts';
 import { computeMeta } from './meta.ts';
 import { emptyMods } from '../data/mods.ts';
+import { emptyKeystoneState } from './ksState.ts';
 import { stepMovement } from './movement.ts';
 import { emptyInput, type Hero } from './state.ts';
 import { META, SIM } from './tuning.ts';
@@ -37,7 +38,7 @@ export function createHero(slot: number, cls: ClassId, name: string, loadout?: u
     lockTime: 0, lockMoveMul: 1, comboIndex: 0, comboTime: 0, primaryCd: 0, secondaryCd: 0, secondaryCdMax: def.secondary.cooldown,
     dashCharges: def.dashCharges, dashRecharge: 0, dashHit: new Set(), pending: [], spin: null, lunge: null, flight: false, invuln: 0,
     ult: 0, buffs: { bloodrage: 0, bulwark: 0, overload: 0 }, taunt: 0, overloadEls: [], overloadIndex: 0,
-    boons: [], stats: emptyStats(), lastStandUsed: false, oathbondTime: 0, oathbondArmed: true, aura: 0,
+    boons: [], keystones: [], ks: emptyKeystoneState(), draftKeystone: false, stats: emptyStats(), lastStandUsed: false, oathbondTime: 0, oathbondArmed: true, aura: 0,
     revive: 0, secondWindTimer: 0, draft: [], draftOpts: null,
     rerolls: meta.stats.rerolls + (perm.relic.hourglass > 0 ? 1 : 0), metaLevels: meta.levels, meta: meta.stats,
     build, perm: perm.mods, mods: emptyMods(), abil: buildAbilities(def, build.art, { boons: [] }, 0), talent: perm.talent, relic: perm.relic,

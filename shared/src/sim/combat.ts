@@ -9,6 +9,8 @@ import type { AbilitySlot, ElementId } from '../types.ts';
 import { angleDiff, angleTo, DEG } from './geom.ts';
 import { maxDashCharges } from './boons.ts';
 import { onHordeDeath } from './horde.ts';
+import { chainLightning, onBackstabKill, onKeystoneKill, onResonance } from './keystones.ts';
+import { KP } from './ksState.ts';
 import { earn } from './meta.ts';
 import { rollCursedShard, rollShards } from './loot.ts';
 import type { Enemy, Hero } from './state.ts';
@@ -131,8 +133,17 @@ export function clearStatus(e: Enemy): void {
   e.statusBy = -1;
 }
 
-export function healHero(w: World, h: Hero, amount: number): number {
+/**
+ * `external`: the healing comes from a blessing door, hallowed ground or another hero — a hero with the Sanguine
+ * Pact refuses it. For that hero, healing beyond full health becomes the pact's shield (up to its `overheal`).
+ */
+export function healHero(w: World, h: Hero, amount: number, external = false): number {
   if (h.state !== 'alive' || amount <= 0) return 0;
+  if (h.ks.sanguine) {
+    if (external) return 0;
+    const over = amount - (h.maxHp - h.hp);
+    if (over > 0) h.ks.overheal = Math.min(KP.sanguine.overheal, h.ks.overheal + over);
+  }
   const gain = Math.min(h.maxHp - h.hp, amount);
   if (gain <= 0) return 0;
   h.hp += gain;
@@ -159,6 +170,8 @@ export const partyChargeScale = (partySize: number): number => 1 / (1 + ULTIMATE
 
 /** Charge earned by fighting: scaled by the hero's ultCharge bonus and the party falloff, at most MAX_PER_HIT per hit. */
 function earnCharge(w: World, h: Hero, points: number): void {
+  // Resonance Engine: the ultimate charges from Resonances only.
+  if (h.ks.resonanceEngine) return;
   addCharge(w, h, Math.min(ULTIMATE.MAX_PER_HIT, points) * (1 + h.mods.ultCharge) * partyChargeScale(w.partySize));
 }
 
@@ -222,6 +235,8 @@ export function killEnemy(w: World, e: Enemy, by: number, quiet = false): void {
   if (e.kind === 'aegis' || e.kind === 'bomber' || e.kind === 'necromancer') onHordeDeath(w, e, quiet);
   // Cursed chambers: elite-flagged rank and file slain by a hero may leave a shard (at most one per hero and chamber).
   if (killer && w.cursed && e.elite && !e.boss && !e.summoned && !quiet) rollCursedShard(w);
+  // Corpse Bloom (and Bloodrush for the killer): see keystones.ts.
+  if (!quiet) onKeystoneKill(w, e, killer, status, applier, potency);
   if (!killer) return;
   killer.run.kills++;
   if (e.boss && e.kind !== 'champion') killer.run.bosses++;
@@ -234,7 +249,7 @@ export function killEnemy(w: World, e: Enemy, by: number, quiet = false): void {
   }
   if (status === 'umbra' && killer.relic.voidLantern > 0) {
     const near = heroNearest(w, e.x, e.z);
-    if (near) healHero(w, near, RELIC_TUNING.LANTERN_HEAL * killer.relic.voidLantern);
+    if (near) healHero(w, near, RELIC_TUNING.LANTERN_HEAL * killer.relic.voidLantern, near !== killer);
   }
   // Set special `spread`: the status of a dying carrier jumps to the nearest enemy without one.
   if (status !== null && applier && applier.setSpread.includes(status)) {
@@ -246,10 +261,21 @@ export function killEnemy(w: World, e: Enemy, by: number, quiet = false): void {
     w.emit({ e: 'telegraph', shape: 'circle', x: e.x, z: e.z, rot: 0, r: AFFIX.VOLATILE_RADIUS, w: 0, dur: AFFIX.VOLATILE_DELAY });
   }
   if (marker) {
-    const amount = ULTIMATE.MARK_BURST_DAMAGE * (1 + marker.mods.damage) * (1 + marker.mods.ultimateDamage + marker.stats.crescendo);
+    const amount = ULTIMATE.MARK_BURST_DAMAGE * allDamage(marker) * (1 + marker.mods.ultimateDamage + marker.stats.crescendo);
     blastEnemies(w, e.x, e.z, ULTIMATE.MARK_BURST_RADIUS, amount, marker.slot, e);
   }
-  if (killer.stats.overkill > 0) blastEnemies(w, e.x, e.z, BOON_TUNING.OVERKILL_RADIUS, killer.stats.overkill, killer.slot, e);
+  if (killer.stats.overkill > 0) blastEnemies(w, e.x, e.z, BOON_TUNING.OVERKILL_RADIUS, killer.stats.overkill * killer.ks.damageMul, killer.slot, e);
+}
+
+/** Fraction added to everything a hero deals: the `damage` mod times Glass Cannon. */
+export const allDamage = (h: Hero): number => (1 + h.mods.damage) * h.ks.damageMul;
+
+/** Bookkeeping for damage a hero dealt: the Sanguine Pact's leech and the per-keystone telemetry. */
+function credit(w: World, h: Hero, dealt: number): void {
+  const ks = h.ks;
+  if (ks.sanguine) ks.leech += dealt * KP.sanguine.leech;
+  if (w.ksSource !== null) ks.dealt[w.ksSource] = (ks.dealt[w.ksSource] ?? 0) + dealt;
+  if (ks.glassCannon) ks.dealt.glass_cannon = (ks.dealt.glass_cannon ?? 0) + dealt * (1 - 1 / ks.damageMul);
 }
 
 /** Unblockable damage (burn ticks, Resonance bursts). `amount` is final except for the target's vulnerabilities. */
@@ -259,7 +285,10 @@ export function rawDamageEnemy(w: World, e: Enemy, amount: number, by: number, e
   const dealt = Math.min(e.hp, dmg);
   e.hp -= dmg;
   const src = w.hero(by);
-  if (src) src.run.damage += dealt;
+  if (src) {
+    src.run.damage += dealt;
+    credit(w, src, dealt);
+  }
   w.emit({ e: 'hit', target: { t: 'e', id: e.id }, x: e.x, z: e.z, dmg: Math.max(1, Math.round(dmg)), crit: false, el, by });
   if (e.hp <= 0) killEnemy(w, e, by);
 }
@@ -273,8 +302,9 @@ function burst(w: World, x: number, z: number, a: ElementId, b: ElementId, h: He
   const duo = reaction ? h.stats.duo[reaction.id] : 0;
   // A duo boon doubles the reaction's own effect.
   const twice = duo > 0 ? 2 : 1;
-  const radius = STATUS.RESONANCE.RADIUS * (1 + h.stats.wideResonance) * (reaction ? reaction.radiusMul : 1);
-  const damage = STATUS.RESONANCE.DAMAGE * (1 + h.stats.amplifier + h.mods.resonanceDamage) * (1 + h.mods.damage)
+  const radius = STATUS.RESONANCE.RADIUS * (1 + h.stats.wideResonance) * (reaction ? reaction.radiusMul : 1)
+    * (h.ks.resonanceEngine ? 1 + KP.engine.burstArea : 1);
+  const damage = STATUS.RESONANCE.DAMAGE * (1 + h.stats.amplifier + h.mods.resonanceDamage) * allDamage(h)
     * (reaction ? reaction.damageMul : 1) * (1 + duo);
   w.emit({ e: 'resonance', x, z, r: radius, a, b, by: h.slot });
   w.emit({ e: 'aoe', x, z, r: radius, el: b, hostile: false });
@@ -328,7 +358,7 @@ function burst(w: World, x: number, z: number, a: ElementId, b: ElementId, h: He
     for (const ally of w.heroes) {
       const dx = ally.body.x - x;
       const dz = ally.body.z - z;
-      if (dx * dx + dz * dz <= r2) healHero(w, ally, REACTION_TUNING.SOULFIRE_HEAL * twice);
+      if (dx * dx + dz * dz <= r2) healHero(w, ally, REACTION_TUNING.SOULFIRE_HEAL * twice, ally !== h);
     }
   } else if (id === 'entomb') {
     grantShield(h, REACTION_TUNING.ENTOMB_SHIELD * twice);
@@ -343,7 +373,7 @@ function burst(w: World, x: number, z: number, a: ElementId, b: ElementId, h: He
       fromX = next.x;
       fromZ = next.z;
       w.emit({ e: 'cast', who: { t: 'p', id: h.slot }, ability: 'voidarc', x: next.x, z: next.z, rot: 0 });
-      rawDamageEnemy(w, next, REACTION_TUNING.VOIDARC_DAMAGE * (1 + h.mods.damage) * (1 + duo), h.slot, b);
+      rawDamageEnemy(w, next, REACTION_TUNING.VOIDARC_DAMAGE * allDamage(h) * (1 + duo), h.slot, b);
       if (!next.dead) setStatus(w, next, b, h, potency);
     }
   }
@@ -359,7 +389,8 @@ function resonate(w: World, e: Enemy, el: ElementId, h: Hero, potency: number): 
   const z = e.z;
   clearStatus(e);
   h.run.resonances++;
-  addCharge(w, h, ULTIMATE.PER_RESONANCE * (1 + h.mods.ultCharge) * partyChargeScale(w.partySize));
+  if (h.ks.resonanceEngine) onResonance(w, h, x, z);
+  else addCharge(w, h, ULTIMATE.PER_RESONANCE * (1 + h.mods.ultCharge) * partyChargeScale(w.partySize));
   if (h.setOverflow) addCharge(w, h, ULTIMATE.MAX * BOON_TUNING.SET_OVERFLOW_CHARGE);
   burst(w, x, z, a, el, h, potency);
   if (h.stats.echo > 0 && w.rng.chance(h.stats.echo)) burst(w, x, z, a, el, h, potency);
@@ -368,7 +399,7 @@ function resonate(w: World, e: Enemy, el: ElementId, h: Hero, potency: number): 
     if (h.dashCharges >= maxDashCharges(h)) h.dashRecharge = 0;
     h.secondaryCd = Math.max(0, h.secondaryCd - h.stats.aftershock * h.secondaryCdMax);
   }
-  if (h.stats.sharedVigor > 0) for (const ally of w.heroes) healHero(w, ally, h.stats.sharedVigor);
+  if (h.stats.sharedVigor > 0) for (const ally of w.heroes) healHero(w, ally, h.stats.sharedVigor, ally !== h);
   if (h.stats.crystalWard > 0) grantShield(h, h.stats.crystalWard);
   // covenant: the hero whose status was consumed and the hero who consumed it are both shielded.
   if (applier && applier.stats.covenant > 0) {
@@ -423,6 +454,8 @@ export interface StrikeOpts {
   bonus?: number;
   /** Rogue bolts and knives (poison_tips talent). */
   poison?: boolean;
+  /** Element applied when the ability's slot carries no infusion (Blazing Wake: Ember). */
+  fallback?: ElementId | null;
 }
 
 const BACKSTAB_HALF_ANGLE = BACKSTAB.HALF_ANGLE_DEG * DEG;
@@ -435,7 +468,10 @@ export function strikeEnemy(w: World, h: Hero, e: Enemy, base: number, slot: Abi
   if (!isTargetable(e)) return false;
   if (w.tutorial && slot === 'secondary') w.tutorial.secondaryHits++;
   const bit = 1 << h.slot;
-  let dmg = base * (1 + h.mods.damage);
+  const ks = h.ks;
+  // A direct hit of one of the hero's own abilities (not a keystone's blades, trail, familiar... and not the dash).
+  const direct = w.ksSource === null && slot !== 'dash';
+  let dmg = base * allDamage(h);
   if (slot === 'primary') dmg *= 1 + h.stats.primaryDamage + h.mods.primaryDamage;
   else if (slot === 'secondary') dmg *= 1 + h.stats.secondaryDamage + h.mods.secondaryDamage;
   else if (slot === 'ultimate') dmg *= 1 + h.stats.crescendo + h.mods.ultimateDamage;
@@ -451,19 +487,34 @@ export function strikeEnemy(w: World, h: Hero, e: Enemy, base: number, slot: Abi
     h.momentumTime = BOON_TUNING.MOMENTUM_DECAY_SECONDS;
   }
   if (opts.bonus) dmg *= 1 + opts.bonus;
+  let backstab = false;
   if (opts.special === 'backstab') {
     // Behind = the enemy looks away from the hero.
     const away = Math.abs(angleDiff(angleTo(e.x, e.z, h.body.x, h.body.z), e.rot + Math.PI));
-    if (away <= BACKSTAB_HALF_ANGLE) dmg *= 1 + BACKSTAB.BONUS;
+    backstab = away <= BACKSTAB_HALF_ANGLE;
+    if (backstab) dmg *= 1 + BACKSTAB.BONUS;
+  }
+  // Veil of Knives: the next hit out of the veil (everything struck in that tick) deals more.
+  if (direct && ks.veilTime > 0 && (ks.veilHit || ks.veilTick === w.tick)) {
+    ks.veilHit = false;
+    ks.veilTick = w.tick;
+    dmg *= 1 + KP.shade.damage;
   }
   if (slot === 'primary' && h.riposte) {
     h.riposte = false;
     dmg *= TALENT.RIPOSTE_MULTIPLIER;
   }
   const chance = h.stats.crit + h.mods.critChance;
-  const sure = opts.special === 'crit' || (h.talent.ambush && e.target !== h.slot && (e.struckBy & bit) === 0);
+  let sure = opts.special === 'crit' || (h.talent.ambush && e.target !== h.slot && (e.struckBy & bit) === 0);
+  // Phase Walker: the next hit after dashing through an enemy (everything struck in that tick) is a critical hit.
+  if (direct && ks.phaseTime > 0 && (ks.phaseCrit || ks.phaseTick === w.tick)) {
+    ks.phaseCrit = false;
+    ks.phaseTick = w.tick;
+    sure = true;
+  }
   const crit = sure || (chance > 0 && w.rng.chance(chance));
   if (crit) dmg *= (STATUS.CRIT_MULTIPLIER + h.mods.critDamage) * (1 + h.stats.brutality);
+  const plain = dmg;
   dmg *= vulnerability(e);
   e.struckBy |= bit;
 
@@ -475,7 +526,7 @@ export function strikeEnemy(w: World, h: Hero, e: Enemy, base: number, slot: Abi
     potency = BUFFS.overload.potency;
   } else {
     const infusion = h.stats.infusion[slot];
-    if (infusion) { element = infusion.element; potency = infusion.potency; }
+    if (infusion) { element = infusion.element; potency = infusion.potency; } else if (opts.fallback) element = opts.fallback;
   }
   let blocked = false;
   if (e.shieldHp > 0 && e.stunTime <= 0) {
@@ -496,6 +547,9 @@ export function strikeEnemy(w: World, h: Hero, e: Enemy, base: number, slot: Abi
     const dealt = Math.min(e.hp, dmg);
     e.hp -= dmg;
     h.run.damage += dealt;
+    credit(w, h, dealt);
+    if (slot === 'secondary') ks.secondaryDealt += dealt;
+    else if (slot === 'primary' && ks.heavyHitter && direct) ks.dealt.heavy_hitter = (ks.dealt.heavy_hitter ?? 0) + dealt * (1 - 1 / (1 + KP.heavy.damage));
     // The ultimate does not charge itself.
     if (slot !== 'ultimate') earnCharge(w, h, dealt * ULTIMATE.PER_DAMAGE_DEALT);
     if (e.status === 'umbra') healHero(w, h, STATUS.WITHER.LEECH * e.statusPower * (h.stats.creepingDark > 0 ? 2 : 1));
@@ -516,13 +570,15 @@ export function strikeEnemy(w: World, h: Hero, e: Enemy, base: number, slot: Abi
   });
 
   if (opts.stun > 0) stunEnemy(e, opts.stun);
-  if (opts.knockback > 0 && !isBoss(e)) {
+  // Colossus: every direct hit knocks back.
+  const knockback = opts.knockback + (ks.colossus && direct ? KP.colossus.knockback : 0);
+  if (knockback > 0 && !isBoss(e)) {
     let dx = e.x - opts.fromX;
     let dz = e.z - opts.fromZ;
     const d = Math.hypot(dx, dz);
     if (d < 1e-4) { dx = Math.sin(h.rot); dz = Math.cos(h.rot); } else { dx /= d; dz /= d; }
-    e.kbX += dx * opts.knockback;
-    e.kbZ += dz * opts.knockback;
+    e.kbX += dx * knockback;
+    e.kbZ += dz * knockback;
   }
   if (!blocked) {
     if (element) applyElement(w, e, element, h, potency);
@@ -533,10 +589,15 @@ export function strikeEnemy(w: World, h: Hero, e: Enemy, base: number, slot: Abi
     if (h.relic.stormCoil > 0 && ++h.coilHits >= RELIC_TUNING.COIL_EVERY) {
       h.coilHits = 0;
       w.emit({ e: 'cast', who: { t: 'p', id: h.slot }, ability: 'storm_coil', x: e.x, z: e.z, rot: 0 });
-      rawDamageEnemy(w, e, RELIC_TUNING.COIL_DAMAGE * h.relic.stormCoil * (1 + h.mods.damage), h.slot, 'storm');
+      rawDamageEnemy(w, e, RELIC_TUNING.COIL_DAMAGE * h.relic.stormCoil * allDamage(h), h.slot, 'storm');
     }
+    // Chain Lightning: a direct primary hit arcs to enemies nearby (the arcs never arc again).
+    if (ks.chainLightning && direct && slot === 'primary' && ks.chainCd <= 0) chainLightning(w, h, e, plain);
   }
-  if (e.hp <= 0) killEnemy(w, e, h.slot);
+  if (e.hp <= 0 && !e.dead) {
+    killEnemy(w, e, h.slot);
+    if (backstab && ks.shade) onBackstabKill(w, h, e);
+  }
   return true;
 }
 
@@ -557,6 +618,13 @@ export function downHero(w: World, h: Hero): void {
   h.body.rootTime = 0;
   h.tempShield = 0;
   h.barrier = 0;
+  h.ks.overheal = 0;
+  h.ks.shieldPeak = 0;
+  h.ks.barrierPeak = 0;
+  h.ks.spinTwin = null;
+  h.ks.channel = 0;
+  h.ks.veilTime = 0;
+  h.ks.phaseTime = 0;
   h.invuln = 0;
   h.oathbondTime = 0;
   h.burnTime = 0;
@@ -599,6 +667,11 @@ export function reviveHero(w: World, h: Hero, by: number, hpFraction: number, if
 /** Shields first: returns what is left of `dmg`. A hero with riposte is armed by anything a shield swallows. */
 function absorb(h: Hero, dmg: number): number {
   let left = dmg;
+  if (h.ks.overheal > 0) {
+    const absorbed = Math.min(h.ks.overheal, left);
+    h.ks.overheal -= absorbed;
+    left -= absorbed;
+  }
   if (h.tempShield > 0) {
     const absorbed = Math.min(h.tempShield, left);
     h.tempShield -= absorbed;

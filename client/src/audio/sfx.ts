@@ -16,6 +16,7 @@ import { createPlayer, VOICES, type Bank } from './samples.ts';
 import { createAbilitySfx, isLegacyClass, type LegacyClass } from './sfx-abilities.ts';
 import { LIMITS, NOTE, rnd, TUNED, type Family, type Layer, type Mix, type SfxKit } from './sfx-kit.ts';
 import { createHordeSfx } from './sfx-horde.ts';
+import { createKeystoneSfx } from './sfx-keystones.ts';
 import { createObjectiveSfx } from './sfx-objectives.ts';
 import { createProgressSfx } from './sfx-progress.ts';
 import { createSynthSfx } from './sfx-synth.ts';
@@ -407,6 +408,7 @@ export function createSfx(g: AudioGraph, bank: Bank) {
   const progress = createProgressSfx(kit);
   const horde = createHordeSfx(kit);
   const objectives = createObjectiveSfx(kit);
+  const keystones = createKeystoneSfx(kit);
 
   // ---------------------------------------------------------------- hero abilities (the four first classes)
   const primary = (cls: LegacyClass, step: number, own: boolean, stackLevel: number, t: number): void => {
@@ -1193,6 +1195,8 @@ export function createSfx(g: AudioGraph, bank: Bank) {
     // ------------------------------------------------------------ update 4: the horde, wards, chamber objectives
     ...horde.api,
     ...objectives.api,
+    // ------------------------------------------------------------ update 5: keystones
+    ...keystones.api,
 
     /** Dev workbench: play the synthesised fallbacks even though the samples are there (A/B listening). */
     setForceSynth(on: boolean): void {

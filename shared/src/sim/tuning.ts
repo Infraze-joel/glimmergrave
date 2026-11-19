@@ -306,3 +306,28 @@ export const DIRECTOR = {
   OBSTACLE_GRID: 0.25, CENTRED_OBSTACLE_CHANCE: 0.2, BOSS_PILLAR_INSET: 3, BOSS_PILLAR_RADIUS: 0.9,
   ENEMY_OBSTACLE_MARGIN: 0.4, SPAWN_GRID_STEP: 1,
 } as const;
+
+/**
+ * Keystones (update 5): what the simulation needs beyond `params` in data/keystones.ts. Limits that protect the
+ * simulation live in KEYSTONE_CAPS (data), so tests and clients can read them.
+ */
+export const KS = {
+  /** Phase Walker: the dash counts as "through" an enemy when the hero's body overlaps it by this margin. */
+  PHASE_PAD: 0.25,
+  /** Ricochet: a bounced projectile flies this far past its new target; the blade a melee hero throws. */
+  BOUNCE_PAD: 2, BLADE_DAMAGE: 0.6, BLADE_SPEED: 30, BLADE_RANGE: 9, BLADE_RADIUS: 0.4,
+  /** Titan Grip: melee arcs reach this much further (their angle grows by `area`, up to a full circle). */
+  HEAVY_REACH: 0.2, FULL_CIRCLE_DEG: 360,
+  /** Familiar bolt. */
+  FAMILIAR_SPEED: 26, FAMILIAR_RADIUS: 0.35, FAMILIAR_RANGE_PAD: 3,
+  /** Maelstrom: enemies within this many whirlwind radii are dragged; never closer to the centre than MIN. */
+  PULL_REACH: 2, PULL_MIN: 1.1,
+  /** Arc Stream: grace after the last pulse during which the hero still counts as channelling; knockback share per pulse. */
+  CHANNEL_GRACE: 0.1, STREAM_KNOCKBACK: 0.25,
+  /** Blade Tempest: the two extra waves of the finisher fly this many degrees to either side. */
+  TEMPEST_SPREAD_DEG: 14,
+  /** Twin Cast: a twinned trap arms after this long. */
+  TWIN_TRAP_ARM: 0.2,
+  /** Enemy growth that pays for keystones: health / damage multipliers per elite chamber cleared at this depth. */
+  ELITE_HP_GROWTH: 0, ELITE_DAMAGE_GROWTH: 0,
+} as const;

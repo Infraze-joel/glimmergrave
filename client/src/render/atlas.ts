@@ -13,6 +13,8 @@ const ICON_Y = 64;
 /** Icons beyond the first row continue here (below the word mark). */
 const ICON_Y2 = 400;
 const ICONS_PER_ROW = W / ICON_SIZE;
+/** Update 5: one emblem per keystone, two rows between the name labels and the second icon row. */
+const EMBLEM_Y = 272;
 const NAME = { W: 384, H: 56, Y: 144, COLS: 2 } as const;
 /**
  * Word marks shown on a Resonance burst: slot 0 is the common word, slots 1.. the named reactions in REACTIONS order.
@@ -372,6 +374,149 @@ function drawIcon(ctx: CanvasRenderingContext2D, name: IconName, ox: number, oy:
   ctx.restore();
 }
 
+/** Keystone emblems, in the order they are laid out. Ids are those of shared/data/keystones.ts. */
+export const EMBLEMS = [
+  'ember_wake', 'shockstep', 'phase_walker', 'ricochet', 'chain_lightning', 'heavy_hitter', 'twin_cast', 'blood_price',
+  'orbit_blades', 'familiar', 'colossus', 'corpse_bloom', 'resonance_engine', 'glass_cannon', 'sanguine', 'momentum_engine',
+  'ks_knight', 'ks_barbarian', 'ks_mage', 'ks_rogue', 'ks_templar', 'ks_spellblade', 'ks_shade',
+] as const;
+
+/** White line art with a dark outline: `lines` are stroked, `fills` are filled. */
+function emblemPaths(ctx: CanvasRenderingContext2D, lines: Path2D | null, fills: Path2D | null, width = 5.5): void {
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = OUTLINE;
+  if (lines) { ctx.lineWidth = width + 6; ctx.stroke(lines); }
+  if (fills) { ctx.lineWidth = 7; ctx.stroke(fills); }
+  ctx.fillStyle = '#ffffff';
+  ctx.strokeStyle = '#ffffff';
+  if (fills) ctx.fill(fills);
+  if (lines) { ctx.lineWidth = width; ctx.stroke(lines); }
+}
+
+function drawEmblem(ctx: CanvasRenderingContext2D, id: string, ox: number, oy: number): void {
+  const c = ICON_SIZE / 2;
+  const circle = (x: number, y: number, r: number): string => `M${x - r} ${y}a${r} ${r} 0 1 0 ${r * 2} 0a${r} ${r} 0 1 0 ${-r * 2} 0Z`;
+  ctx.save();
+  ctx.translate(ox, oy);
+  switch (id) {
+    case 'ember_wake':
+      // a flame leaving three streaks behind
+      emblemPaths(ctx, new Path2D('M8 22H24M6 34H20M10 46H24'),
+        new Path2D('M44 8C48 20 58 26 55 40C52 54 34 54 31 40C29 30 38 28 38 18C42 21 44 15 44 8Z'));
+      break;
+    case 'shockstep':
+      // a boot print of force: a dot and two widening waves
+      emblemPaths(ctx, new Path2D('M18 46A20 20 0 0 1 46 18M8 50A32 32 0 0 1 50 8'), new Path2D(circle(42, 42, 8)));
+      break;
+    case 'phase_walker':
+      // a figure stepping through its own outline
+      emblemPaths(ctx, new Path2D('M14 12L30 32L14 52Z'), new Path2D('M30 10L52 32L30 54L38 32Z'), 4.5);
+      break;
+    case 'ricochet':
+      emblemPaths(ctx, new Path2D('M8 50L24 18L40 44L54 14M44 13L55 12L56 24'), null, 6);
+      break;
+    case 'chain_lightning':
+      emblemPaths(ctx, new Path2D('M12 14L26 28L20 34L38 40L32 46L52 52'), new Path2D(circle(12, 14, 5) + circle(52, 52, 5) + circle(48, 20, 4.5)), 5);
+      break;
+    case 'heavy_hitter':
+      // a maul
+      emblemPaths(ctx, new Path2D('M30 34L12 54'), new Path2D('M26 10L54 24L46 42L18 28Z'), 7);
+      break;
+    case 'twin_cast':
+      emblemPaths(ctx, new Path2D(circle(24, 32, 14) + circle(40, 32, 14)), null, 5.5);
+      break;
+    case 'blood_price':
+      emblemPaths(ctx, null, new Path2D('M32 6C40 22 50 30 50 41A18 17 0 0 1 14 41C14 30 24 22 32 6Z'));
+      ctx.fillStyle = OUTLINE;
+      ctx.fillRect(23, 39, 18, 5);
+      break;
+    case 'orbit_blades': {
+      let d = circle(c, c, 5);
+      for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * Math.PI * 2 - Math.PI / 2;
+        const px = c + Math.cos(a) * 20;
+        const py = c + Math.sin(a) * 20;
+        const tx = -Math.sin(a);
+        const ty = Math.cos(a);
+        d += `M${(px + tx * 13).toFixed(1)} ${(py + ty * 13).toFixed(1)}L${(px + Math.cos(a) * 6 - tx * 9).toFixed(1)} ${(py + Math.sin(a) * 6 - ty * 9).toFixed(1)}`
+          + `L${(px - Math.cos(a) * 5 - tx * 9).toFixed(1)} ${(py - Math.sin(a) * 5 - ty * 9).toFixed(1)}Z`;
+      }
+      emblemPaths(ctx, null, new Path2D(d));
+      break;
+    }
+    case 'familiar':
+      // a wisp with a curling tail and a spark
+      emblemPaths(ctx, new Path2D('M26 40C16 46 12 52 20 56M50 10V22M44 16H56'), new Path2D(circle(30, 28, 13)), 5);
+      break;
+    case 'colossus':
+      // broad shoulders, small head
+      emblemPaths(ctx, null, new Path2D(`${circle(c, 13, 6)}M8 24H56L48 56H38L32 40L26 56H16Z`));
+      break;
+    case 'corpse_bloom': {
+      let d = circle(c, c, 6);
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        d += circle(c + Math.cos(a) * 17, c + Math.sin(a) * 17, 7);
+      }
+      emblemPaths(ctx, null, new Path2D(d));
+      break;
+    }
+    case 'resonance_engine': {
+      star(ctx, c, c, 8, 26, 18);
+      strokeFill(ctx);
+      ctx.fillStyle = OUTLINE;
+      ctx.beginPath();
+      ctx.arc(c, c, 8, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+    case 'glass_cannon':
+      emblemPaths(ctx, null, new Path2D('M32 4L54 32L32 60L10 32Z'));
+      ctx.strokeStyle = OUTLINE;
+      ctx.lineWidth = 4;
+      ctx.lineJoin = 'miter';
+      ctx.stroke(new Path2D('M32 6L26 26L38 34L30 58M38 34L50 30'));
+      break;
+    case 'sanguine':
+      emblemPaths(ctx, null, new Path2D('M32 54C10 38 8 26 12 18C17 9 28 10 32 20C36 10 47 9 52 18C56 26 54 38 32 54Z'));
+      break;
+    case 'momentum_engine':
+      emblemPaths(ctx, new Path2D('M8 14L24 32L8 50M24 14L40 32L24 50M40 14L56 32L40 50'), null, 6.5);
+      break;
+    case 'ks_knight':
+      emblemPaths(ctx, new Path2D('M32 4V12M8 14L14 20M56 14L50 20M4 36H11M60 36H53'),
+        new Path2D('M18 20H46V36Q44 50 32 56Q20 50 18 36Z'), 4.5);
+      break;
+    case 'ks_barbarian':
+      emblemPaths(ctx, new Path2D('M32 32C32 26 40 26 40 33C40 42 26 44 22 34C17 20 34 10 46 18C60 28 54 50 36 54C24 56 12 50 9 38'), null, 6);
+      break;
+    case 'ks_mage':
+      emblemPaths(ctx, new Path2D('M24 32H58M30 20L56 14M30 44L56 50'), new Path2D(circle(16, 32, 10)), 6);
+      break;
+    case 'ks_rogue': {
+      let d = '';
+      for (let i = 0; i < 5; i++) {
+        const a = -Math.PI / 2 + (i - 2) * 0.42;
+        d += `M${(c + Math.cos(a) * 12).toFixed(1)} ${(56 + Math.sin(a) * 12).toFixed(1)}L${(c + Math.cos(a) * 48).toFixed(1)} ${(56 + Math.sin(a) * 48).toFixed(1)}`;
+      }
+      emblemPaths(ctx, new Path2D(d), null, 5);
+      break;
+    }
+    case 'ks_templar':
+      emblemPaths(ctx, new Path2D(`${circle(c, c, 24)}M32 16V48M21 27H43`), null, 5.5);
+      break;
+    case 'ks_spellblade':
+      emblemPaths(ctx, new Path2D('M12 50A26 26 0 0 1 30 12M26 54A26 26 0 0 1 44 16M40 58A26 26 0 0 1 58 20'), null, 6);
+      break;
+    default:
+      // ks_shade: a crescent with a blade through it
+      emblemPaths(ctx, new Path2D('M46 10L20 54'), new Path2D('M40 8A26 26 0 1 0 56 44A20 20 0 0 1 40 8Z'), 5);
+      break;
+  }
+  ctx.restore();
+}
+
 // The class reticles of the aim cursor (game/Cursor.ts draws the same shapes as a CSS cursor), in an 80-unit box.
 const RC = RETICLE.VIEW / 2;
 const rrad = (deg: number): number => (deg * Math.PI) / 180;
@@ -429,6 +574,8 @@ export class Atlas {
   readonly bang: UvRect;
   readonly icons = {} as Record<IconName, UvRect>;
   readonly names: UvRect[] = [];
+  /** Keystone emblems by keystone id (EMBLEMS). */
+  readonly emblems = new Map<string, UvRect>();
   /** Word marks: [0] the common "Resonance", [1..] the reactions in REACTIONS order. Entries are updated in place. */
   readonly words: WordMark[] = [];
   /** Aim-marker reticles per class: [light parts, accent parts]. */
@@ -471,6 +618,13 @@ export class Atlas {
       const y = i < ICONS_PER_ROW ? ICON_Y : ICON_Y2;
       drawIcon(ctx, name, x, y);
       this.icons[name] = rect(x, y, ICON_SIZE, ICON_SIZE);
+    });
+
+    EMBLEMS.forEach((id, i) => {
+      const x = (i % ICONS_PER_ROW) * ICON_SIZE;
+      const y = EMBLEM_Y + Math.floor(i / ICONS_PER_ROW) * ICON_SIZE;
+      drawEmblem(ctx, id, x, y);
+      this.emblems.set(id, rect(x, y, ICON_SIZE, ICON_SIZE));
     });
 
     for (let slot = 0; slot < NET.MAX_PLAYERS; slot++) {

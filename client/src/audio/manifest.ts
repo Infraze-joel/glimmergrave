@@ -167,6 +167,14 @@ export const SAMPLES = [
   { name: 'hit.dull.2', group: 'hit.dull', cat: 'impact', tier: 2, file: 'hit.dull.2.mp3', dur: 0.445, gain: 1.074, bytes: 3644 },
   { name: 'zap.fall.1', group: 'zap.fall', cat: 'magic', tier: 2, file: 'zap.fall.1.mp3', dur: 0.421, gain: 0.194, bytes: 4295 },
   { name: 'tex.spin.1', group: 'tex.spin', cat: 'bed', tier: 2, file: 'tex.spin.1.mp3', dur: 1.9, gain: 0.492, bytes: 10404 },
+  { name: 'zap.rise.1', group: 'zap.rise', cat: 'magic', tier: 2, file: 'zap.rise.1.mp3', dur: 1.102, gain: 0.204, bytes: 9083 },
+  { name: 'zap.two.1', group: 'zap.two', cat: 'magic', tier: 2, file: 'zap.two.1.mp3', dur: 1.177, gain: 0.208, bytes: 10073 },
+  { name: 'zap.two.2', group: 'zap.two', cat: 'magic', tier: 2, file: 'zap.two.2.mp3', dur: 1.117, gain: 0.282, bytes: 9421 },
+  { name: 'pew.1', group: 'pew', cat: 'magic', tier: 2, file: 'pew.1.mp3', dur: 0.235, gain: 0.193, bytes: 3727 },
+  { name: 'pew.2', group: 'pew', cat: 'magic', tier: 2, file: 'pew.2.mp3', dur: 0.255, gain: 0.325, bytes: 3364 },
+  { name: 'tex.hum.1', group: 'tex.hum', cat: 'bed', tier: 2, file: 'tex.hum.1.mp3', dur: 2, gain: 0.285, bytes: 9049 },
+  { name: 'question.1', group: 'question', cat: 'ui', tier: 0, file: 'question.1.mp3', dur: 0.498, gain: 0.091, bytes: 2888 },
+  { name: 'question.2', group: 'question', cat: 'ui', tier: 0, file: 'question.2.mp3', dur: 0.341, gain: 0.079, bytes: 2473 },
   { name: 'door.open.1', group: 'door.open', cat: 'flow', tier: 3, file: 'door.open.1.mp3', dur: 0.913, gain: 0.477, bytes: 8853 },
   { name: 'door.open.2', group: 'door.open', cat: 'flow', tier: 3, file: 'door.open.2.mp3', dur: 1.381, gain: 0.529, bytes: 11687 },
   { name: 'door.close.1', group: 'door.close', cat: 'flow', tier: 3, file: 'door.close.1.mp3', dur: 0.595, gain: 0.515, bytes: 6697 },
@@ -197,5 +205,5 @@ export const SAMPLES = [
 ] as const satisfies readonly SampleInfo[];
 
 export type SampleGroup = (typeof SAMPLES)[number]['group'];
-export const AUDIO_TOTAL_BYTES = 681802;
+export const AUDIO_TOTAL_BYTES = 731880;
 export const AUDIO_TIERS = 5;

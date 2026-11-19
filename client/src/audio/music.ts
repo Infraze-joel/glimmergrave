@@ -16,9 +16,15 @@
  * piece (`setObjective`): survive = a relentless pulse whose tempo and density tighten with the timer, defend =
  * an anchored drone on the tonic under half-time drums, hunt = a driving ostinato, ritual = a sparse frame that
  * gains a layer per lit brazier, vault = sparse and warm, in the relative major, no drums.
+ *
+ * Update 5: every keystone the own hero holds adds a voice to the fighting pieces (`setKeystones`, one voice per
+ * keystone family, see `keystoneLayer`), on top of whatever piece plays and transposed with it; and while the own
+ * keystone draft is open the calm interlude gives way to a held, unresolved bed (`setKeystoneDraft`).
  */
 import type { BiomeId, BossKind, ObjectiveKind } from '@shared/types.ts';
 import { MIX, midiToHz, noise, panned, tone, type AudioGraph, type NoiseOpts, type ToneOpts } from './engine.ts';
+import type { KeystoneFamily, ScoreVoice } from './keystone-map.ts';
+import { voicesKey } from './keystone-map.ts';
 import type { SampleGroup } from './manifest.ts';
 import { VOICES, type Player, type VoiceOpts } from './samples.ts';
 
@@ -68,7 +74,7 @@ const VII: Chord = { root: 6 };
 
 /** Objectives with a piece of their own (`slay` is the combat piece). */
 export type SpecialObjective = Exclude<ObjectiveKind, 'slay'>;
-type TrackKey = 'menu' | 'calm' | 'combat' | 'elite' | `boss:${BossKind}` | `obj:${SpecialObjective}`;
+type TrackKey = 'menu' | 'calm' | 'keydraft' | 'combat' | 'elite' | `boss:${BossKind}` | `obj:${SpecialObjective}`;
 
 /** What the objective pieces follow while they play. */
 export interface ObjectiveMusic {
@@ -93,6 +99,8 @@ export const OBJECTIVE_MUSIC = {
 const PROGRESSION: Record<TrackKey, Chord[]> = {
   menu: [I, I, VI, VI, IV, IV, I, I, III, III, VII, VII, IV, IV, V, V],
   calm: [I, VI, III, VII, I, VI, IV, V, I, III, VI, VII, IV, I, IV, V],
+  // the keystone draft: the tonic held, the subdominant leaning on it, never a cadence
+  keydraft: [I, I, I, I, IV, IV, I, I, I, I, VI, VI, IV, IV, I, I],
   combat: [I, I, VI, VII, I, I, IV, Vm, I, VI, III, VII, IV, IV, V, V],
   elite: [I, I, II, V, I, I, VI, V, IV, IV, I, I, VI, VII, V, V],
   'boss:regent': [I, I, I, I, VI, VI, V, V, I, I, IV, IV, II, II, V, V],
@@ -435,6 +443,8 @@ function createKit(g: AudioGraph, player: Player | null, env: KitEnv) {
     noise: N,
     tone: T,
     sample: S,
+    /** Transposition of the track in semitones (for voices that compute their own frequencies). */
+    shift: (): number => env.shift(),
   };
 }
 
@@ -491,6 +501,84 @@ function depthLayer({ kit, bar, s, t, sd, barLen, chord }: StepCtx, d: number, s
   if (d >= DEPTH.MAX && bar % 2 === 0 && s === steps - 1) kit.tom(t, TONIC + 1, 0.11);
 }
 
+/** Update 5: what the keystone voices are built from. */
+const KEY_RUN = [0, 2, 4, 7, 9, 7, 4, 2];
+const KEY_ANSWERS: [number, number][] = [[4, 7], [7, 9], [2, 4], [9, 7]];
+const KEY_CALLS: [number, number][] = [[0, 4], [4, 7], [0, 2], [4, 0]];
+
+/**
+ * The voice a held keystone adds to a fighting piece, by family (keystone-map.ts). All of it hangs on bar and step
+ * numbers and on the bar's chord, so it sits on any piece (common or compound time), follows the chord cycle and is
+ * transposed with the depth like everything else the kit plays. `dense` = the second keystone of the same family:
+ * the same voice an octave up and twice as busy instead of a mere doubling. `drive` is false for pieces without drums.
+ *   movement  – a running arpeggio of plucked notes on the off-beats
+ *   primary   – steel: an anvil on the back-beats and a stab in fifths
+ *   secondary – a bell on the bar and a hummed chord
+ *   companion – two glass notes answering each other at the end of the bar
+ *   win       – a horn call over two bars, the war drum under it
+ *   class     – open voices on the chord and a long high note
+ */
+function keystoneLayer({ kit, bar, s, t, sd, barLen, chord }: StepCtx, family: KeystoneFamily, dense: boolean, steps: number, stepsPerBeat: number, drive: boolean): void {
+  const beat = Math.floor(s / stepsPerBeat);
+  const onBeat = s % stepsPerBeat === 0;
+  const up = dense ? 1 : 0;
+  switch (family) {
+    case 'movement': {
+      const half = Math.floor(stepsPerBeat / 2);
+      const off = s % stepsPerBeat === half;
+      if (off || (dense && s % stepsPerBeat === half + 1)) {
+        kit.pluck(t, note(chord, KEY_RUN[(beat * 2 + (off ? 0 : 1) + bar * 3) % KEY_RUN.length], 3 + up), 0.034);
+      }
+      if (s === steps - 1 && bar % 2 === 1) kit.noise(t - sd, { dur: sd * 2, gain: 0.02, filter: 'bandpass', freq: 900, freqEnd: 4200, q: 1.5, attack: sd * 1.6, pan: -STEREO.HAT });
+      break;
+    }
+    case 'primary': {
+      if (drive && onBeat && beat % 2 === 1) kit.anvil(t, dense ? 0.03 : 0.04);
+      const stabAt = stepsPerBeat + Math.floor(stepsPerBeat / 2);
+      if (s === stabAt || (dense && s === steps - stabAt)) {
+        const root = note(chord, 0, 2 + up);
+        kit.stab(t, [root, root + 7], 0.034);
+      }
+      if (dense && onBeat && beat === 0 && bar % 2 === 0) kit.glass(t, note(chord, 4, 3), 0.03);
+      break;
+    }
+    case 'secondary':
+      if (s === 0 && bar % 2 === 0) {
+        kit.bell(t, note(chord, 0, 2 + up), 0.04);
+        kit.choir(t, [note(chord, 0, 2), note(chord, 4, 2)], barLen * 2, 0.0075, 'oo');
+      }
+      if (dense && s === Math.floor(steps / 2) && bar % 2 === 1) kit.glass(t, note(chord, 2, 3), 0.035);
+      break;
+    case 'companion': {
+      const [a, b] = KEY_ANSWERS[bar % KEY_ANSWERS.length];
+      const first = steps - stepsPerBeat;
+      if (s === first) kit.glass(t, note(chord, a, 3 + up), 0.045);
+      if (s === first + Math.floor(stepsPerBeat / 2)) kit.glass(t, note(chord, b, 3 + up), 0.038);
+      if (dense && s === Math.floor(steps / 2)) kit.glass(t, note(chord, a, 3), 0.03);
+      break;
+    }
+    case 'win': {
+      if (s === 0 && bar % 2 === 0) {
+        const [a, b] = KEY_CALLS[(bar / 2) % KEY_CALLS.length];
+        const beatLen = sd * stepsPerBeat;
+        for (const [at, off, dur] of [[0, a, beatLen * 0.9], [beatLen, b, beatLen * 2.6]] as const) {
+          const f = midiToHz(note(chord, off, 2 + up) + kit.shift());
+          for (const detune of [-7, 6]) kit.tone(t + at, { type: 'sawtooth', freq: f, detune, dur, gain: 0.02, lpf: 600, lpfEnd: 2000, q: 1.4, attack: 0.03, hold: dur * 0.5, send: 0.45 });
+          kit.tone(t + at, { type: 'triangle', freq: f, dur, gain: 0.02, attack: 0.02, hold: dur * 0.5, send: 0.45 });
+        }
+        if (drive) kit.war(t, 0.07, 0.9);
+      }
+      if (dense && drive && s === steps - stepsPerBeat && bar % 2 === 1) kit.tom(t, note(chord, 0, 1), 0.08);
+      break;
+    }
+    case 'class':
+      if (s === 0 && bar % 2 === 0) kit.choir(t, chordPad(chord, 2), barLen * 2, 0.0085, 'ah');
+      if (s === 0 && bar % 4 === 2) kit.wail(t, note(chord, dense ? 7 : 4, 3), barLen * 1.5, 0.022);
+      if (dense && s === Math.floor(steps / 2) && bar % 2 === 0) kit.glass(t, note(chord, 4, 4), 0.03);
+      break;
+  }
+}
+
 const DEFS: Record<TrackKey, TrackDef> = {
   // -------------------------------------------------------------- menu / lobby: sparse, atmospheric
   menu: {
@@ -529,6 +617,27 @@ const DEFS: Record<TrackKey, TrackDef> = {
         else kit.pluck(t, midi, 0.065);
       }
       if (s === 12 && bar % 4 === 3) kit.bell(t, note(chord, 4, 2), 0.04);
+    },
+  },
+  // -------------------------------------------------------------- keystone draft: held, expectant, unresolved
+  keydraft: {
+    gain: 1, steps: 16, stepsPerBeat: 4,
+    bpm: () => 60,
+    step({ kit, bar, s, t, sd, barLen, chord }) {
+      if (s === 0) {
+        // a suspended chord: root, fourth and fifth — the third that would decide it is never played
+        kit.pad(t, [note(chord, 0, 1), note(chord, 3, 1), note(chord, 4, 1)], barLen, 0.03, 1300);
+        kit.drone(t, note(I, 0, 0), barLen, 0.085);
+        kit.tremolo(t, [note(I, 4, 2)], barLen, 0.008);
+        if (bar % 4 === 0) kit.choir(t, [note(chord, 0, 2), note(chord, 4, 2)], barLen * 2, 0.011, 'oo');
+        if (bar % 4 === 2) kit.bell(t, TONIC + OCTAVE, 0.05);
+      }
+      // a slow heart under it
+      if (s === 0 || s === 3) kit.tone(t, { freq: 64, freqEnd: 42, dur: 0.2, gain: s === 0 ? 0.11 : 0.07 });
+      // one high note asked again and again, its answer a step short of home
+      if (s === 8) kit.glass(t, note(I, 8, 3), 0.045);
+      if (s === 12 && bar % 2 === 1) kit.glass(t, note(I, 7 + (bar % 4 === 3 ? 2 : 1), 3), 0.035);
+      if (s === 14 && bar % 4 === 3) kit.noise(t, { dur: sd * 2, gain: 0.02, filter: 'bandpass', freq: 1200, freqEnd: 5200, q: 2, attack: sd * 1.6 });
     },
   },
   // -------------------------------------------------------------- combat: dark, pulsing
@@ -857,7 +966,9 @@ const DEFS: Record<TrackKey, TrackDef> = {
 };
 
 /** Pieces without a beat: the depth overlay leaves its pulse out of them. */
-const NO_DRIVE: ReadonlySet<TrackKey> = new Set<TrackKey>(['calm', 'obj:vault']);
+const NO_DRIVE: ReadonlySet<TrackKey> = new Set<TrackKey>(['calm', 'keydraft', 'obj:vault']);
+/** Pieces outside a fight: the keystone voices stay out of them. */
+const NO_KEYSTONE_VOICES: ReadonlySet<TrackKey> = new Set<TrackKey>(['menu', 'calm', 'keydraft']);
 
 interface Track {
   key: TrackKey;
@@ -873,6 +984,8 @@ interface Track {
   dieAt: number;
   /** Depth the track is playing at (taken over at bar lines only). */
   pitch: { depth: number };
+  /** Keystone voices the track is playing (taken over at bar lines only). */
+  voices: ScoreVoice[];
 }
 
 export type Music = ReturnType<typeof createMusic>;
@@ -887,6 +1000,8 @@ export function createMusic(g: AudioGraph, player: Player | null = null) {
   let depth = 0;
   let objective: SpecialObjective | null = null;
   const obj: ObjectiveMusic = { pressure: 0, lit: 0 };
+  let voices: ScoreVoice[] = [];
+  let keystoneDraft = false;
 
   const tint = (): Tint => TINTS[biome];
 
@@ -903,7 +1018,7 @@ export function createMusic(g: AudioGraph, player: Player | null = null) {
   };
 
   const keyOf = (state: Exclude<MusicState, 'none'>): TrackKey =>
-    (state === 'boss' ? `boss:${bossKind}` : state === 'combat' && objective ? `obj:${objective}` : state);
+    (state === 'boss' ? `boss:${bossKind}` : state === 'combat' && objective ? `obj:${objective}` : state === 'calm' && keystoneDraft ? 'keydraft' : state);
 
   /** Crossfades to another state. No-op when it is already playing. */
   const setState = (next: MusicState, fade: number = MUSIC.CROSSFADE): void => {
@@ -930,7 +1045,7 @@ export function createMusic(g: AudioGraph, player: Player | null = null) {
     // the menu is not part of a descent and always plays at home
     const pitch = { depth: key === 'menu' ? 0 : depth };
     const kit = createKit(g, player, { out: input, send, tint, shift: () => pitch.depth * DEPTH.SEMITONES_PER_DEPTH });
-    tracks.push({ key, input, filter, out, send, kit, step: 0, next: now + MUSIC.START_DELAY, dieAt: Infinity, pitch });
+    tracks.push({ key, input, filter, out, send, kit, step: 0, next: now + MUSIC.START_DELAY, dieAt: Infinity, pitch, voices });
   };
 
   /** Schedules every active track up to `until` (defaults to now + look-ahead). */
@@ -962,6 +1077,10 @@ export function createMusic(g: AudioGraph, player: Player | null = null) {
         };
         def.step(c);
         if (track.pitch.depth > 0) depthLayer(c, track.pitch.depth, def.steps, def.stepsPerBeat, !NO_DRIVE.has(track.key));
+        if (s === 0) track.voices = voices;
+        if (track.voices.length > 0 && !NO_KEYSTONE_VOICES.has(track.key)) {
+          for (const voice of track.voices) keystoneLayer(c, voice.family, voice.dense, def.steps, def.stepsPerBeat, !NO_DRIVE.has(track.key));
+        }
         track.next += sd;
         track.step++;
       }
@@ -989,6 +1108,22 @@ export function createMusic(g: AudioGraph, player: Player | null = null) {
     if (next === objective) return;
     objective = next;
     if (current === 'combat') setState('combat');
+  };
+
+  /**
+   * The voices the own hero's keystones add to the fighting pieces (keystone-map.ts `scoreVoices`). Running tracks
+   * take them over at their next bar line; the calm interlude and the menu never play them.
+   */
+  const setKeystones = (next: readonly ScoreVoice[]): void => {
+    if (voicesKey(next) === voicesKey(voices)) return;
+    voices = next.slice();
+  };
+
+  /** The own keystone draft is open: the calm interlude is replaced by the held, expectant bed (and back). */
+  const setKeystoneDraft = (on: boolean): void => {
+    if (on === keystoneDraft) return;
+    keystoneDraft = on;
+    if (current === 'calm') setState('calm');
   };
 
   /** How deep the party is (RunState.depth). Running tracks follow at their next bar line. */
@@ -1063,7 +1198,8 @@ export function createMusic(g: AudioGraph, player: Player | null = null) {
   };
 
   return {
-    setState, schedule, setBossPhase, setBossKind, setBiome, setDepth, setObjective, stinger,
+    setState, schedule, setBossPhase, setBossKind, setBiome, setDepth, setObjective, setKeystones, setKeystoneDraft, stinger,
+    keystoneVoices: (): string => voicesKey(voices),
     objective: (): SpecialObjective | null => objective,
     depth: (): number => depth,
     state: (): MusicState => current,

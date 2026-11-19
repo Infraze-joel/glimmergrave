@@ -538,6 +538,18 @@ class HeroView extends Actor {
   /** Remaining / total seconds of the timed effects on this hero (BUFFS), indexed like BUFF_IDS. */
   readonly buffLeft: number[] = [0, 0, 0];
   readonly buffTotal: number[] = [1, 1, 1];
+  /** Maximum health from the snapshot (Blood Price shows what a cast cost). */
+  maxHp = 1;
+  /**
+   * Update 5, written by KeystoneFx every frame: body size factor (Colossus), how solid the body is drawn (the
+   * shade's veil; 1 = solid) and a rim / inner light in the keystone's colour (rgb, already scaled).
+   */
+  size = 1;
+  veil = 1;
+  readonly keyRim: number[] = [0, 0, 0];
+  readonly keyGlow: number[] = [0, 0, 0];
+  /** The outfit's own scale; `baseScale` is this times `size`. */
+  readonly outfitScale: number;
 
   constructor(template: CharacterTemplate, clips: Map<string, AnimationClip>, cls: ClassId, look: Look) {
     super(template, clips);
@@ -546,7 +558,8 @@ class HeroView extends Actor {
     this.look = look;
     this.hand = this.root.getObjectByName('handslotr') ?? null;
     this.flashTime = HERO_VIS.FLASH_TIME;
-    this.baseScale = HERO_OUTFIT[cls].scale ?? 1;
+    this.outfitScale = HERO_OUTFIT[cls].scale ?? 1;
+    this.baseScale = this.outfitScale;
     this.applyColor(look);
   }
 
@@ -665,6 +678,7 @@ export class Heroes {
       view.rot = p.rot;
       view.ult = p.ult ?? 0;
       view.hp = p.maxHp > 0 ? p.hp / p.maxHp : 0;
+      view.maxHp = p.maxHp;
       view.shield = p.shield;
       view.revive = p.revive;
       view.flags = p.flags;
@@ -851,6 +865,11 @@ export class Heroes {
         decals.push(DECAL.RUNE, x, 0.046, z, -time * 1.4, 2.6, 2.6, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, 0.7 * k, 0.8, 0.3);
       }
     }
+    // keystone light (empowered windows, the veil's shimmer) joins whatever the buffs put on the body
+    if (v.state === 'alive') {
+      rr += v.keyRim[0]; rg += v.keyRim[1]; rb += v.keyRim[2];
+      er += v.keyGlow[0]; eg += v.keyGlow[1]; eb += v.keyGlow[2];
+    }
     u.uEmissive.value.setRGB(er, eg, eb);
     u.uRim.value.set(rr, rg, rb, rr + rg + rb > 0 ? 1 : 0);
   }
@@ -881,7 +900,8 @@ export class Heroes {
       const u = v.mat.uniforms;
       const invulnerable = (v.flags & PF.INVULNERABLE) !== 0 && v.state === 'alive';
       const connected = (v.flags & PF.CONNECTED) !== 0;
-      u.uFade.value = invulnerable ? 0.62 : 1;
+      u.uFade.value = (invulnerable ? 0.62 : 1) * (v.state === 'alive' ? v.veil : 1);
+      v.baseScale = v.outfitScale * v.size;
       if (!connected) u.uTint.value.set(0.45, 0.5, 0.6, 0.7);
       else v.applyWash();
       v.update(dt);
@@ -902,7 +922,7 @@ export class Heroes {
       if ((v.flags & PF.KINDRED_AURA) !== 0 && !downed) {
         decals.push(DECAL.DISC, hx, 0.03, hz, 0, 3.6, 3.6, c.r, c.g, c.b, 0.16 + 0.05 * Math.sin(time * 3), 1, 0);
       }
-      const ring = HERO_VIS.RING_RADIUS * 2 * (1 + v.ringPulse * 0.25);
+      const ring = HERO_VIS.RING_RADIUS * 2 * (1 + v.ringPulse * 0.25) * v.size;
       const bright = local ? 1.35 : 0.9;
       if (!downed) {
         decals.push(DECAL.RING, hx, 0.045, hz, v.rot, ring, ring, c.r * bright, c.g * bright, c.b * bright, local ? 1 : 0.8, 0, local ? 1 : 0);
@@ -926,7 +946,7 @@ export class Heroes {
         }
       }
       // name label + slim health bar
-      const labelY = (downed ? 2.35 : HERO_VIS.LABEL_Y) + v.lift;
+      const labelY = (downed ? 2.35 : HERO_VIS.LABEL_Y + HERO_VIS.HEIGHT * (v.size - 1)) + v.lift;
       const nameUv = this.atlas.names[v.slot];
       const lh = local ? 0.46 : 0.4;
       const la = connected ? 1 : 0.45;

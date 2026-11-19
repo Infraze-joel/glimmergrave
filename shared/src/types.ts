@@ -68,6 +68,8 @@ export const PF = {
   BEING_REVIVED: 4,
   IN_DOOR_ZONE: 8,
   KINDRED_AURA: 16,
+  /** Update 5: the hero is channelling the Arc Stream keystone (draw the stream along `rot`). */
+  CHANNELING: 32,
 } as const;
 
 /** Bit flags in EnemySnap.flags */

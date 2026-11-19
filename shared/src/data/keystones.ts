@@ -78,7 +78,7 @@ export const KEYSTONES: KeystoneDef[] = [
     name: 'Shieldburst', summary: 'Knight: whenever a shield of yours breaks or runs out, it bursts for 150% of what it held.', cost: '' },
   { id: 'ks_barbarian', cls: 'barbarian', slot: 'secondary', tags: ['secondary', 'area', 'melee'], params: { pull: 5, moveMul: 1, duration: 0.5 },
     name: 'Maelstrom', summary: 'Barbarian: Whirlwind drags enemies towards you, lasts 50% longer and no longer slows you; Skullsplitter leaves a whirlwind where you land.', cost: '' },
-  { id: 'ks_mage', cls: 'mage', slot: 'primary', tags: ['primary', 'projectile', 'status'], params: { tick: 0.12, damageFraction: 0.42, range: 13, width: 0.6 },
+  { id: 'ks_mage', cls: 'mage', slot: 'primary', tags: ['primary', 'projectile', 'status'], params: { tick: 0.12, damageFraction: 0.42, range: 13, width: 0.6, slow: 0.3 },
     name: 'Arc Stream', summary: 'Mage: your arc bolt becomes a continuous beam while you hold the button; it pierces everything and applies your element with every pulse.', cost: 'You move 30% slower while channelling.' },
   { id: 'ks_rogue', cls: 'rogue', slot: 'primary', tags: ['primary', 'projectile', 'crit'], params: { every: 5, knives: 5 },
     name: 'Fan the Hammer', summary: 'Rogue: every 5th bolt also throws a full knife fan.', cost: '' },
@@ -104,6 +104,33 @@ export const KEYSTONE_TUNING = {
    * this fraction of their weight.
    */
   OFF_BUILD_COMMON_WEIGHT: 0.5,
+  /** Draft weight of the hero's class keystone in a keystone draft (a generic keystone weighs 1). */
+  CLASS_WEIGHT: 4,
+  /** After skipping a keystone draft the consolation draft keeps at least this many seconds on the clock. */
+  CONSOLATION_SECONDS: 20,
+} as const;
+
+/**
+ * Hard limits that keep keystone combinations from running away (the simulation enforces every one of them;
+ * shared/test/update5-safety.test.ts checks them).
+ */
+export const KEYSTONE_CAPS = {
+  /** `keystoneProc` events of one hero and keystone: bursts are at least this far apart, at most PROC_BURST events per burst (one tick). */
+  PROC_SECONDS: 0.15, PROC_BURST: 3,
+  /** Blazing Wake: trails of one hero that burn at the same time (the oldest goes out). */
+  TRAILS_PER_HERO: 4,
+  /** Orbiting Blades: one enemy is cut by one hero's blades at most once per this many seconds; blade hit radius. */
+  BLADE_HIT_SECONDS: 0.33, BLADE_HIT_RADIUS: 0.7,
+  /** Chain Lightning: seconds between two bursts of arcs of one hero (arcs never arc again). */
+  CHAIN_SECONDS: 0.3,
+  /** Corpse Bloom: bursts resolved per tick, delay of a burst after the death, bursts that can wait at once. */
+  BLOOMS_PER_TICK: 4, BLOOM_DELAY: 0.15, BLOOM_QUEUE: 48,
+  /** Lasting zones (hallowed ground, smoke, maelstroms; not traps) one hero can have at once: the oldest ends. */
+  ZONES_PER_HERO: 4,
+  /** Sanguine Pact: leeched health is paid out in steps this many seconds apart. */
+  LEECH_SECONDS: 0.5,
+  /** Twin casts waiting to go off per hero. */
+  TWINS_PENDING: 4,
 } as const;
 
 /** Tags of an ordinary boon, derived from its slot, category and element (no table to maintain). */

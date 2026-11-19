@@ -508,7 +508,7 @@ export function stepEnemy(w: World, e: Enemy): void {
       if (e.burnTimer <= SIM.EPS) {
         e.burnTimer += SIM.BURN_TICK_SECONDS;
         const src = w.hero(e.statusBy);
-        rawDamageEnemy(w, e, STATUS.BURN.DPS * e.statusPotency * e.statusPower * (1 + e.statusBonus) * (src ? 1 + src.mods.damage : 1) * SIM.BURN_TICK_SECONDS, e.statusBy, 'ember');
+        rawDamageEnemy(w, e, STATUS.BURN.DPS * e.statusPotency * e.statusPower * (1 + e.statusBonus) * (src ? allDamage(src) : 1) * SIM.BURN_TICK_SECONDS, e.statusBy, 'ember');
         if (e.dead) return;
       }
     }

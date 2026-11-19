@@ -149,6 +149,104 @@ export interface PendingHit {
   launched?: boolean;
   /** Arcane Echo: this is the repeated volley (it does not count towards the next echo). */
   echo?: boolean;
+  /** Twin Cast: the repeat of a secondary (never repeated again, never moves the hero). */
+  twin?: boolean;
+  /** Twin Cast of a lunge: where the original charge started. */
+  ox?: number;
+  oz?: number;
+}
+
+/** Which keystones a hero holds, as flags (mirrors Hero.keystones; see sim/keystones.ts). */
+export interface KeystoneFlags {
+  emberWake: boolean; shockstep: boolean; phaseWalker: boolean; ricochet: boolean; chainLightning: boolean; heavyHitter: boolean;
+  twinCast: boolean; bloodPrice: boolean; orbitBlades: boolean; familiar: boolean; colossus: boolean; corpseBloom: boolean;
+  resonanceEngine: boolean; glassCannon: boolean; sanguine: boolean; momentumEngine: boolean;
+  knight: boolean; barbarian: boolean; mage: boolean; rogue: boolean; templar: boolean; spellblade: boolean; shade: boolean;
+}
+
+/** A burning dash trail (Blazing Wake): the segment a..b. */
+export interface Trail {
+  owner: number;
+  ax: number;
+  az: number;
+  bx: number;
+  bz: number;
+  /** Half width. */
+  r: number;
+  /** Seconds left, and seconds to the next tick of damage. */
+  time: number;
+  timer: number;
+  /** The dash that draws it is still going. */
+  open: boolean;
+}
+
+/** A Corpse Bloom burst that is about to go off. */
+export interface Bloom {
+  x: number;
+  z: number;
+  el: ElementId;
+  potency: number;
+  owner: number;
+  t: number;
+  /** 1 = set off by an ordinary death, n = the n-th link of a chain. */
+  depth: number;
+}
+
+/** Keystone flags plus everything the held keystones keep track of. Reset with the hero; timers also on a new chamber. */
+export interface KeystoneState extends KeystoneFlags {
+  /** Multiplier on all damage dealt (Glass Cannon) and on the hero's areas (Colossus). */
+  damageMul: number;
+  area: number;
+  /** Mean damage of the primary chain before Titan Grip (blades and the familiar scale with it). */
+  primaryBase: number;
+  /** A real dash (not a lunge or a leap) is under way; the trail it is drawing. */
+  dashing: boolean;
+  trail: Trail | null;
+  /** Phase Walker: seconds left, the guaranteed crit is still armed, the tick it was spent in, already triggered by this dash. */
+  phaseTime: number;
+  phaseCrit: boolean;
+  phaseTick: number;
+  phaseDone: boolean;
+  /** Veil of Knives: seconds left, the bonus hit is still armed, the tick it was spent in. */
+  veilTime: number;
+  veilHit: boolean;
+  veilTick: number;
+  /** Ricochet: melee swings since the last thrown blade. Fan the Hammer: bolts since the last fan. */
+  swings: number;
+  bolts: number;
+  chainCd: number;
+  /** Orbiting Blades: tick at which each enemy (by id) may be cut again. */
+  bladeAt: Map<number, number>;
+  familiarCd: number;
+  /** Bloodrush stacks and seconds until they all expire. */
+  stacks: number;
+  stackTime: number;
+  /** Sanguine Pact: damage leeched but not paid out yet, seconds to the next payout, the overheal shield. */
+  leech: number;
+  leechTimer: number;
+  overheal: number;
+  /** Shieldburst: the most the current temporary shield / barrier has held (0 = none up). */
+  shieldPeak: number;
+  barrierPeak: number;
+  /** Arc Stream: seconds the hero still counts as channelling. */
+  channel: number;
+  /** Twin Cast of a spin (whirlwind, rune ward). */
+  spinTwin: SpinState | null;
+  /** Blood Price: seconds the ordinary cooldown of the last cast would still be running (telemetry of extra casts). */
+  priceCd: number;
+  /** keystoneProc rate limit: tick of the last burst and events in it, per keystone id. */
+  procTick: Map<string, number>;
+  procCount: Map<string, number>;
+  /** Abilities the class keystones fall back on (the class's standard secondary, tuned): fan, whirl zone, hallowed ground, stream. */
+  fanDef: AbilityDef | null;
+  whirlDef: AbilityDef | null;
+  groundDef: AbilityDef | null;
+  streamDef: AbilityDef | null;
+  /** Telemetry (balance soaks): damage dealt by each keystone, secondary casts and those Blood Price made possible. */
+  dealt: Record<string, number>;
+  casts: number;
+  extraCasts: number;
+  secondaryDealt: number;
 }
 
 export interface SpinState {
@@ -224,6 +322,11 @@ export interface Hero {
   overloadIndex: number;
 
   boons: BoonStack[];
+  /** Keystones held, in the order taken (data/keystones.ts), and their state. */
+  keystones: string[];
+  ks: KeystoneState;
+  /** The current draft offers keystones (ids in `draft`); with full slots a pick must name the one to give up. */
+  draftKeystone: boolean;
   stats: BoonStats;
   lastStandUsed: boolean;
   oathbondTime: number;
@@ -316,6 +419,8 @@ export interface DraftOptions {
   guaranteeInfusion: boolean;
   /** Attunement draft: infusions only. */
   infusionsOnly?: boolean;
+  /** Consolation of a skipped keystone draft: every offer is rare or better (commons only fill up if nothing else is left). */
+  rareOnly?: boolean;
 }
 
 export interface BossState {
@@ -477,6 +582,8 @@ export interface Zone {
   /** Traps: seconds until armed. */
   arm: number;
   dead: boolean;
+  /** Walking Sanctum: the zone's centre is its owner. */
+  follow: boolean;
 }
 
 /** A delayed hostile explosion (volatile affix). */
@@ -524,6 +631,12 @@ export interface Projectile {
   only: number;
   /** Hero projectiles: damage multiplier bonus decided at release (spellweave). */
   bonus: number;
+  /** Ricochet: bounces left. */
+  bounces: number;
+  /** Keystone that made this projectile (damage telemetry), or null. */
+  ks: string | null;
+  /** Not a hit of the hero's own ability (the familiar's bolt): triggers no other keystone. */
+  aux: boolean;
 }
 
 export const emptyInput = (): InputCmd => ({ seq: 0, moveX: 0, moveZ: 0, aim: 0, aimDist: 0, buttons: 0 });

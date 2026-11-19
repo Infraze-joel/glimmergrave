@@ -71,25 +71,25 @@ const look = (color: number, style = 0, head = true, cape = true): Look => ({ co
 function roster(): RosterEntry[] {
   return [
     {
-      slot: 0, name: 'Aldric', cls: 'knight', look: look(2, 1), mastery: 7, art: 1, relics: 1, talents: 1, ready: true, connected: true, host: true,
+      slot: 0, name: 'Aldric', cls: 'knight', look: look(2, 1), mastery: 7, art: 1, relics: 1, talents: 1, ready: true, connected: true, host: true, keystones: [],
       boons: [
         { id: 'infuse_ember_primary', level: 1 }, { id: 'keen_edge', level: 2 }, { id: 'barrier', level: 1 },
         { id: 'amplifier', level: 1 }, { id: 'spare_step', level: 1 }, { id: 'kindred_flame', level: 1 },
       ],
     },
     {
-      slot: 1, name: 'Brunhild', cls: 'templar', look: look(0), mastery: 23, art: 0, relics: 2, talents: 3, ready: true, connected: true, host: false,
+      slot: 1, name: 'Brunhild', cls: 'templar', look: look(0), mastery: 23, art: 0, relics: 2, talents: 3, ready: true, connected: true, host: false, keystones: [],
       boons: [{ id: 'infuse_storm_secondary', level: 1 }, { id: 'heavy_hand', level: 3 }, { id: 'iron_heart', level: 2 }],
     },
     {
-      slot: 2, name: 'Mirelle', cls: 'spellblade', look: look(5, 2, true, false), mastery: 3, art: 0, relics: 0, talents: 0, ready: false, connected: true, host: false,
+      slot: 2, name: 'Mirelle', cls: 'spellblade', look: look(5, 2, true, false), mastery: 3, art: 0, relics: 0, talents: 0, ready: false, connected: true, host: false, keystones: [],
       boons: [
         { id: 'infuse_rime_primary', level: 2 }, { id: 'deep_frost', level: 1 }, { id: 'echo', level: 1 },
         { id: 'quick_wits', level: 2 },
       ],
     },
     {
-      slot: 3, name: 'Schattenklinge99', cls: 'shade', look: look(4, 1, false), mastery: 112, art: 1, relics: 3, talents: 1, ready: true, connected: false, host: false,
+      slot: 3, name: 'Schattenklinge99', cls: 'shade', look: look(4, 1, false), mastery: 112, art: 1, relics: 3, talents: 1, ready: true, connected: false, host: false, keystones: [],
       boons: [{ id: 'deadeye', level: 1 }, { id: 'fleet_foot', level: 2 }],
     },
   ];

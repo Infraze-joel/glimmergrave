@@ -11,8 +11,10 @@ import { RELIC_BY_ID, rankScale } from '../data/relics.ts';
 import { sanitizeLoadout } from '../protocol.ts';
 import type { ClassId, ElementId } from '../types.ts';
 import { boonValue, computeStats } from './boons.ts';
+import { KP, setKeystoneFlags } from './ksState.ts';
 import { metaMods } from './meta.ts';
-import type { BoonStats, Hero, HeroAbilities, HeroBuild, RelicFlags, TalentFlags } from './state.ts';
+import type { BoonStats, Hero, HeroAbilities, HeroBuild, KeystoneFlags, RelicFlags, TalentFlags } from './state.ts';
+import { KS } from './tuning.ts';
 
 /** Highest useful mastery for tools and tests: every talent tier and the art are unlocked. */
 export const MAX_BUILD_MASTERY = 10;
@@ -81,8 +83,13 @@ const AREA_FIELD: Partial<Record<AbilityDef['shape'], 'range' | 'radius'>> = {
   arc: 'range', circle: 'radius', spin: 'radius', leap: 'radius', zone: 'radius', trap: 'radius',
 };
 
-/** One ability after the hero's class boons for `slot` and the `area` mod. */
-function tuneAbility(base: AbilityDef, cls: ClassDef, slot: 'primary' | 'secondary' | 'ultimate', h: Pick<Hero, 'boons'>, area: number): AbilityDef {
+/**
+ * One ability after the hero's class boons for `slot`, the `area` mod and the keystones that reshape abilities:
+ *  Titan Grip  – primaries: more damage, knockback, wider (arcs: angle and a little reach; projectiles: radius)
+ *  Maelstrom   – a spin secondary lasts longer, does not slow the barbarian and drags instead of pushing
+ *  Walking Sanctum – a healing zone around the templar lasts longer and follows him (special `follow`)
+ */
+function tuneAbility(base: AbilityDef, cls: ClassDef, slot: 'primary' | 'secondary' | 'ultimate', h: Pick<Hero, 'boons'>, area: number, ks?: KeystoneFlags): AbilityDef {
   const def: AbilityDef = { ...base };
   for (const stack of h.boons) {
     const boon = BOON_BY_ID.get(stack.id);
@@ -100,15 +107,59 @@ function tuneAbility(base: AbilityDef, cls: ClassDef, slot: 'primary' | 'seconda
   }
   const areaField = AREA_FIELD[def.shape];
   if (areaField && area > 0) def[areaField] *= 1 + area;
+  if (!ks) return def;
+  if (slot === 'primary' && ks.heavyHitter) {
+    def.damage *= 1 + KP.heavy.damage;
+    def.knockback += KP.heavy.knockback;
+    if (def.shape === 'arc') {
+      def.arc = Math.min(KS.FULL_CIRCLE_DEG, def.arc * (1 + KP.heavy.area));
+      def.range *= 1 + KS.HEAVY_REACH;
+    } else {
+      def.radius *= 1 + KP.heavy.area;
+    }
+  }
+  if (slot === 'secondary' && ks.barbarian && def.shape === 'spin') {
+    def.duration *= 1 + KP.barbarian.duration;
+    def.lock *= 1 + KP.barbarian.duration;
+    def.moveMul = KP.barbarian.moveMul;
+    def.knockback = 0;
+    def.special = 'maelstrom';
+  }
+  if (slot === 'secondary' && ks.templar && def.shape === 'zone' && def.heal > 0 && def.range === 0) {
+    def.duration *= 1 + KP.templar.duration;
+    def.special = 'follow';
+  }
   return def;
 }
 
-export function buildAbilities(cls: ClassDef, art: number, h: Pick<Hero, 'boons'>, area: number): HeroAbilities {
+export function buildAbilities(cls: ClassDef, art: number, h: Pick<Hero, 'boons'>, area: number, ks?: KeystoneFlags): HeroAbilities {
   return {
-    primary: cls.primary.map((a) => tuneAbility(a, cls, 'primary', h, area)),
-    secondary: tuneAbility(secondaryOf(cls, art), cls, 'secondary', h, area),
-    ultimate: tuneAbility(cls.ultimate, cls, 'ultimate', h, area),
+    primary: cls.primary.map((a) => tuneAbility(a, cls, 'primary', h, area, ks)),
+    secondary: tuneAbility(secondaryOf(cls, art), cls, 'secondary', h, area, ks),
+    ultimate: tuneAbility(cls.ultimate, cls, 'ultimate', h, area, ks),
   };
+}
+
+/**
+ * The abilities class keystones fall back on, whatever art is equipped: the rogue's knife fan (Fan the Hammer),
+ * the barbarian's whirlwind as a stationary zone (Maelstrom after a Skullsplitter), the templar's hallowed ground
+ * (Walking Sanctum after a Judgement) and the mage's stream (Arc Stream), all with the hero's class boons.
+ */
+function keystoneAbilities(h: Hero, area: number): void {
+  const ks = h.ks;
+  const cls = h.def;
+  const standard = ks.rogue || ks.barbarian || ks.templar ? tuneAbility(cls.secondary, cls, 'secondary', h, area, ks) : null;
+  ks.fanDef = ks.rogue ? standard : null;
+  ks.groundDef = ks.templar ? standard : null;
+  ks.whirlDef = ks.barbarian && standard ? { ...standard, id: 'ks_barbarian', shape: 'zone', range: 0, selfShield: 0 } : null;
+  const bolt = h.abil.primary[0];
+  ks.streamDef = ks.mage && bolt ? {
+    ...bolt, shape: 'beam', damage: bolt.damage * KP.mage.damageFraction, range: KP.mage.range,
+    radius: (KP.mage.width / 2) * (ks.heavyHitter ? 1 + KP.heavy.area : 1) * ks.area, cooldown: KP.mage.tick, knockback: bolt.knockback * KS.STREAM_KNOCKBACK,
+  } : null;
+  let sum = 0;
+  for (const def of h.abil.primary) sum += def.damage;
+  ks.primaryBase = h.abil.primary.length > 0 ? sum / h.abil.primary.length / (ks.heavyHitter ? 1 + KP.heavy.damage : 1) : 0;
 }
 
 /** Would this class boon change anything on the abilities the hero has equipped? */
@@ -158,8 +209,13 @@ export function refreshHero(h: Hero): { id: string; tier: number }[] {
   });
   h.setSpread = spread;
   h.mods = capMods(mods);
-  h.abil = buildAbilities(h.def, h.build.art, h, h.mods.area);
-  h.maxHp = h.def.maxHp + h.mods.maxHp + stats.bonusHp;
+  // Keystones: Colossus enlarges every area on top of the capped `area` mod; Glass Cannon halves the health pool.
+  setKeystoneFlags(h.ks, h.keystones);
+  const area = (1 + h.mods.area) * h.ks.area - 1;
+  h.abil = buildAbilities(h.def, h.build.art, h, area, h.ks);
+  keystoneAbilities(h, area);
+  const hp = h.def.maxHp + h.mods.maxHp + stats.bonusHp + (h.ks.colossus ? KP.colossus.hp : 0);
+  h.maxHp = h.ks.glassCannon ? Math.max(1, Math.round(hp * KP.glass.hp)) : hp;
   return raised;
 }
 

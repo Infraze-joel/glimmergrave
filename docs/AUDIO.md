@@ -176,6 +176,14 @@ The same record ships with the files as `client/public/assets/audio/credits.json
 | `hit.dull.2.mp3` | Kenney Impact Sounds | `addons/kenney impact sounds/impact_plate_light_002.ogg` | `999dd16848` |
 | `zap.fall.1.mp3` | Kenney Digital Audio | `addons/kenney digital audio/high_down.ogg` | `185a77e7c6` |
 | `tex.spin.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/engine_circular_000.ogg` | `c094967fe9` |
+| `zap.rise.1.mp3` | Kenney Digital Audio | `addons/kenney digital audio/zap_three_tone_up.ogg` | `185a77e7c6` |
+| `zap.two.1.mp3` | Kenney Digital Audio | `addons/kenney digital audio/zap_two_tone.ogg` | `185a77e7c6` |
+| `zap.two.2.mp3` | Kenney Digital Audio | `addons/kenney digital audio/zap_two_tone_2.ogg` | `185a77e7c6` |
+| `pew.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/laser_retro_000.ogg` | `c094967fe9` |
+| `pew.2.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/laser_retro_002.ogg` | `c094967fe9` |
+| `tex.hum.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/space_engine_small_000.ogg` | `c094967fe9` |
+| `question.1.mp3` | Kenney Interface Sounds | `addons/kenney_interface_sounds/question_001.wav` | `4596a49eaf` |
+| `question.2.mp3` | Kenney Interface Sounds | `addons/kenney_interface_sounds/question_003.wav` | `4596a49eaf` |
 | `door.open.1.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/door_open_1.ogg` | `22eb79bb84` |
 | `door.open.2.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/door_open_2.ogg` | `22eb79bb84` |
 | `door.close.1.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/door_close_4.ogg` | `22eb79bb84` |
