@@ -331,6 +331,8 @@ export interface RosterEntry {
   boons: BoonStack[];
   /** Keystones held, in the order taken (data/keystones.ts; at most KEYSTONE_TUNING.MAX_HELD). */
   keystones: string[];
+  /** RunState.chambersCleared when each keystone in `keystones` was taken (same order). */
+  keystoneAt: number[];
 }
 
 export const RUN_PHASES = ['lobby', 'combat', 'draft', 'doors', 'victory', 'defeat'] as const;
@@ -355,6 +357,8 @@ export interface PlayerRunStats {
   bosses: number;
   /** Ultimates used. */
   ultimates: number;
+  /** Damage dealt in each chamber entered so far, in order across depths (the last entry is the current chamber). */
+  chamberDamage: number[];
 }
 
 /** What one hero takes home when the run ends (computed by the server). */

@@ -509,7 +509,7 @@ void main() {
     col = mix( col, vec3( 1.0 ), pow( w, 6.0 ) * vMisc.z * ( 1.0 - y ) );
   } else if ( mode == 11 ) {        // FIGURE
     vec2 q = vQuad;
-    float head = 1.0 - smoothstep( 0.15, 0.2, length( ( q - vec2( 0.0, 0.74 ) ) * vec2( 1.9, 1.0 ) ) );
+    float head = 1.0 - smoothstep( 0.3, 0.36, length( ( q - vec2( 0.0, 0.76 ) ) * vec2( 1.0, 1.9 ) ) );
     float tw = mix( 0.24, 0.52, smoothstep( -0.1, 0.48, q.y ) );
     float torso = ( 1.0 - smoothstep( tw - 0.06, tw, abs( q.x ) ) ) * step( -0.12, q.y ) * ( 1.0 - smoothstep( 0.5, 0.58, q.y ) );
     float legs = ( 1.0 - smoothstep( 0.1, 0.16, abs( abs( q.x ) - 0.2 ) ) ) * step( -0.98, q.y ) * step( q.y, -0.1 );

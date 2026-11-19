@@ -238,6 +238,11 @@ export class Vfx {
     }
   }
 
+  /** Turns the effects of the current owner down by `f` until the next owner() (a Twin Cast echo is the weaker copy). */
+  soften(f: number): void {
+    this.light *= f; this.fill *= f; this.countMul *= f;
+  }
+
   /** Stochastic rounding of a particle count under the current owner's share (0 = none at all). */
   private share(count: number): number {
     const f = count * this.countMul;

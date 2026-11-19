@@ -54,7 +54,7 @@ describe('loadouts of update 3', () => {
     expect(roster.players.map((p) => [p.cls, p.mastery, p.art])).toEqual([
       ['templar', 7, 1], ['shade', 1, 0], ['mage', MASTERY.MAX_LEVEL, 0], ['spellblade', 1, 0],
     ]);
-    expect(Object.keys(roster.players[0]!).sort()).toEqual(['art', 'boons', 'cls', 'connected', 'host', 'look', 'mastery', 'name', 'ready', 'relics', 'slot', 'talents']);
+    expect(Object.keys(roster.players[0]!).sort()).toEqual(['art', 'boons', 'cls', 'connected', 'host', 'keystones', 'look', 'mastery', 'name', 'ready', 'relics', 'slot', 'talents']);
     // Counts of relics and talents are shown since polish 1; which ones they are still never leaves the server.
     expect(roster.players.map((p) => [p.relics, p.talents])).toEqual([[1, 2], [0, 0], [0, 0], [0, 0]]);
     expect(host.raw.join('')).not.toMatch(/talents":\[|paragon|relics":\[|bell/);

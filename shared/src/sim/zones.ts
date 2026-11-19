@@ -3,7 +3,9 @@ import { TICK_DT, WORLD } from '../constants.ts';
 import { TRAP, ULTIMATE, type AbilityDef } from '../data/classes.ts';
 import type { AbilitySlot } from '../types.ts';
 import { damageHero, healHero, isTargetable, reviveHero, strikeEnemy } from './combat.ts';
+import { KEYSTONE_CAPS } from '../data/keystones.ts';
 import { blastEnemies } from './horde.ts';
+import { maelstromPull } from './keystones.ts';
 import type { Hero, PendingBlast, Zone } from './state.ts';
 import { SIM } from './tuning.ts';
 import type { World } from './world.ts';
@@ -18,7 +20,21 @@ function endZone(w: World, zone: Zone, sprung: boolean): void {
  * Creates the zone of `def` for hero `h`. The first pulse comes on its first tick, the following ones every `tick`
  * seconds (duration / tick in all). `arm` > 0 makes it a trap that waits that long before it can go off. */
 export function spawnZone(w: World, h: Hero, def: AbilityDef, slot: AbilitySlot, x: number, z: number, arm: number): Zone {
-  const zone: Zone = { id: w.nextZoneId++, def, owner: h.slot, slot, x, z, r: def.radius, time: def.duration + arm, timer: TICK_DT, arm, dead: false };
+  const zone: Zone = {
+    id: w.nextZoneId++, def, owner: h.slot, slot, x, z, r: def.radius, time: def.duration + arm, timer: TICK_DT, arm, dead: false,
+    follow: def.special === 'follow',
+  };
+  if (def.shape !== 'trap') {
+    // A hero keeps at most ZONES_PER_HERO lasting zones (Blood Price could stack them without end): the oldest ends.
+    let own = 0;
+    for (const o of w.zones) if (!o.dead && o.owner === h.slot && o.def.shape !== 'trap') own++;
+    for (const o of w.zones) {
+      if (own < KEYSTONE_CAPS.ZONES_PER_HERO) break;
+      if (o.dead || o.owner !== h.slot || o.def.shape === 'trap') continue;
+      endZone(w, o, false);
+      own--;
+    }
+  }
   if (w.nextZoneId > 0xffff) w.nextZoneId = 1;
   if (def.shape === 'trap' && def.special === 'max3') {
     // Only TRAP.MAX_ACTIVE traps of one hero lie at once: the oldest gives way.
@@ -55,6 +71,7 @@ export function sanctuaryHolds(w: World, h: Hero): boolean {
 
 function pulse(w: World, zone: Zone, owner: Hero): void {
   const def = zone.def;
+  if (def.special === 'maelstrom') maelstromPull(w, zone.x, zone.z, zone.r, Math.max(def.tick, TICK_DT));
   if (def.damage > 0) {
     for (const e of w.enemies) {
       if (!isTargetable(e) || !inside(zone, e.x, e.z, e.radius)) continue;
@@ -63,7 +80,8 @@ function pulse(w: World, zone: Zone, owner: Hero): void {
   }
   if (def.heal > 0) {
     const amount = def.heal * (zone.slot === 'ultimate' ? 1 + owner.stats.crescendo : 1);
-    for (const ally of w.heroes) if (inside(zone, ally.body.x, ally.body.z, 0)) healHero(w, ally, amount);
+    // Hallowed ground: a hero with the Sanguine Pact gets nothing from it (not even from their own).
+    for (const ally of w.heroes) if (inside(zone, ally.body.x, ally.body.z, 0)) healHero(w, ally, amount, true);
   }
 }
 
@@ -100,6 +118,10 @@ export function stepZones(w: World): void {
     const owner = w.hero(zone.owner);
     if (!owner) { endZone(w, zone, false); continue; }
     zone.time -= dt;
+    if (zone.follow && owner.state === 'alive') {
+      zone.x = owner.body.x;
+      zone.z = owner.body.z;
+    }
     if (zone.def.shape === 'trap') {
       stepTrap(w, zone, owner);
     } else {
@@ -136,6 +158,8 @@ export function clearZones(w: World): void {
   for (const zone of w.zones) endZone(w, zone, false);
   w.zones.length = 0;
   w.blasts.length = 0;
+  w.trails.length = 0;
+  w.blooms.length = 0;
 }
 
 /**

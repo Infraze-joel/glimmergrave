@@ -187,8 +187,8 @@ describe('snapshot codec', () => {
 });
 
 describe('update 3 on the wire', () => {
-  it('speaks protocol version 3', () => {
-    expect(NET.PROTOCOL_VERSION).toBe(3);
+  it('speaks protocol version 4', () => {
+    expect(NET.PROTOCOL_VERSION).toBe(4);
   });
 
   it('the ultimate button survives the input codec next to the others', () => {

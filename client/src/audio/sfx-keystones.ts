@@ -23,21 +23,21 @@ type M = Mix & { pri: number };
 const LV = {
   /** Allies' keystone sounds relative to the own hero's (on top of the party trim of `who`). */
   ally: 0.55,
-  moment: 0.92, momentAlly: 0.5, replaced: 0.8,
-  draftOpen: 0.8, fits: 0.7,
-  weight: 0.8, sparkle: 0.55,
+  moment: 0.56, momentAlly: 0.5, replaced: 0.8,
+  draftOpen: 0.58, fits: 0.7,
+  weight: 0.5, sparkle: 0.75,
   brittle: 0.9, titanSwing: 0.9,
-  whirr: 0.05, stream: 0.2, streamAlly: 0.07, sanctum: 0.5, rush: 0.6,
+  whirr: 0.05, stream: 0.16, streamAlly: 0.06, sanctum: 0.24, rush: 0.6,
   /** The familiar's shots when they are only derived from a timer: a hint, not a report. */
   derived: 0.5,
 } as const;
 
 /** Level of each signature (1 = as designed), balanced against offline renders: see docs/AUDIO.md section 11. */
 const SIG_LEVEL: Record<string, number> = {
-  ember_wake: 1, shockstep: 0.8, phase_walker: 1, ricochet: 0.8, chain_lightning: 0.75, heavy_hitter: 0.85,
-  twin_cast: 1, blood_price: 1, orbit_blades: 0.6, familiar: 0.7, colossus: 0.9, corpse_bloom: 0.85,
-  resonance_engine: 0.9, glass_cannon: 0.7, sanguine: 0.9, momentum_engine: 0.9, ks_knight: 0.85, ks_barbarian: 0.9,
-  ks_mage: 0.7, ks_rogue: 0.9, ks_templar: 0.9, ks_spellblade: 0.9, ks_shade: 1,
+  ember_wake: 0.43, shockstep: 0.42, phase_walker: 1, ricochet: 0.8, chain_lightning: 0.75, heavy_hitter: 0.55,
+  twin_cast: 1, blood_price: 1, orbit_blades: 0.6, familiar: 0.7, colossus: 0.48, corpse_bloom: 0.6,
+  resonance_engine: 0.9, glass_cannon: 0.75, sanguine: 0.45, momentum_engine: 0.9, ks_knight: 0.85, ks_barbarian: 0.7,
+  ks_mage: 0.7, ks_rogue: 1.7, ks_templar: 0.6, ks_spellblade: 1.7, ks_shade: 0.6,
 };
 
 export const KEYSTONE_SFX = {
@@ -53,6 +53,12 @@ export const KEYSTONE_SFX = {
   /** Corpse blooms closer together than this are one chain: each burst sounds a step higher. */
   CHAIN_WINDOW: 1.2,
   CHAIN_MAX: 8,
+  /** Chain lightning: events this close together are arcs of one burst; each sounds ARC_GAP after the last; at most ARCS_MAX. */
+  ARC_TICK: 0.05,
+  ARC_GAP: 0.048,
+  ARCS_MAX: 4,
+  /** Titan Grip: one swing per hero in this time (the local press and the sim's report are the same swing). */
+  SWING_GAP: 0.3,
   /** The mage's stream keeps sounding this long after the last cast / pulse that fed it (s). */
   STREAM_KEEP: 0.34,
   STREAM_FADE: 0.05,
@@ -101,6 +107,9 @@ export function createKeystoneSfx(k: SfxKit) {
   const ctx = k.g.ctx;
   const lastProc = new Map<string, number>();
   const bloom = { n: 0, last: -Infinity };
+  /** Arcs of the chain-lightning burst in progress, per hero key. */
+  const arcs = new Map<string, { at: number; n: number }>();
+  const lastSwing = new Map<boolean, number>();
   const rush: { mix: Mix | null; until: number; stacks: number } = { mix: null, until: -Infinity, stacks: 0 };
   let whirr: Loop | null = null;
   const streams = new Map<string, Loop>();
@@ -217,7 +226,8 @@ export function createKeystoneSfx(k: SfxKit) {
     // the beam "sings": a slow wobble of the band
     loopOsc(loop, 'sine', 3.1).connect(gainOf(260)).connect(body.frequency);
     mixIn.connect(loop.out);
-    if (own) mixIn.connect(gainOf(0.25)).connect(k.g.reverbIn);
+    // the room hears the beam through the loop's own level, so it fades with it
+    if (own) loop.out.connect(gainOf(0.25)).connect(k.g.reverbIn);
     return loop;
   };
 
@@ -243,8 +253,8 @@ export function createKeystoneSfx(k: SfxKit) {
     /** Shockstep: the dash ends in a wave of pressure — a dull boom and a ring of air rolling outwards. */
     shockstep({ m, t, own, size }) {
       k.tone(m.out, t, { freq: 96 / size, freqEnd: 30, dur: 0.6, gain: 0.5 });
-      k.noise(m.out, t, { dur: 0.5 * size, gain: 0.4, filter: 'lowpass', freq: 1500, freqEnd: 120, send: 0.4 });
-      m.V('boom', t, 0.6, { variant: 1, rate: 0.85 / size, lpf: 2200, send: 0.4 });
+      k.noise(m.out, t, { dur: 0.5 * size, gain: 0.4, filter: 'lowpass', freq: 800, freqEnd: 90, send: 0.4 });
+      m.V('boom', t, 0.6, { variant: 1, rate: 0.85 / size, lpf: 900, send: 0.4 });
       m.V('hit.sub', t, 0.5);
       k.noise(m.out, t, { dur: 0.01, gain: 0.3, filter: 'lowpass', freq: 900 });
       if (own) m.V('boom.sub', t, 0.4, { rate: 0.9 });
@@ -265,25 +275,25 @@ export function createKeystoneSfx(k: SfxKit) {
     // ---- primary
     /** Ricochet: the classic — a struck edge whose note bends up and away; each bounce a step higher. */
     ricochet({ m, t, n }) {
-      const step = Math.max(0, Math.min(5, (n ?? 1) - 1));
-      const f = 1500 * Math.pow(2, step / 6);
-      k.tone(m.out, t, { freq: f, freqEnd: f * 2.3, dur: 0.16, gain: 0.3, send: 0.4 });
+      // the sim reports the bounces LEFT: the first bounce is the lowest, the last the highest
+      const bounces = KEYSTONE_BY_ID.get('ricochet')?.params.bounces ?? 2;
+      const step = Math.max(0, Math.min(5, bounces - (n ?? bounces)));
+      const f = 2300 * Math.pow(2, step / 6);
+      k.tone(m.out, t, { freq: f, freqEnd: f * 2.3, dur: 0.16, gain: 0.3, send: 0.15 });
       k.tone(m.out, t, { type: 'triangle', freq: f * 1.5, freqEnd: f * 3.1, dur: 0.1, gain: 0.1 });
       k.noise(m.out, t, { dur: 0.012, gain: 0.4, filter: 'bandpass', freq: 3600, q: 2 });
-      m.V('hit.ring', t, 0.5, { rate: 1.3 + step * 0.15, dur: 0.14, send: 0.4 });
+      m.V('hit.ring', t, 0.5, { rate: 1.7 + step * 0.15, dur: 0.1, hpf: 2000, send: 0.15 });
       m.V('pew', t, 0.3, { rate: 1.2 + step * 0.12, reverse: true, fit: 0.14 });
     },
-    /** Chain Lightning: one arc per target, a quick stutter of zaps jumping away. */
+    /** Chain Lightning: one arc per event (`n` = which arc of the burst, 1-based) — together a quick stutter of zaps jumping away. */
     chain_lightning({ m, t, own, n }) {
-      const arcs = Math.max(1, Math.min(4, n ?? KEYSTONE_BY_ID.get('chain_lightning')?.params.targets ?? 3));
-      for (let i = 0; i < arcs; i++) {
-        const at = t + i * 0.048;
-        k.tone(m.out, at, { type: 'sawtooth', freq: 3400 * k.jitter(0.12), freqEnd: 420, dur: 0.045, gain: 0.3, lpf: 7000 });
-        k.noise(m.out, at, { dur: 0.03, gain: 0.3, filter: 'bandpass', freq: 5200, q: 2.5, pan: i % 2 === 0 ? -0.4 : 0.4 });
-        m.V('spark', at, 0.6, { rate: rnd(1, 1.7), jitter: 0, pan: i % 2 === 0 ? -0.4 : 0.4 });
-      }
-      k.tone(m.out, t, { type: 'square', freq: 110, dur: 0.05 + arcs * 0.045, gain: 0.16, lpf: 1600, am: 0.9, amHz: 62 });
-      if (own) m.V('zap.two', t, 0.3, { rate: 1.5, dur: 0.2, release: 0.1, hpf: 900, send: 0.3 });
+      const i = Math.max(1, n ?? 1) - 1;
+      const pan = i % 2 === 0 ? -0.4 : 0.4;
+      k.tone(m.out, t, { type: 'sawtooth', freq: 3400 * k.jitter(0.12) * (1 + i * 0.12), freqEnd: 420, dur: 0.045, gain: 0.3, lpf: 7000 });
+      k.noise(m.out, t, { dur: 0.03, gain: 0.3, filter: 'bandpass', freq: 5200, q: 2.5, pan });
+      m.V('spark', t, 0.6, { rate: rnd(1, 1.7), jitter: 0, pan });
+      k.tone(m.out, t, { type: 'square', freq: 110, dur: 0.07, gain: 0.16, lpf: 1600, am: 0.9, amHz: 62 });
+      if (own && i === 0) m.V('zap.two', t, 0.3, { rate: 1.5, dur: 0.2, release: 0.1, hpf: 900, send: 0.3 });
     },
     /** Titan Grip: the blow lands — iron on bone, then the floor answers a moment later. */
     heavy_hitter({ m, t, own }) {
@@ -302,11 +312,11 @@ export function createKeystoneSfx(k: SfxKit) {
     twin_cast({ m, t, own }) {
       m.V('glass.mid', t, 0.16, { reverse: true, fit: 0.1, rate: 1, send: 0.5 });
       for (const [i, gain] of [1, 0.6].entries()) {
-        const at = t + 0.1 + i * 0.13;
-        const n = NOTE.D5 + i * 12;
-        k.tone(m.out, at, { type: 'triangle', freq: hz(n), dur: 0.3, gain: 0.26 * gain, lpf: 4200, lpfEnd: 900, send: 0.3 + i * 0.4 });
+        const at = t + 0.1 + i * 0.17;
+        const n = NOTE.D4 + i * 12;
+        k.tone(m.out, at, { type: 'triangle', freq: hz(n), dur: 0.3, gain: 0.3 * gain, lpf: 2400, lpfEnd: 700, send: 0.3 + i * 0.4 });
         k.tone(m.out, at, { type: 'square', freq: hz(n), dur: 0.08, gain: 0.07 * gain, lpf: 2600 });
-        m.V('pluck', at, 0.5 * gain, { rate: 1 + i, jitter: 0, send: 0.3 + i * 0.4 });
+        m.V('pluck', at, 0.5 * gain, { rate: 0.5 + i * 0.5, jitter: 0, lpf: 3000, send: 0.3 + i * 0.4 });
       }
       if (own) m.V('zap.two', t, 0.2, { at: 0.1, rate: 0.8, dur: 0.3, release: 0.2, lpf: 3000, send: 0.5 });
     },
@@ -332,9 +342,9 @@ export function createKeystoneSfx(k: SfxKit) {
     },
     /** Glimmer Familiar: the wisp spits a mote — a small falling chirp with a bell in it. */
     familiar({ m, t, own }) {
-      k.tone(m.out, t, { type: 'triangle', freq: 1560, freqEnd: 720, dur: 0.1, gain: 0.3 });
-      k.tone(m.out, t, { freq: 2340, freqEnd: 1100, dur: 0.07, gain: 0.1 });
-      m.V('pew', t, 0.4, { rate: 1.5, dur: 0.1, lpf: 5000 });
+      k.tone(m.out, t, { type: 'triangle', freq: 2600, freqEnd: 1300, dur: 0.1, gain: 0.3 });
+      k.tone(m.out, t, { freq: 3900, freqEnd: 1950, dur: 0.07, gain: 0.12 });
+      m.V('pew', t, 0.4, { rate: 1.8, dur: 0.1, hpf: 1200 });
       if (own) k.tone(m.out, t + 0.02, { freq: hz(NOTE.A6), dur: 0.3, gain: 0.035, send: 0.6 });
     },
     /** Colossus: a giant sets its weight down — the lowest thing in the game, stone settling after it. */
@@ -350,19 +360,19 @@ export function createKeystoneSfx(k: SfxKit) {
     /** Corpse Bloom: the body bursts — a wet pop, then a bloom of three notes; every burst of a chain a step higher. */
     corpse_bloom({ m, t, own, n }) {
       const step = MINOR[Math.max(0, Math.min(MINOR.length - 1, (n ?? 1) - 1))];
-      const root = NOTE.D4 + step;
-      k.noise(m.out, t, { dur: 0.1, gain: 0.5, filter: 'bandpass', freq: 520, freqEnd: 1900, q: 1.6 });
-      k.tone(m.out, t, { freq: 190, freqEnd: 90, dur: 0.1, gain: 0.3 });
-      m.V('slime', t, 0.4, { rate: 1.3, dur: 0.16, release: 0.1 });
+      const root = NOTE.D3 + step;
+      k.noise(m.out, t, { dur: 0.1, gain: 0.5, filter: 'bandpass', freq: 380, freqEnd: 1100, q: 1.6 });
+      k.tone(m.out, t, { freq: 190, freqEnd: 80, dur: 0.12, gain: 0.4 });
+      m.V('slime', t, 0.4, { rate: 1, dur: 0.16, release: 0.1, lpf: 1200 });
       for (const [i, off] of [0, 7, 12].entries()) {
-        k.tone(m.out, t + 0.04 + i * 0.035, { type: 'triangle', freq: hz(root + off), dur: own ? 0.5 : 0.25, gain: 0.13, lpf: 3200, send: 0.5 });
+        k.tone(m.out, t + 0.04 + i * 0.035, { type: 'triangle', freq: hz(root + off), dur: own ? 0.5 : 0.25, gain: 0.16, lpf: 1500, send: 0.5 });
       }
       if (own) {
-        k.noise(m.out, t + 0.05, { dur: 0.4, gain: 0.1, filter: 'bandpass', freq: 1200, freqEnd: 2600, q: 1.2, attack: 0.1, send: 0.5 });
-        m.V('tex.void', t, 0.8, { at: 0.03, offset: -1, dur: 0.2, attack: 0.05, release: 0.2, rate: 1.4, send: 0.4 });
+        k.noise(m.out, t + 0.05, { dur: 0.4, gain: 0.1, filter: 'bandpass', freq: 500, freqEnd: 1200, q: 1.2, attack: 0.1, send: 0.5 });
+        m.V('tex.void', t, 0.8, { at: 0.03, offset: -1, dur: 0.2, attack: 0.05, release: 0.2, rate: 1, lpf: 900, send: 0.4 });
       }
     },
-    /** Resonance Engine: a dynamo spins up — a motor's rising growl that ends in a struck note (higher the fuller the charge). */
+    /** Resonance Engine: a dynamo spins up — a motor's rising growl that ends in a struck note (`n` = ultimate charge in percent as index.ts passes it: higher the fuller). */
     resonance_engine({ m, t, own, n }) {
       const full = Math.max(0, Math.min(1, (n ?? 0) / 100));
       const top = NOTE.D5 + Math.round(full * 7);
@@ -378,17 +388,18 @@ export function createKeystoneSfx(k: SfxKit) {
     },
     /** Glass Cannon: what it gives — a small cannon's pop with a ring of glass on top. */
     glass_cannon({ m, t, own }) {
-      k.tone(m.out, t, { freq: 150, freqEnd: 60, dur: 0.12, gain: 0.4 });
-      k.noise(m.out, t, { dur: 0.05, gain: 0.3, filter: 'lowpass', freq: 1200 });
-      m.V('glass.light', t, 0.6, { rate: 1.9, send: 0.4 });
-      for (const f of [4186, 5588]) k.tone(m.out, t + 0.01, { freq: f * k.jitter(0.01), dur: own ? 0.4 : 0.18, gain: 0.07, send: 0.5 });
+      k.tone(m.out, t, { freq: 170, freqEnd: 60, dur: 0.14, gain: 0.5 });
+      k.noise(m.out, t, { dur: 0.05, gain: 0.3, filter: 'lowpass', freq: 900 });
+      m.V('hit.tight', t, 0.5, { rate: 1.1 });
+      m.V('glass.light', t, 0.22, { at: 0.07, rate: 1.9, send: 0.4 });
+      for (const f of [4186, 5588]) k.tone(m.out, t + 0.07, { freq: f * k.jitter(0.01), dur: own ? 0.3 : 0.15, gain: 0.025, send: 0.5 });
     },
     /** Sanguine Pact: drinking — a breath drawn in, a warm third, one soft swallow. */
-    sanguine({ m, t, own }) {
-      k.noise(m.out, t, { dur: 0.3, gain: 0.3, filter: 'bandpass', freq: 380, freqEnd: 900, q: 1.6, attack: 0.22 });
-      for (const n of [NOTE.F3, NOTE.A3]) k.tone(m.out, t + 0.06, { type: 'triangle', freq: hz(n), dur: own ? 0.6 : 0.3, gain: 0.16, attack: 0.1, lpf: 1400, send: 0.4 });
+    sanguine({ m, t }) {
+      k.noise(m.out, t, { dur: 0.3, gain: 0.3, filter: 'bandpass', freq: 260, freqEnd: 560, q: 2, attack: 0.22 });
+      for (const n of [NOTE.F3, NOTE.A3]) k.tone(m.out, t + 0.06, { type: 'triangle', freq: hz(n), dur: 0.26, gain: 0.2, attack: 0.1, lpf: 700 });
       k.tone(m.out, t + 0.26, { freq: 300, freqEnd: 150, dur: 0.07, gain: 0.2 });
-      m.V('slime', t, 0.14, { at: 0.24, rate: 1.6, dur: 0.1, lpf: 1800 });
+      m.V('slime', t, 0.14, { at: 0.24, rate: 1.2, dur: 0.1, lpf: 900 });
     },
     /** Bloodrush: a kill feeds it — a drum and a snatched breath, a whole tone higher with every stack (see `rush`). */
     momentum_engine({ m, t, n }) {
@@ -404,11 +415,12 @@ export function createKeystoneSfx(k: SfxKit) {
     /** Shieldburst (knight): the barrier goes off like a bell made of plate — a crack, a ring, and the room shakes. */
     ks_knight({ m, t, own, size }) {
       m.V('hit.plate', t, 0.9, { rate: 0.9 });
-      m.V('glass.heavy', t, 0.6, { rate: 0.9, send: 0.4 });
-      m.V('boom', t, 0.5, { variant: 2, rate: 1 / size, send: 0.4 });
-      k.noise(m.out, t, { dur: 0.012, gain: 0.6, filter: 'highpass', freq: 4000 });
+      m.V('glass.heavy', t, 0.9, { rate: 1.2, send: 0.4 });
+      m.V('hit.clang', t, 0.4, { rate: 1.3, send: 0.4 });
+      m.V('boom', t, 0.2, { variant: 2, rate: 1.2 / size, hpf: 300, send: 0.3 });
+      k.noise(m.out, t, { dur: 0.3, gain: 0.3, filter: 'highpass', freq: 3500, send: 0.4 });
       for (const [n, gain] of [[NOTE.D5, 0.12], [NOTE.A5, 0.09], [NOTE.D6, 0.05]] as const) {
-        k.tone(m.out, t, { type: 'square', freq: hz(n), dur: own ? 0.7 : 0.3, gain, lpf: 3600, lpfEnd: 1200, send: 0.6 });
+        k.tone(m.out, t, { type: 'square', freq: hz(n), dur: own ? 0.7 : 0.3, gain, lpf: 6000, lpfEnd: 2000, send: 0.6 });
       }
       k.tone(m.out, t, { freq: 110, freqEnd: 44, dur: 0.4, gain: 0.34 });
       if (own) m.V('field', t, 0.25, { rate: 1.3, dur: 0.4, release: 0.3, send: 0.5 });
@@ -448,32 +460,32 @@ export function createKeystoneSfx(k: SfxKit) {
     /** Walking Sanctum (templar): the ground comes with you — a soft chime on the fifth over a hummed breath. */
     ks_templar({ m, t, own }) {
       for (const [i, n] of [NOTE.A4, NOTE.E5].entries()) {
-        k.tone(m.out, t + i * 0.09, { type: 'triangle', freq: hz(n), dur: own ? 0.8 : 0.35, gain: 0.16, attack: 0.03, send: 0.7 });
-        k.tone(m.out, t + i * 0.09, { freq: hz(n) * 2, dur: 0.3, gain: 0.03, send: 0.6 });
+        k.tone(m.out, t + i * 0.09, { type: 'triangle', freq: hz(n), dur: own ? 0.8 : 0.4, gain: 0.16, attack: 0.16, send: 0.7 });
+        k.tone(m.out, t + i * 0.09, { freq: hz(n) * 2, dur: 0.4, gain: 0.03, attack: 0.16, send: 0.6 });
       }
-      for (const [freq, q, gain] of [[340, 6, 0.2], [780, 8, 0.1]] as const) k.noise(m.out, t, { dur: 0.6, gain, filter: 'bandpass', freq, q, attack: 0.15, hold: 0.15, send: 0.6 });
-      k.tone(m.out, t, { freq: hz(NOTE.D3), dur: 0.5, gain: 0.1, attack: 0.05 });
-      if (own) m.V('bell', t, 0.12, { variant: 1, rate: TUNED.BELL1_D4 * 1.5, jitter: 0, send: 0.8 });
+      for (const [freq, q, gain] of [[340, 6, 0.2], [780, 8, 0.1]] as const) k.noise(m.out, t, { dur: 0.6, gain, filter: 'bandpass', freq, q, attack: 0.25, hold: 0.15, send: 0.6 });
+      k.tone(m.out, t, { freq: hz(NOTE.D3), dur: 0.5, gain: 0.1, attack: 0.2 });
+      if (own) m.V('bell', t, 0.1, { at: 0.16, variant: 1, rate: TUNED.BELL1_D4 * 1.5, jitter: 0, attack: 0.05, send: 0.8 });
     },
     /** Blade Tempest (spellblade): a wave of edge and air — one per cut, three (rising) for the finisher. */
     ks_spellblade({ m, t, own, n }) {
       const waves = Math.max(1, Math.min(3, n ?? 1));
       for (let i = 0; i < waves; i++) {
         const at = t + i * 0.07;
-        k.whoosh(m.out, at, 900, 4600 + i * 600, 1400, 0.2, 0.26);
-        m.V('swing.draw', at, 0.5, { rate: 1.2 + i * 0.12 });
-        k.tone(m.out, at, { type: 'triangle', freq: hz(NOTE.E5 + i * 2), freqEnd: hz(NOTE.A5 + i * 2), dur: 0.16, gain: 0.08, send: 0.4 });
+        k.whoosh(m.out, at, 500, 2400 + i * 400, 700, 0.22, 0.26);
+        m.V('swing.draw', at, 0.4, { at: 0.04, rate: 0.9 + i * 0.1, lpf: 4500, attack: 0.05 });
+        k.tone(m.out, at, { type: 'triangle', freq: hz(NOTE.E5 + i * 2), freqEnd: hz(NOTE.A5 + i * 2), dur: 0.24, gain: 0.14, attack: 0.09, send: 0.4 });
       }
-      if (own) m.V('arcane', t, 0.14, { variant: 2, rate: 1.4, dur: 0.2, release: 0.15, send: 0.4 });
+      if (own) m.V('arcane', t, 0.14, { at: 0.05, variant: 2, rate: 1.4, dur: 0.2, attack: 0.06, release: 0.15, send: 0.4 });
     },
     /** Veil of Knives (shade): gone — the room's air is drawn in, a dark breath, and a whisper while the veil holds. */
     ks_shade({ m, t, own }) {
       const veil = KEYSTONE_BY_ID.get('ks_shade')?.params.stealth ?? 1.5;
       m.V('glass.mid', t, 0.25, { reverse: true, rate: 0.5, lpf: 1200, send: 0.6 });
-      k.noise(m.out, t, { dur: 0.5, gain: 0.34, filter: 'bandpass', freq: 1400, freqEnd: 220, q: 1.2, attack: 0.3, send: 0.5 });
+      k.noise(m.out, t, { dur: 0.5, gain: 0.34, filter: 'bandpass', freq: 900, freqEnd: 180, q: 1.2, attack: 0.3, send: 0.5 });
       for (const n of [NOTE.D3, NOTE.D3 + 1]) k.tone(m.out, t + 0.1, { freq: hz(n), freqEnd: hz(n) * 0.8, dur: 0.7, gain: 0.2, attack: 0.2 });
       m.V('tex.void', t, 1, { at: 0.1, offset: -1, dur: 0.5, attack: 0.2, release: 0.4, rate: 0.8, lpf: 800, send: 0.4 });
-      if (own) k.noise(m.out, t + 0.4, { dur: veil, gain: 0.06, filter: 'bandpass', freq: 5200, q: 4, attack: 0.3, hold: veil * 0.5, send: 0.5 });
+      if (own) k.noise(m.out, t + 0.4, { dur: veil, gain: 0.05, filter: 'bandpass', freq: 2600, q: 4, attack: 0.3, hold: veil * 0.5, send: 0.5 });
     },
   };
 
@@ -589,8 +601,22 @@ export function createKeystoneSfx(k: SfxKit) {
     keystoneProc(id: string, own: boolean, o: ProcOpts = {}): void {
       const t = k.now();
       const key = `${own ? 'o' : 'a'}:${id}`;
+      if (id === 'momentum_engine' && o.n !== undefined && o.n <= 0) { api.rushEnd(own); return; }
       const gap = (KEYSTONE_SFX.GAP[id] ?? KEYSTONE_SFX.DEFAULT_GAP) * (own ? 1 : KEYSTONE_SFX.ALLY_GAP);
-      if (t - (lastProc.get(key) ?? -Infinity) < gap) {
+      let delay = 0;
+      let arc = 0;
+      if (id === 'chain_lightning') {
+        // the arcs of one burst arrive in the same tick: each sounds a moment after the one before
+        const burst = arcs.get(key);
+        if (burst && t - burst.at < KEYSTONE_SFX.ARC_TICK) {
+          if (burst.n >= KEYSTONE_SFX.ARCS_MAX || (!own && burst.n >= 2)) return;
+          arc = burst.n++;
+          delay = arc * KEYSTONE_SFX.ARC_GAP;
+        } else if (t - (lastProc.get(key) ?? -Infinity) >= gap) {
+          arcs.set(key, { at: t, n: 1 });
+        } else return;
+      }
+      if (arc === 0 && t - (lastProc.get(key) ?? -Infinity) < gap) {
         // the heartbeat still has to follow the stacks even when the accent is swallowed
         if (id === 'momentum_engine' && rushStacks(o.n) !== rush.stacks) rushBeat(own, o.n);
         return;
@@ -610,8 +636,21 @@ export function createKeystoneSfx(k: SfxKit) {
       const m = k.who(own, level);
       // a radius scales the sounds that have a size: 3 m is "as designed"
       const size = o.r !== undefined && o.r > 0 ? Math.max(0.8, Math.min(1.4, Math.sqrt(o.r / 3))) : 1;
-      ((SIGNATURES as Record<string, Signature | undefined>)[id] ?? fallbackSignature(id))({ m, t, own, n, size });
+      if (id === 'chain_lightning') n = arc + 1;
+      ((SIGNATURES as Record<string, Signature | undefined>)[id] ?? fallbackSignature(id))({ m, t: t + delay, own, n, size });
       if (id === 'momentum_engine') rushBeat(own, o.n);
+    },
+    /** Bloodrush ran out (stacks back to 0): the heartbeat stops with a last, slowing beat. */
+    rushEnd(own: boolean): void {
+      const t = k.now();
+      if (!own || rush.until <= t) { rush.stacks = 0; return; }
+      rush.mix?.fade(t, 0.04);
+      rush.mix = null;
+      rush.until = -Infinity;
+      rush.stacks = 0;
+      const m = k.who(true, LV.rush * 0.6);
+      k.tone(m.out, t + 0.05, { freq: 60, freqEnd: 34, dur: 0.3, gain: 0.3 });
+      k.noise(m.out, t, { dur: 0.4, gain: 0.05, filter: 'bandpass', freq: 1200, freqEnd: 400, q: 1.4 });
     },
     /** Glass Cannon's price: the hero was struck and it sounds like something cracked. */
     brittleHit(own: boolean): void {
@@ -630,6 +669,8 @@ export function createKeystoneSfx(k: SfxKit) {
     /** Titan Grip's price: the swing itself is slow and heavy — a long, low sweep of air and a groan of iron. */
     titanSwing(own: boolean): void {
       const t = k.now();
+      if (t - (lastSwing.get(own) ?? -Infinity) < KEYSTONE_SFX.SWING_GAP) return;
+      lastSwing.set(own, t);
       const stack = k.take('ksCost', t);
       if (stack < 0) return;
       const m = k.who(own, LV.titanSwing * k.duck(stack) * (own ? 1 : LV.ally));
@@ -690,7 +731,7 @@ export function createKeystoneSfx(k: SfxKit) {
         // ignition: the bolt that becomes a beam
         const stack = k.take('cast', t);
         if (stack >= 0) {
-          const m = k.who(own, 0.7 * k.duck(stack) * (own ? 1 : LV.ally));
+          const m = k.who(own, 0.4 * k.duck(stack) * (own ? 1 : LV.ally));
           m.V('zap.up', t, 0.4, { variant: 1, rate: 1.2, dur: 0.16, release: 0.1 });
           k.tone(m.out, t, { type: 'sawtooth', freq: 300, freqEnd: 1500, dur: 0.1, gain: 0.14, lpf: 4000 });
         }
@@ -859,6 +900,8 @@ export function createKeystoneSfx(k: SfxKit) {
       rush.until = -Infinity;
       rush.stacks = 0;
       lastProc.clear();
+      arcs.clear();
+      lastSwing.clear();
       bloom.n = 0;
     },
     /** Keystone loops and beds sounding now (whirr, streams, sanctum hums, the Bloodrush pulse): for the leak check. */

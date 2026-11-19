@@ -232,8 +232,6 @@ export interface KeystoneState extends KeystoneFlags {
   channel: number;
   /** Twin Cast of a spin (whirlwind, rune ward). */
   spinTwin: SpinState | null;
-  /** Blood Price: seconds the ordinary cooldown of the last cast would still be running (telemetry of extra casts). */
-  priceCd: number;
   /** keystoneProc rate limit: tick of the last burst and events in it, per keystone id. */
   procTick: Map<string, number>;
   procCount: Map<string, number>;

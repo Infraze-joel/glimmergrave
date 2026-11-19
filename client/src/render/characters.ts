@@ -627,6 +627,8 @@ export class Heroes {
   private readonly infusions: (Infusions | null)[] = [];
   private gen = 0;
   localSlot = -1;
+  /** Update 5, Titan Grip: factor on the wind-up of a hero's primary attacks (the clip is played that much slower). */
+  readonly primarySlow: number[] = [1, 1, 1, 1];
 
   constructor(parent: Object3D, assets: Assets, atlas: Atlas) {
     this.parent = parent;
@@ -724,8 +726,9 @@ export class Heroes {
     if (anim === 'ultimate') return c.ultimate.windup;
     if (anim === 'art') return (c.arts[(this.roster[slot]?.art ?? 1) - 1] ?? c.arts[0] ?? c.secondary).windup;
     if (c.secondary.anim === anim) return c.secondary.windup;
-    for (const a of c.primary) if (a.anim === anim) return a.windup;
-    return c.primary[0].windup;
+    const slow = this.primarySlow[slot] ?? 1;
+    for (const a of c.primary) if (a.anim === anim) return a.windup * slow;
+    return c.primary[0].windup * slow;
   }
 
   get(slot: number): HeroView | null {

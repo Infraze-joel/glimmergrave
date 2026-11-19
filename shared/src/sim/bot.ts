@@ -6,6 +6,7 @@ import { TICK_DT, WORLD } from '../constants.ts';
 import { BOON_BY_ID } from '../data/boons.ts';
 import { CLASSES, secondaryOf, type AbilityDef } from '../data/classes.ts';
 import { ENEMIES, ENEMY_TUNING } from '../data/enemies.ts';
+import { KEYSTONE_BY_ID, KEYSTONE_TUNING } from '../data/keystones.ts';
 import {
   BTN, EF, PF,
   type BoonOffer, type BoonStack, type ClassId, type ElementId, type EnemySnap, type GameEvent, type Hazard, type InputCmd,
@@ -27,6 +28,8 @@ export interface BotView {
   run: RunState;
   /** Secondary variant the hero has equipped (RosterEntry.art); 0 / missing = the standard one. */
   art?: number;
+  /** Keystones the hero holds (RosterEntry.keystones); missing = none. */
+  keystones?: readonly string[];
 }
 
 export interface BotOptions {
@@ -43,6 +46,10 @@ export interface BotOptions {
   preferObjectives?: boolean;
   /** Door choice: take a cursed door whenever one is offered (soaks that measure cursed chambers). */
   preferCursed?: boolean;
+  /** Keystone drafts: take these ids whenever they are offered (tests, balance soaks); otherwise the usual choice. */
+  keystones?: readonly string[];
+  /** Keystone drafts: `only` = take nothing but the ids in `keystones` (else the consolation); `none` = always the consolation. */
+  keystoneMode?: 'free' | 'only' | 'none';
 }
 
 const BOT = {
@@ -87,6 +94,15 @@ const BOT = {
    * walks along the obstacle's edge instead of pushing into it, PAD outside the distance at which it collides.
    */
   AVOID_LOOKAHEAD: 1.6, AVOID_PAD: 0.12, AVOID_OUTWARD: 0.3, AVOID_DEAD_ON: 0.02,
+  /**
+   * Update 5, keystones. Blood Price: the secondary is used early (for health) only above this health fraction (lower
+   * if it heals or shields) and on PRICE_PACK enemies or a boss.
+   * Phase Walker / Shockstep / Blazing Wake: dash through or into a target within DASH_IN range when no dodge is
+   * due, keeping DASH_KEEP charges for dodging unless the bot has only one. Glass Cannon: wider safety margins.
+   * Arc Stream: the stream's reach replaces the bolt's.
+   */
+  PRICE_HP: 0.7, PRICE_HEAL_HP: 0.5, PRICE_PACK: 2, DASH_IN: 4.2, DASH_IN_MIN: 1.2, DASH_IN_SECONDS: 2.2, DASH_PACK: 2,
+  GLASS_LOW_HP: 0.6, GLASS_RANGE: 1.5, GLASS_MARGIN: 0.25, STREAM_REACH: 12,
   TUTORIAL_DASH_LEAD_SECONDS: 0.2, TUTORIAL_STAND: { x: 0, z: 1.5 }, TUTORIAL_HAZARD_STANDOFF: 1.8, TUTORIAL_STORM_DASH_RANGE: 3.6, TUTORIAL_CLOSE_RANGE: 3,
 } as const;
 
@@ -121,6 +137,17 @@ const BOON_SCORE: Record<string, number> = {
   opening_act: 4.5, covenant: 4, rally: 5, creeping_dark: 5,
 };
 const CLASS_BOON_SCORE = 6;
+/** Keystone drafts: base score of a generic keystone for a melee / a ranged class; the class keystone beats them. */
+const KEYSTONE_SCORE: Record<string, readonly [number, number]> = {
+  ember_wake: [5, 5], shockstep: [6.5, 5], phase_walker: [5.5, 3.5], ricochet: [5.5, 8], chain_lightning: [6.5, 8], heavy_hitter: [7, 5],
+  twin_cast: [6.5, 6.5], blood_price: [4.5, 4.5], orbit_blades: [8, 4], familiar: [6, 6.5], colossus: [7.5, 4], corpse_bloom: [4, 4],
+  resonance_engine: [3, 3], glass_cannon: [3.5, 6], sanguine: [7, 5], momentum_engine: [6.5, 6.5],
+};
+const CLASS_KEYSTONE_SCORE = 9;
+/** A keystone that feeds on an infusion the hero has (or lacks) moves by this much. */
+const KEYSTONE_INFUSION_BONUS = 2;
+/** With full slots a new keystone must beat the weakest held one by this much to replace it. */
+const KEYSTONE_REPLACE_MARGIN = 1.5;
 const DUO_BOON_SCORE = 8;
 const NEEDS_COMBO: ReadonlySet<string> = new Set(['shared_vigor', 'crystal_ward', 'covenant']);
 
@@ -156,6 +183,11 @@ export class BotBrain {
   private goal: { x: number; z: number } | null = null;
   /** The bot is leaving a telegraphed area this tick. */
   private dodging = false;
+  private forceKeystones: readonly string[];
+  private keystoneMode: 'free' | 'only' | 'none';
+  private held: readonly string[] = [];
+  /** Tick until which the bot does not dash at an enemy again (keystone dashes). */
+  private dashInUntil = 0;
 
   constructor(slot: number, cls: ClassId, seed = 1, opts: BotOptions = {}) {
     this.slot = slot;
@@ -166,6 +198,8 @@ export class BotBrain {
     this.descendTo = opts.descendTo ?? 0;
     this.preferObjectives = opts.preferObjectives === true;
     this.preferCursed = opts.preferCursed === true;
+    this.forceKeystones = opts.keystones ?? [];
+    this.keystoneMode = opts.keystoneMode ?? 'free';
     this.strafeDir = this.rng.chance(0.5) ? 1 : -1;
   }
 
@@ -216,6 +250,58 @@ export class BotBrain {
       if (score > bestScore) { bestScore = score; best = i; }
     });
     return best;
+  }
+
+  /** How much the bot wants a keystone, given its class and the infusions it has. */
+  private keystoneScore(id: string, own: readonly BoonStack[]): number {
+    const def = KEYSTONE_BY_ID.get(id);
+    if (!def) return 0;
+    if (def.cls !== undefined) return CLASS_KEYSTONE_SCORE;
+    const base = KEYSTONE_SCORE[id];
+    let score = base ? base[RANGED.has(this.cls) ? 1 : 0] : 4;
+    const slots = new Set<string>();
+    const elements = new Set<ElementId>();
+    for (const b of own) {
+      const boon = BOON_BY_ID.get(b.id);
+      if (boon && boon.category === 'infusion' && boon.element && boon.slot) { slots.add(boon.slot); elements.add(boon.element); }
+    }
+    // Keystones that carry an element want the infusion of their slot; the status keystones want any / two.
+    if (def.slot === 'dash' && id !== 'phase_walker' && slots.has('dash')) score += KEYSTONE_INFUSION_BONUS;
+    if ((id === 'chain_lightning' || id === 'orbit_blades' || id === 'familiar') && slots.has('primary')) score += KEYSTONE_INFUSION_BONUS;
+    if (id === 'corpse_bloom') score += elements.size > 0 ? KEYSTONE_INFUSION_BONUS + elements.size : -KEYSTONE_INFUSION_BONUS;
+    if (id === 'resonance_engine') score += elements.size >= 2 ? 2 * KEYSTONE_INFUSION_BONUS : -KEYSTONE_INFUSION_BONUS;
+    return score;
+  }
+
+  /**
+   * Choice in a keystone draft: the index to pick (`skip` = the consolation) and, with full slots, the keystone to
+   * give up. The class keystone and keystones that match the hero's infusions come first; forced ids
+   * (BotOptions.keystones) beat everything.
+   */
+  chooseKeystone(offers: readonly BoonOffer[], held: readonly string[], skip: number, own: readonly BoonStack[]): { index: number; replace?: string } {
+    if (this.keystoneMode === 'none') return { index: skip };
+    const full = held.length >= KEYSTONE_TUNING.MAX_HELD;
+    const forced = offers.findIndex((o) => this.forceKeystones.includes(o.id));
+    let weakest: string | undefined;
+    let weakestScore = Infinity;
+    for (const id of held) {
+      const score = this.forceKeystones.includes(id) ? Infinity : this.keystoneScore(id, own);
+      if (score < weakestScore) { weakestScore = score; weakest = id; }
+    }
+    if (forced >= 0) {
+      if (!full) return { index: forced };
+      return weakest !== undefined && weakestScore < Infinity ? { index: forced, replace: weakest } : { index: skip };
+    }
+    if (this.keystoneMode === 'only') return { index: skip };
+    let best = 0;
+    let bestScore = -Infinity;
+    offers.forEach((o, i) => {
+      const score = this.keystoneScore(o.id, own);
+      if (score > bestScore) { bestScore = score; best = i; }
+    });
+    if (!full) return { index: best };
+    if (weakest !== undefined && bestScore >= weakestScore + KEYSTONE_REPLACE_MARGIN) return { index: best, replace: weakest };
+    return { index: skip };
   }
 
   /** Door the bot walks to: the door of the lowest-slot hero already standing in one, else a shared preference. */
@@ -320,6 +406,7 @@ export class BotBrain {
     const me = view.players.find((p) => p.slot === this.slot);
     const room = view.run.room;
     this.art = view.art ?? 0;
+    this.held = view.keystones ?? [];
     if (!me || !room || me.state !== 'alive') {
       this.lastButtons = 0;
       return cmd;
@@ -500,7 +587,10 @@ export class BotBrain {
     const def = CLASSES[this.cls];
     const ranged = RANGED.has(this.cls);
     const primary = def.primary[0];
-    const range = primary ? primary.range : 2.5;
+    const held = this.held;
+    const glass = held.includes('glass_cannon');
+    // Arc Stream reaches less far than the bolt it replaces.
+    const range = held.includes('ks_mage') ? BOT.STREAM_REACH + 1 : primary ? primary.range : 2.5;
     const sec = secondaryOf(def, this.art);
     const ult = def.ultimate;
 
@@ -526,7 +616,7 @@ export class BotBrain {
       if (shard && Math.hypot(e.x - shard.x, e.z - shard.z) <= shard.r + ENEMIES[e.kind].attackRange + BOT.SHARD_THREAT && ENEMIES[e.kind].attackRange < BOT.RANGED_MIN) score -= BOT.SHARD_FOCUS;
       if (score < targetScore) { targetScore = score; targetD = d; target = e; }
     }
-    const lowHp = me.hp < me.maxHp * 0.35;
+    const lowHp = me.hp < me.maxHp * (glass ? BOT.GLASS_LOW_HP : 0.35);
 
     let mx = 0;
     let mz = 0;
@@ -544,7 +634,7 @@ export class BotBrain {
       if (ranged) {
         const clear = this.lineOfFire(room, me.x, me.z, target.x, target.z);
         wantPrimary = targetD <= range - 1 && clear;
-        const min = BOT.RANGED_MIN + (lowHp ? 1.5 : 0);
+        const min = BOT.RANGED_MIN + (lowHp ? 1.5 : 0) + (glass ? BOT.GLASS_RANGE : 0);
         const max = BOT.RANGED_MAX;
         if (view.tick >= this.strafeUntil) {
           this.strafeUntil = view.tick + Math.round((BOT.STRAFE_SECONDS * (0.6 + this.rng.next() * 0.8)) / TICK_DT);
@@ -564,7 +654,7 @@ export class BotBrain {
           mx = -dirZ * this.strafeDir;
           mz = dirX * this.strafeDir;
         }
-        wantSecondary = me.cdSecondary <= 0 && this.secondaryFits(sec, me, target, targetD, close, clear);
+        wantSecondary = (me.cdSecondary <= 0 || this.payBlood(me, sec, target, close)) && this.secondaryFits(sec, me, target, targetD, close, clear);
         if (close >= 3 && targetD < 2.5 && me.dashCharges >= 1) wantDash = true;
       } else {
         const hitRange = range + er;
@@ -577,7 +667,7 @@ export class BotBrain {
           mx = -dirX;
           mz = -dirZ;
         }
-        wantSecondary = me.cdSecondary <= 0 && this.secondaryFits(sec, me, target, targetD, close, true);
+        wantSecondary = (me.cdSecondary <= 0 || this.payBlood(me, sec, target, close)) && this.secondaryFits(sec, me, target, targetD, close, true);
       }
       if (me.ult >= BOT.ULT_READY) wantUlt = this.ultimateFits(ult, view, me, target, targetD, close);
     } else if (me.ult >= BOT.ULT_READY && ult.special === 'revive') {
@@ -687,7 +777,8 @@ export class BotBrain {
     }
 
     // Dodge: telegraphs first, then projectiles.
-    const danger = this.dangerAt(view, me.x, me.z, BOT.TELEGRAPH_MARGIN);
+    const margin = BOT.TELEGRAPH_MARGIN + (glass ? BOT.GLASS_MARGIN : 0);
+    const danger = this.dangerAt(view, me.x, me.z, margin);
     if (danger) {
       // Getting out of a telegraph comes first: the way out is not bent around obstacles.
       this.dodging = true;
@@ -724,6 +815,25 @@ export class BotBrain {
             break;
           }
           if (!found) { mx = 0; mz = 0; }
+        }
+      }
+    }
+
+    // Dash keystones: dash through the target (Phase Walker) or into the pack (Shockstep, Blazing Wake) when nothing
+    // has to be dodged; a second charge is kept for dodging.
+    if (!danger && target && !wantDash && !lowHp && view.tick >= this.dashInUntil && targetD <= BOT.DASH_IN && targetD >= BOT.DASH_IN_MIN) {
+      const phase = held.includes('phase_walker');
+      const area = held.includes('shockstep') || held.includes('ember_wake');
+      const spare = me.dashCharges >= 2 || (me.dashCharges >= 1 && CLASSES[this.cls].dashCharges === 1 && !held.includes('shockstep'));
+      if ((phase || (area && close >= BOT.DASH_PACK)) && spare && (!ranged || phase && close <= 1)) {
+        const tx = target.x - me.x;
+        const tz = target.z - me.z;
+        const ahead = this.dangerAt(view, me.x + (tx / targetD) * BOT.DASH_IN, me.z + (tz / targetD) * BOT.DASH_IN, margin);
+        if (!ahead) {
+          mx = tx / targetD;
+          mz = tz / targetD;
+          wantDash = true;
+          this.dashInUntil = view.tick + Math.round(BOT.DASH_IN_SECONDS / TICK_DT);
         }
       }
     }
@@ -777,6 +887,17 @@ export class BotBrain {
         return targetD <= sec.radius * BOT.ZONE_REACH && (close >= 2 || bossy || (sec.heal > 0 && me.hp < me.maxHp * BOT.ZONE_HEAL_HP));
       default: return false;
     }
+  }
+
+  /**
+   * Blood Price: is it worth paying health to use the secondary before it has recharged? Only with plenty of
+   * health (less for an ability that heals or shields), and only on a pack or a boss.
+   */
+  private payBlood(me: PlayerSnap, sec: AbilityDef, target: EnemySnap, close: number): boolean {
+    if (!this.held.includes('blood_price')) return false;
+    const mends = sec.selfShield > 0 || (sec.heal > 0 && !this.held.includes('sanguine'));
+    if (me.hp <= me.maxHp * (mends ? BOT.PRICE_HEAL_HP : BOT.PRICE_HP)) return false;
+    return close >= BOT.PRICE_PACK || ENEMIES[target.kind].cost === 0;
   }
 
   private allyDownWithin(view: BotView, me: PlayerSnap, radius: number): boolean {
@@ -897,6 +1018,6 @@ export function viewFromWorld(world: World, slot: number, shared?: Pick<BotView,
   const hero = world.hero(slot);
   return {
     tick: world.tick, slot, cls: hero ? hero.cls : 'knight', players: body.players, enemies: body.enemies, projectiles: body.projectiles, run: body.run,
-    art: hero ? hero.build.art : 0,
+    art: hero ? hero.build.art : 0, keystones: hero ? hero.keystones : [],
   };
 }

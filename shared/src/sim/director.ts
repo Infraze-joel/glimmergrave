@@ -9,7 +9,9 @@ import {
   BOSS_KINDS, ELEMENT_IDS,
   type BiomeId, type BossKind, type Door, type DoorType, type ElementId, type EnemyKind, type Hazard, type ObjectiveKind, type Obstacle, type RoomLayout,
 } from '../types.ts';
+import { KEYSTONE_TUNING } from '../data/keystones.ts';
 import { applyBoon, generateDraft } from './boons.ts';
+import { generateKeystoneDraft, takeKeystone } from './keystones.ts';
 import { grantShield, healHero, killEnemy, reviveHero } from './combat.ts';
 import { livingEnemies, spawnEnemy } from './enemies.ts';
 import { SUPPORT_KINDS } from './horde.ts';
@@ -23,7 +25,7 @@ import { placeHero } from './players.ts';
 import type { Rng } from './rng.ts';
 import type { DraftOptions, Hero } from './state.ts';
 import { stepTutorial } from './tutorial.ts';
-import { BIOME, DIRECTOR, META, OBJECTIVE, SIM } from './tuning.ts';
+import { BIOME, DIRECTOR, KS, META, OBJECTIVE, SIM } from './tuning.ts';
 import type { World } from './world.ts';
 
 export interface QueuedSpawn {
@@ -62,12 +64,16 @@ export interface DirectorState {
   vaults: number;
   /** Tools / tests: objective forced onto the first door of every choice (and the chamber a run starts in). */
   pin: ObjectiveKind | null;
+  /** Tools / tests: keystones every keystone draft offers first (where the hero may hold them). */
+  pinKeystones: string[];
+  /** Elite chambers cleared at the current depth (enemies grow with them, see KS.ELITE_HP_GROWTH). */
+  elitesCleared: number;
 }
 
 export const createDirector = (): DirectorState => ({
   manual: false, queue: [], spawnTimer: 0, waveTimer: 0, waveDelay: 0, clearTimer: 0,
   biomes: ['crypt', 'flooded', 'forge'], herald: 'matron', preDraft: false, chambersCleared: 0, elitesSlain: 0, bossSlain: false,
-  earnings: emptyEarnings(), obj: null, vaults: 0, pin: null,
+  earnings: emptyEarnings(), obj: null, vaults: 0, pin: null, pinKeystones: [], elitesCleared: 0,
 });
 
 /** Test / tooling overrides of the seeded run plan. */
@@ -82,6 +88,8 @@ export interface RunOverrides {
    * classic run without special objectives.
    */
   objective?: ObjectiveKind;
+  /** Keystone ids that every keystone draft offers first, in this order, to heroes who may take them. */
+  keystones?: string[];
 }
 
 /** Draws the final boss, the herald and the biome order from the run seed. Always consumes the same random numbers. */
@@ -94,6 +102,7 @@ export function planRun(w: World, o: RunOverrides = {}): void {
   w.director.herald = o.herald !== undefined && o.herald !== w.run.finalBoss ? o.herald : (others[Math.floor(heraldRoll * others.length)] as BossKind);
   w.director.biomes = ['crypt', ...(o.biomes ?? (flip ? ['flooded', 'forge'] as const : ['forge', 'flooded'] as const))];
   w.director.pin = o.objective ?? null;
+  w.director.pinKeystones = o.keystones ? [...o.keystones] : [];
 }
 
 /**
@@ -475,8 +484,10 @@ function setScaling(w: World): void {
   const oath = oathScale(w.run.oath);
   const depth = depthScale(w.run.depth);
   const chamber = w.run.chamber;
-  w.hpMul = (1 + RUN.HP_GROWTH_PER_CHAMBER * chamber) * (1 + RUN.HP_PER_EXTRA_PLAYER * (w.partySize - 1)) * oath.hp * depth.hp;
-  w.damageMul = (1 + RUN.DAMAGE_GROWTH_PER_CHAMBER * chamber) * (1 + DIRECTOR.DAMAGE_PER_EXTRA_PLAYER * (w.partySize - 1)) * oath.damage * depth.damage;
+  // Update 5: every elite chamber hands out a keystone, so what comes after it is tougher.
+  const elites = w.director.elitesCleared;
+  w.hpMul = (1 + RUN.HP_GROWTH_PER_CHAMBER * chamber) * (1 + RUN.HP_PER_EXTRA_PLAYER * (w.partySize - 1)) * oath.hp * depth.hp * (1 + KS.ELITE_HP_GROWTH * elites);
+  w.damageMul = (1 + RUN.DAMAGE_GROWTH_PER_CHAMBER * chamber) * (1 + DIRECTOR.DAMAGE_PER_EXTRA_PLAYER * (w.partySize - 1)) * oath.damage * depth.damage * (1 + KS.ELITE_DAMAGE_GROWTH * elites);
   w.speedMul = oath.speed * depth.speed;
   w.affixed = w.run.depth >= RUN.DEPTH.AFFIX_FROM_DEPTH || w.run.oath >= RUN.DEPTH.AFFIX_FROM_OATH;
 }
@@ -519,6 +530,7 @@ export function enterChamber(w: World, index: number, entered: DoorType, objecti
     h.cursedShards = 0;
     h.draft = [];
     h.draftOpts = null;
+    h.draftKeystone = false;
     h.burnTime = 0;
     h.chillTime = 0;
     // Every chamber begins with the hero's start shield and at least the opening_act charge.
@@ -674,18 +686,38 @@ function draftSeconds(w: World): number {
   return RUN.DRAFT_TIMEOUT_SECONDS + RELIC_TUNING.HOURGLASS_SECONDS * best;
 }
 
-function openDraft(w: World): void {
+/** Rules of the ordinary draft after the current chamber for this hero (cursed door, foresight, objective bonus). */
+function draftRules(w: World, h: Hero): DraftOptions {
   const run = w.run;
   const cursed = run.entered === 'cursed';
-  run.draftPending = [];
   // A met bonus (or a vault) makes the draft richer: more choices and a rare or better among them.
   const bonus = draftBonus(w.director.obj);
+  return {
+    choices: (cursed ? BOON_TUNING.CURSED_DRAFT_CHOICES : RUN.DRAFT_CHOICES) + h.meta.foresight + bonus.choices,
+    guaranteeRare: cursed || bonus.rare,
+    guaranteeInfusion: run.chamber === 0 && run.depth === 0,
+  };
+}
+
+/** Keystone draft for one hero; falls back to an ordinary draft if there is no keystone left to offer. */
+function offerKeystones(w: World, h: Hero): void {
+  const options = generateKeystoneDraft(w.rng, h, w.director.pinKeystones);
+  if (options.length === 0) { offer(w, h, draftRules(w, h)); return; }
+  h.draftOpts = null;
+  h.draftKeystone = true;
+  h.draft = options;
+  w.run.draftPending.push(h.slot);
+}
+
+function openDraft(w: World): void {
+  const run = w.run;
+  run.draftPending = [];
+  // After the champion and the herald every hero drafts a keystone instead of an ordinary boon.
+  const keystones = run.chamberKind === 'elite';
   for (const h of w.heroes) {
-    offer(w, h, {
-      choices: (cursed ? BOON_TUNING.CURSED_DRAFT_CHOICES : RUN.DRAFT_CHOICES) + h.meta.foresight + bonus.choices,
-      guaranteeRare: cursed || bonus.rare,
-      guaranteeInfusion: run.chamber === 0 && run.depth === 0,
-    });
+    h.draftKeystone = false;
+    if (keystones) offerKeystones(w, h);
+    else offer(w, h, draftRules(w, h));
   }
   run.draftTime = draftSeconds(w);
   run.phase = 'draft';
@@ -716,9 +748,9 @@ export function openAttunementDraft(w: World): boolean {
  * same rules that never repeats what was just shown unless there are not enough other boons left.
  */
 export function rerollDraft(w: World, h: Hero): boolean {
-  if (w.run.phase !== 'draft' || h.draft.length === 0 || h.rerolls <= 0 || !h.draftOpts) return false;
+  if (w.run.phase !== 'draft' || h.draft.length === 0 || h.rerolls <= 0 || (!h.draftOpts && !h.draftKeystone)) return false;
   const shown = new Set(h.draft.map((o) => o.id));
-  const next = generateDraft(w.rng, h, h.draftOpts, shown);
+  const next = h.draftOpts ? generateDraft(w.rng, h, h.draftOpts, shown) : generateKeystoneDraft(w.rng, h, [], shown);
   if (next.length === 0) return false;
   h.rerolls--;
   h.draft = next;
@@ -757,6 +789,7 @@ function chamberCleared(w: World): void {
   const run = w.run;
   const dir = w.director;
   if (dir.obj) finishObjective(w, dir.obj);
+  if (run.chamberKind === 'elite') dir.elitesCleared++;
   dir.chambersCleared++;
   run.chambersCleared = dir.chambersCleared;
   earn(dir.earnings, 'chamber', run.depth, w.cursed);
@@ -765,23 +798,64 @@ function chamberCleared(w: World): void {
   w.emit({ e: 'chamberClear' });
   for (const h of w.heroes) {
     if (h.state === 'downed') reviveHero(w, h, -1, WORLD.REVIVE_HP_FRACTION, SIM.REVIVE_IFRAMES);
-    if (run.entered === 'blessing') healHero(w, h, h.maxHp * BOON_TUNING.BLESSING_HEAL_FRACTION);
+    if (run.entered === 'blessing') healHero(w, h, h.maxHp * BOON_TUNING.BLESSING_HEAL_FRACTION, true);
     if (h.stats.mending > 0) healHero(w, h, h.maxHp * h.stats.mending);
   }
   openDraft(w);
 }
 
-/** Applies a draft choice. Returns false if the hero has nothing to pick or the index is out of range. */
-export function pickBoon(w: World, h: Hero, index: number): boolean {
-  if (w.run.phase !== 'draft') return false;
-  const offer = h.draft[index];
-  if (!offer) return false;
-  const level = applyBoon(h, offer.id, (id, tier) => w.emit({ e: 'set', slot: h.slot, id, tier }));
+function draftDone(w: World, h: Hero): void {
   h.draft = [];
   h.draftOpts = null;
+  h.draftKeystone = false;
   const at = w.run.draftPending.indexOf(h.slot);
   if (at >= 0) w.run.draftPending.splice(at, 1);
   w.runVersion++;
+}
+
+/**
+ * A choice in a keystone draft. Index = number of options: the consolation — an ordinary draft of rare or better
+ * boons replaces the offers and the hero keeps drafting. Otherwise the keystone is taken; with full slots
+ * `replace` must name a held keystone, or the pick is refused and the draft stays as it is.
+ */
+function pickKeystone(w: World, h: Hero, index: number, replace?: string): boolean {
+  if (index === h.draft.length) {
+    const opts: DraftOptions = { ...draftRules(w, h), guaranteeRare: true, guaranteeInfusion: false, rareOnly: true };
+    h.draftKeystone = false;
+    h.draftOpts = opts;
+    h.draft = generateDraft(w.rng, h, opts);
+    if (h.draft.length === 0) { draftDone(w, h); return true; }
+    if (w.run.draftTime < KEYSTONE_TUNING.CONSOLATION_SECONDS) w.run.draftTime = KEYSTONE_TUNING.CONSOLATION_SECONDS;
+    w.draftVersion++;
+    w.runVersion++;
+    return true;
+  }
+  const offer = h.draft[index];
+  if (!offer) return false;
+  const full = h.keystones.length >= KEYSTONE_TUNING.MAX_HELD;
+  if (full && (replace === undefined || !h.keystones.includes(replace))) return false;
+  if (!takeKeystone(w, h, offer.id, full ? replace : undefined)) return false;
+  draftDone(w, h);
+  return true;
+}
+
+/** What a draft that ran out of time does for a hero: nothing harmful (a keystone only into a free slot). */
+function pickDefault(w: World, h: Hero): void {
+  if (h.draftKeystone && h.keystones.length >= KEYSTONE_TUNING.MAX_HELD) pickBoon(w, h, h.draft.length);
+  pickBoon(w, h, 0);
+}
+
+/**
+ * Applies a draft choice. Returns false if the hero has nothing to pick, the index is out of range or (keystone
+ * draft with full slots) `replace` is missing or wrong.
+ */
+export function pickBoon(w: World, h: Hero, index: number, replace?: string): boolean {
+  if (w.run.phase !== 'draft') return false;
+  if (h.draftKeystone) return pickKeystone(w, h, index, replace);
+  const offer = h.draft[index];
+  if (!offer) return false;
+  const level = applyBoon(h, offer.id, (id, tier) => w.emit({ e: 'set', slot: h.slot, id, tier }));
+  draftDone(w, h);
   if (level > 0) {
     w.boonVersion++;
     w.emit({ e: 'boon', slot: h.slot, id: offer.id, level });
@@ -827,7 +901,7 @@ function stepDraft(w: World): void {
   // Timeout (or only disconnected heroes left): everyone still pending takes their first option.
   for (const slot of [...run.draftPending]) {
     const h = w.hero(slot);
-    if (h) pickBoon(w, h, 0);
+    if (h) pickDefault(w, h);
   }
   run.draftPending = [];
   if (w.director.preDraft) {
@@ -883,6 +957,7 @@ function descend(w: World): void {
   }
   w.emit({ e: 'descend', depth: run.depth });
   w.director.vaults = 0;
+  w.director.elitesCleared = 0;
   enterChamber(w, 0, 'descend');
 }
 

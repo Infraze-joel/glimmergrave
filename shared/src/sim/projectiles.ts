@@ -2,13 +2,14 @@
 import { TICK_DT, WORLD } from '../constants.ts';
 import { damageHero, isTargetable, strikeEnemy, type StrikeOpts } from './combat.ts';
 import { blocksShots } from './fixtures.ts';
+import { bounce } from './keystones.ts';
 import { angleDiff, inArc, segDist, sweepHit } from './geom.ts';
 import type { Enemy, Hero, Projectile } from './state.ts';
 import { SIM } from './tuning.ts';
 import type { World } from './world.ts';
 
-export type ProjectileInit = Omit<Projectile, 'id' | 'hit' | 'dead' | 'rot' | 'dirX' | 'dirZ' | 'homing' | 'seek' | 'fragile' | 'only' | 'bonus'>
-  & { rot: number; homing?: number; seek?: number; fragile?: boolean; only?: number; bonus?: number };
+export type ProjectileInit = Omit<Projectile, 'id' | 'hit' | 'dead' | 'rot' | 'dirX' | 'dirZ' | 'homing' | 'seek' | 'fragile' | 'only' | 'bonus' | 'bounces' | 'ks' | 'aux'>
+  & { rot: number; homing?: number; seek?: number; fragile?: boolean; only?: number; bonus?: number; bounces?: number; ks?: string | null; aux?: boolean };
 
 export function spawnProjectile(w: World, init: ProjectileInit): Projectile | null {
   if (w.projectiles.length >= WORLD.MAX_PROJECTILES) {
@@ -19,6 +20,7 @@ export function spawnProjectile(w: World, init: ProjectileInit): Projectile | nu
   const p: Projectile = {
     ...init, id: w.nextProjectileId++, dirX: Math.sin(init.rot), dirZ: Math.cos(init.rot), hit: [], dead: false,
     homing: init.homing ?? 0, seek: init.seek ?? -1, fragile: init.fragile === true, only: init.only ?? -1, bonus: init.bonus ?? 0,
+    bounces: init.bounces ?? 0, ks: init.ks ?? null, aux: init.aux === true,
   };
   if (w.nextProjectileId > 0xffff) w.nextProjectileId = 1;
   w.projectiles.push(p);
@@ -29,6 +31,8 @@ const hitT: number[] = [];
 /** Reused strike options (projectile hits are the hottest strike path). */
 const STRIKE: StrikeOpts = { fromX: 0, fromZ: 0, stun: 0, knockback: 0, special: null, bonus: 0, poison: false };
 const hitE: Enemy[] = [];
+/** Set by stepFriendly when the projectile bounced (Ricochet): its position and heading are already final. */
+let bounced = false;
 
 // ---------------------------------------------------------------- fragile hostile projectiles (soul wisps)
 
@@ -153,10 +157,21 @@ function stepFriendly(w: World, p: Projectile, bx: number, bz: number, limit: nu
     STRIKE.knockback = p.knockback;
     STRIKE.bonus = p.bonus;
     STRIKE.poison = p.kind === 'crossbowBolt' || p.kind === 'knife';
-    if (!strikeEnemy(w, owner, e, p.damage, p.slot, STRIKE)) continue;
+    // Damage of a keystone's own projectile is credited to it; only the familiar's bolt is not a direct hit.
+    const before = w.ksSource;
+    if (p.aux) w.ksSource = p.ks;
+    const dealtBefore = owner.run.damage;
+    const struck = strikeEnemy(w, owner, e, p.damage, p.slot, STRIKE);
+    w.ksSource = before;
+    if (!struck) continue;
+    if (p.ks !== null && !p.aux) owner.ks.dealt[p.ks] = (owner.ks.dealt[p.ks] ?? 0) + owner.run.damage - dealtBefore;
     p.hit.push(e.id);
     if (p.pierce > 0) {
       p.pierce--;
+    } else if (bounce(w, owner, p, e)) {
+      // Ricochet: the projectile turned at the enemy it hit and flies on from there next tick.
+      bounced = true;
+      return t;
     } else {
       p.dead = true;
       return t;
@@ -191,7 +206,9 @@ export function stepProjectiles(w: World): void {
     const bx = p.x + p.dirX * step;
     const bz = p.z + p.dirZ * step;
     const block = blockT(w, p.x, p.z, bx, bz);
+    bounced = false;
     const t = p.hostile ? stepHostile(w, p, bx, bz, block) : stepFriendly(w, p, bx, bz, block);
+    if (bounced) continue;
     p.x += p.dirX * step * t;
     p.z += p.dirZ * step * t;
     p.range -= step;

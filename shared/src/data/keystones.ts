@@ -54,7 +54,7 @@ export const KEYSTONES: KeystoneDef[] = [
   { id: 'twin_cast', slot: 'secondary', tags: ['secondary', 'area'], params: { delay: 0.45, fraction: 0.65 },
     name: 'Twin Cast', summary: 'Your secondary goes off a second time after 0.45 s at 65% strength.', cost: '' },
   { id: 'blood_price', slot: 'secondary', tags: ['secondary', 'health'], params: { hpFraction: 0.08, minCooldown: 0.6 },
-    name: 'Blood Price', summary: 'Your secondary has almost no cooldown.', cost: 'Each use costs 8% of your maximum health (it cannot kill you; at 1 health it will not fire).' },
+    name: 'Blood Price', summary: 'Your secondary can be used again after 0.6 s, long before it has recharged.', cost: 'Using it before it has recharged costs 8% of your maximum health (it cannot kill you; at 1 health it will not fire early).' },
   // ---- companions and auras
   { id: 'orbit_blades', tags: ['primary', 'melee', 'area', 'summon'], params: { blades: 3, radius: 2.6, damageFraction: 0.45, rpm: 60 },
     name: 'Orbiting Blades', summary: 'Three blades circle you for good, cutting everything they touch for 45% of your primary damage and applying your primary element.', cost: '' },

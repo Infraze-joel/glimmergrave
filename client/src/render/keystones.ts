@@ -14,7 +14,7 @@
  * team mate has to know (where the blades are, where the trail burns, that the hero is veiled). Red is not used.
  * Draw order: update() must run before Vfx.update(), which draws hostile telegraphs last.
  */
-import { EF } from '@shared/types.ts';
+import { EF, PF } from '@shared/types.ts';
 import type { ClassId, ElementId, GameEvent } from '@shared/types.ts';
 import { NET, TICK_DT } from '@shared/constants.ts';
 import { KEYSTONES, KEYSTONE_BY_ID, KEYSTONE_TUNING } from '@shared/data/keystones.ts';
@@ -77,23 +77,23 @@ const FALLBACK_COLOR = PALETTE.objective;
 const KS_INDEX = new Map<string, number>(KEYSTONES.map((k, i) => [k.id, i]));
 const KS_COUNT = KEYSTONES.length;
 
-const LIMIT = { WAKES: 72, LINKS: 48, GHOSTS: 28, CORPSES: 10 } as const;
+const LIMIT = { WAKES: 20, LINKS: 48, GHOSTS: 28, CORPSES: 10 } as const;
 /** Kinds of a link (a short-lived line between two points). */
 const LK = { BOLT: 0, BOUNCE: 1, LEECH: 2, CHARGE: 3, BLOOM: 4, SHOT: 5 } as const;
 
 const TUNE = {
   /** Dash trail: metres per segment, overlap of neighbouring segments, flames per segment and second. */
-  WAKE_STEP: 1.1, WAKE_OVERLAP: 0.5, WAKE_FLAMES: 1.3, WAKE_FADE_IN: 12,
+  WAKE_OVERLAP: 0.5, WAKE_FLAMES: 1.3, WAKE_FADE_IN: 12, WAKE_MAX: 4,
   /** The same event / state change counted twice (event and snapshot) within this time and distance is drawn once. */
   DUP_TIME: 0.5, DUP_DIST: 2.6,
   PILLAR: 1,
   PILLAR_HEIGHT: 9,
   /** Emblem badges beside the health bar: size, sideways offset, height offset from the label. */
-  BADGE: 0.44, BADGE_X: 0.84, BADGE_Y: -0.2, BADGE_POP: 0.45,
+  BADGE: 0.52, BADGE_X: 0.9, BADGE_Y: -0.2, BADGE_POP: 0.45,
   /** Arcs on the hero's ring, one per keystone. */
   ARC_GROW: 0.34, ARC_FRAC: 0.16,
   BLADE_Y: 1.05, BLADE_LEN: 1.55, BLADE_W: 0.5,
-  FAMILIAR: { BACK: 1.25, SIDE: 0.85, Y: 1.95, FOLLOW: 6, BOB: 0.16, SIZE: 0.5 },
+  FAMILIAR: { BACK: 0.5, SIDE: 1.45, Y: 2.05, FOLLOW: 6, BOB: 0.16, SIZE: 0.62 },
   STEP_LENGTH: 2.4,
   RUSH_LINES: 5,
   /** Corpse blooms drawn in full within WINDOW seconds (own hero / another hero); the rest are a thin ring. */
@@ -113,7 +113,7 @@ const TUNE = {
   DUST: 0x4f4a44,
 } as const;
 
-interface Wake { active: boolean; x: number; z: number; rot: number; len: number; age: number; dur: number; hex: number; slot: number; seed: number; acc: number }
+interface Wake { active: boolean; x: number; z: number; rot: number; len: number; width: number; age: number; dur: number; hex: number; slot: number; seed: number; acc: number }
 interface Link {
   active: boolean; kind: number; x0: number; z0: number; x1: number; z1: number; age: number; dur: number;
   hex: number; slot: number; follow: number; seed: number; done: boolean;
@@ -130,8 +130,8 @@ interface SlotState {
   takenAge: number[];
   pillarAge: number; pillarHex: number;
   seen: boolean; px: number; pz: number; vx: number; vz: number;
-  dashing: boolean; segX: number; segZ: number; wakeProcAt: number;
-  phaseLeft: number; veilLeft: number; veilK: number;
+  phaseLeft: number; phaseTotal: number; veilLeft: number; veilTotal: number; veilK: number;
+  maelLeft: number; maelTotal: number; maelX: number; maelZ: number; maelR: number;
   bloodPulse: number;
   stacks: number; stackLeft: number; stacksFromProc: boolean; ghostAcc: number;
   chargeFlash: number; lastUlt: number;
@@ -182,7 +182,7 @@ export class KeystoneFx {
       this.slots.push({
         held: [], cls: 'knight', lastT: new Float32Array(KS_COUNT).fill(-100), lastX: new Float32Array(KS_COUNT), lastZ: new Float32Array(KS_COUNT),
         takenAge: [10, 10], pillarAge: -1, pillarHex: 0, seen: false, px: 0, pz: 0, vx: 0, vz: 0,
-        dashing: false, segX: 0, segZ: 0, wakeProcAt: -100, phaseLeft: 0, veilLeft: 0, veilK: 0, bloodPulse: 0,
+        phaseLeft: 0, phaseTotal: 1, veilLeft: 0, veilTotal: 1, veilK: 0, maelLeft: 0, maelTotal: 1, maelX: 0, maelZ: 0, maelR: 1, bloodPulse: 0,
         stacks: 0, stackLeft: 0, stacksFromProc: false, ghostAcc: 0, chargeFlash: 0, lastUlt: 0, shots: 0, fanAt: -100,
         famX: 0, famZ: 0, famInit: false, famFlash: 0, size: 1, stepAcc: 0, shield: 0, stream: 0, streamHold: 0,
         echoAt: -1, echoAbility: '', echoX: 0, echoZ: 0, echoRot: 0,
@@ -190,7 +190,7 @@ export class KeystoneFx {
         leechAt: -100, heavyAt: -100, castAt: -100, glassAt: -100,
       });
     }
-    for (let i = 0; i < LIMIT.WAKES; i++) this.wakes.push({ active: false, x: 0, z: 0, rot: 0, len: 1, age: 0, dur: 1, hex: 0, slot: -1, seed: 0, acc: 0 });
+    for (let i = 0; i < LIMIT.WAKES; i++) this.wakes.push({ active: false, x: 0, z: 0, rot: 0, len: 1, width: 1, age: 0, dur: 1, hex: 0, slot: -1, seed: 0, acc: 0 });
     for (let i = 0; i < LIMIT.LINKS; i++) {
       this.links.push({ active: false, kind: 0, x0: 0, z0: 0, x1: 0, z1: 0, age: 0, dur: 1, hex: 0, slot: -1, follow: -1, seed: 0, done: false });
     }
@@ -242,6 +242,11 @@ export class KeystoneFx {
 
   /** Titan Grip: reach factor and duration factor of a primary swing (1, 1 without it). */
   heavyReach(slot: number): number {
+    return this.has(slot, 'heavy_hitter') ? 1 + P.HEAVY_AREA * 0.5 : 1;
+  }
+
+  /** Titan Grip: factor on the angle of a primary arc and on the width of projectiles and the stream. */
+  heavyWide(slot: number): number {
     return this.has(slot, 'heavy_hitter') ? 1 + P.HEAVY_AREA : 1;
   }
 
@@ -305,7 +310,7 @@ export class KeystoneFx {
 
   // ------------------------------------------------------------------ pools
 
-  private wake(slot: number, x0: number, z0: number, x1: number, z1: number, hex: number): void {
+  private wake(slot: number, x0: number, z0: number, x1: number, z1: number, hex: number, width: number): void {
     const len = Math.hypot(x1 - x0, z1 - z0);
     if (len < 0.15) return;
     let w: Wake | null = null;
@@ -315,7 +320,7 @@ export class KeystoneFx {
       for (const c of this.wakes) if (c.dur - c.age < w.dur - w.age) w = c;
     }
     w.active = true; w.slot = slot; w.x = (x0 + x1) / 2; w.z = (z0 + z1) / 2; w.rot = Math.atan2(x1 - x0, z1 - z0);
-    w.len = len + TUNE.WAKE_OVERLAP; w.age = 0; w.dur = P.WAKE_SECONDS; w.hex = hex; w.seed = Math.random(); w.acc = Math.random();
+    w.len = len + TUNE.WAKE_OVERLAP; w.width = width; w.age = 0; w.dur = P.WAKE_SECONDS; w.hex = hex; w.seed = Math.random(); w.acc = Math.random();
   }
 
   private link(kind: number, slot: number, x0: number, z0: number, x1: number, z1: number, dur: number, hex: number, follow = -1): Link {
@@ -389,18 +394,25 @@ export class KeystoneFx {
     const tx = ev.tx ?? ev.x;
     const tz = ev.tz ?? ev.z;
     switch (ev.id) {
-      case 'ember_wake':
-        // a segment of trail (two points); a bare marker only tells the state-driven trail that the sim reports it
-        st.wakeProcAt = this.time;
-        if (far) this.wake(slot, ev.x, ev.z, tx, tz, this.elementHex(slot, 'dash', PALETTE.ember));
+      case 'ember_wake': {
+        // the dash ended: the trail is the segment from its start to its end; r = half width
+        if (!far) break;
+        let mine = 0;
+        let oldest: Wake | null = null;
+        for (const w of this.wakes) if (w.active && w.slot === slot) { mine++; if (!oldest || w.age > oldest.age) oldest = w; }
+        if (mine >= TUNE.WAKE_MAX && oldest) oldest.active = false;
+        this.wake(slot, ev.x, ev.z, tx, tz, this.elementHex(slot, 'dash', PALETTE.ember), (ev.r ?? P.WAKE_WIDTH / 2) * 2);
+        const hex = this.elementHex(slot, 'dash', PALETTE.ember);
+        vfx.flames(tx, 0.2, tz, hex, 5, 0.6, 0.9);
         break;
+      }
       case 'shockstep':
         this.shockstep(st, slot, ev.x, ev.z, ev.r ?? P.SHOCK_RADIUS);
         break;
       case 'phase_walker': {
         // the hero passed through an enemy at (x, z): its after-image hangs there, and the empowered window opens
         const hex = KEYSTONE_COLOR.phase_walker;
-        st.phaseLeft = P.PHASE_SECONDS;
+        if (st.phaseLeft <= 0) { st.phaseLeft = P.PHASE_SECONDS; st.phaseTotal = P.PHASE_SECONDS; }
         this.ghost(slot, ev.x, ev.z, 0.6, hex, own ? 0.85 : 0.4, 1.05, 0.8);
         this.ghost(slot, (ev.x + hx) / 2, (ev.z + hz) / 2, 0.45, hex, own ? 0.5 : 0.25, 1, 0.8);
         vfx.ring(ev.x, ev.z, 0.5, 3, 0.3, hex, 0.3, 1.7);
@@ -410,7 +422,8 @@ export class KeystoneFx {
       }
       case 'ricochet': {
         const hex = this.elementHex(slot, 'primary', TUNE.STEEL);
-        this.link(LK.BOUNCE, slot, ev.x, ev.z, tx, tz, 0.34, hex);
+        this.link(LK.BOUNCE, slot, ev.x, ev.z, tx, tz, 0.5, hex);
+        vfx.ring(ev.x, ev.z, 0.4, 2, 0.22, hex, 0.3, 1.6);
         vfx.sparks(ev.x, 1.1, ev.z, hex, 5, 6);
         break;
       }
@@ -422,17 +435,18 @@ export class KeystoneFx {
         break;
       }
       case 'heavy_hitter':
-        this.heavyImpact(st, slot, ev.x, ev.z);
+        // the release of a primary; the swing itself is drawn from its cast, the impact from its hits
         break;
       case 'twin_cast':
-        // the echo went off at (x, z); if the cast that caused it was seen, the echo is replayed from there instead
-        if (st.echoAt < 0) {
-          vfx.ring(ev.x, ev.z, 0.6, 4, 0.4, TUNE.GHOST, 0.3, 1.6);
+        // the repeat goes off now: the view replays the cast it saw; without one, a bare mark where it happens
+        if (st.echoAt >= 0 && this.replaySlot < 0) { st.echoAt = -1; this.replaySlot = slot; }
+        else if (st.echoAt < 0) {
+          vfx.ring(far ? tx : ev.x, far ? tz : ev.z, 0.6, (ev.r ?? 2) * 2, 0.4, TUNE.GHOST, 0.3, 1.6);
           this.ghost(slot, hx, hz, 0.4, TUNE.GHOST, own ? 0.7 : 0.3);
         }
         break;
       case 'blood_price':
-        this.bloodPrice(st, slot, hero);
+        this.bloodPrice(st, slot, hero, ev.n ?? 0);
         break;
       case 'orbit_blades': {
         // a blade cut something at (x, z)
@@ -464,9 +478,11 @@ export class KeystoneFx {
       case 'glass_cannon':
         vfx.shards(ev.x, 1.1, ev.z, KEYSTONE_COLOR.glass_cannon, 5, 8, 0.3, 0.6);
         break;
-      case 'sanguine':
-        this.leech(st, slot, ev.x, ev.z, true);
+      case 'sanguine': {
+        // health came in (n); the motes themselves fly from the enemies that were struck (onHit)
+        if (hero && !this.foreign(slot)) vfx.ring(hx, hz, 2.6, 0.9, 0.3, KEYSTONE_COLOR.sanguine, 0.2, 1.4);
         break;
+      }
       case 'momentum_engine':
         // n = stacks now
         st.stacksFromProc = true;
@@ -478,17 +494,20 @@ export class KeystoneFx {
         this.shieldBurst(st, slot, ev.x, ev.z, ev.r ?? P.KNIGHT_RADIUS);
         break;
       case 'ks_barbarian':
-        // a whirlwind left where the leap came down (the one on the hero is started by its cast)
-        this.vortex(st, ev.x, ev.z, ev.r ?? CLASSES.barbarian.secondary.radius, CLASSES.barbarian.secondary.duration * (1 + P.WHIRL_LONGER), false, 0);
+        // Whirlwind started: the drag turns around the hero for as long as it spins; r = pull reach
+        this.vortex(st, hx, hz, ev.r ?? CLASSES.barbarian.secondary.radius, CLASSES.barbarian.secondary.duration * (1 + P.WHIRL_LONGER), true, 0);
         break;
       case 'ks_rogue':
         this.fan(st, slot, hero);
         break;
       case 'ks_spellblade':
-        if (hero) this.waves(slot, hx, hz, hero.rot, Math.max(1, Math.round(ev.n ?? 1)), 0, this.elementHex(slot, 'primary', KEYSTONE_COLOR.ks_spellblade));
+        if (hero) this.waves(slot, hx, hz, hero.rot, Math.max(1, Math.min(3, Math.round(ev.n ?? 1))), 0, this.elementHex(slot, 'primary', KEYSTONE_COLOR.ks_spellblade));
         break;
       case 'ks_shade': {
-        st.veilLeft = P.VEIL_SECONDS;
+        // a backstab kill at (x, z): the dark the victim leaves closes around the shade (the veil itself is its buff)
+        if (st.veilLeft <= 0) { st.veilLeft = P.VEIL_SECONDS; st.veilTotal = P.VEIL_SECONDS; }
+        vfx.smoke(ev.x, 0.8, ev.z, PALETTE.shadow, 6, 0.6, 0.4, 0.8, 1.3);
+        this.link(LK.BLOOM, slot, ev.x, ev.z, hx, hz, 0.3, PALETTE.mark);
         vfx.smoke(hx, 0.8, hz, PALETTE.shadow, 8, 0.8, 0.4, 0.9, 1.5);
         vfx.ring(hx, hz, 3.4, 0.8, 0.3, PALETTE.mark, 0.25, 1.5);
         vfx.sparks(hx, 1.1, hz, PALETTE.mark, 8, 5);
@@ -521,25 +540,43 @@ export class KeystoneFx {
       if (own) this.trauma += 0.07;
     }
     if (primary && cls === 'rogue' && st.held.includes('ks_rogue') && def.shape === 'projectile') {
+      // counted for the tell only; the fan itself is announced by its keystoneProc
       st.shots = (st.shots + 1) % P.FAN_EVERY;
-      if (st.shots === 0) this.fan(st, slot, this.heroes.get(slot));
     }
-    if (primary && cls === 'spellblade' && st.held.includes('ks_spellblade')) {
-      this.waves(slot, hx, hz, rot, def.anim === 'primary3' ? 3 : 1, def.windup, color);
-    }
-    if (secondary && st.held.includes('blood_price')) this.bloodPrice(st, slot, this.heroes.get(slot));
     if (secondary && !echo && !this.echoing && st.held.includes('twin_cast')) {
       // the echo is announced by a ghost that stands where the cast was made and casts again when it is due
       st.echoAt = this.time + P.TWIN_DELAY;
       st.echoAbility = def.id; st.echoX = x; st.echoZ = z; st.echoRot = rot;
-      this.ghost(slot, hx, hz, P.TWIN_DELAY + 0.3, TUNE.GHOST, own ? 0.75 : 0.35, 1.05, 0.5);
-      vfx.ring(hx, hz, 3, 1, P.TWIN_DELAY, TUNE.GHOST, 0.2, 1.4);
+      // (it steps out to the hero's right, so the two can be told apart)
+      const gx = hx + Math.cos(rot) * -1.9;
+      const gz = hz - Math.sin(rot) * -1.9;
+      this.ghost(slot, gx, gz, P.TWIN_DELAY + 0.35, TUNE.GHOST, own ? 1 : 0.4, 1.25, 0.35);
+      vfx.ring(gx, gz, 2.6, 0.9, P.TWIN_DELAY, TUNE.GHOST, 0.2, 1.5);
+      vfx.sparks(gx, 1.2, gz, TUNE.GHOST, 6, 4);
     }
-    if (st.held.includes('ks_barbarian')) {
-      const whirl = CLASSES.barbarian.secondary;
-      if (def.id === whirl.id) this.vortex(st, hx, hz, whirl.radius * this.areaMul(slot), whirl.duration * (1 + P.WHIRL_LONGER), true, def.windup);
-      else if (def.shape === 'leap') this.vortex(st, x, z, whirl.radius * this.areaMul(slot), whirl.duration * (1 + P.WHIRL_LONGER), false, def.windup);
-    }
+    void cls; void color;
+  }
+
+  /** `buff` event with a keystone's id: the empowered window of Phase Walker, the shade's veil. Returns true when it was one. */
+  buff(slot: number, id: string, dur: number): boolean {
+    const st = this.slots[slot];
+    if (!st) return false;
+    if (id === 'phase_walker') { st.phaseLeft = dur; st.phaseTotal = Math.max(0.1, dur); return true; }
+    if (id === 'ks_shade') { st.veilLeft = dur; st.veilTotal = Math.max(0.1, dur); return true; }
+    return false;
+  }
+
+  /** `zone` of kind `ks_barbarian`: the maelstrom a Skullsplitter leaves where it lands. */
+  maelstrom(slot: number, x: number, z: number, r: number, dur: number): void {
+    const st = this.slots[slot];
+    if (!st) return;
+    st.maelLeft = dur; st.maelTotal = Math.max(0.1, dur); st.maelX = x; st.maelZ = z; st.maelR = r;
+    this.vfx.ring(x, z, r * 2.2, 1, 0.35, this.elementHex(slot, 'secondary', KEYSTONE_COLOR.ks_barbarian), 0.3, 1.6);
+  }
+
+  /** `chamberClear`: the burning trails go out with the fight. */
+  chamberClear(): void {
+    for (const w of this.wakes) if (w.active && w.dur - w.age > 0.4) w.dur = w.age + 0.4;
   }
 
   /**
@@ -660,7 +697,7 @@ export class KeystoneFx {
     if (!this.foreign(slot)) this.trauma += 0.1;
   }
 
-  private bloodPrice(st: SlotState, slot: number, hero: HeroView | null): void {
+  private bloodPrice(st: SlotState, slot: number, hero: HeroView | null, paid: number): void {
     if (!hero) return;
     const x = hero.x + hero.offX;
     const z = hero.z + hero.offZ;
@@ -682,7 +719,7 @@ export class KeystoneFx {
     const y = HERO_VIS.LABEL_Y + HERO_VIS.HEIGHT * (hero.size - 1);
     // the chip: a slab of the bar that tips off to the right and falls
     vfx.particle(x + 0.45, y - 0.2, z, 1.4, 1.6, 0, 0.55, 0.3, 0.22, c[0] * 1.2, c[1] * 1.2, c[2] * 1.2, 1, SPRITE.SHARD, 0.2, 13, 0.4, 9, 0.4, 0.6);
-    if (own) vfx.number(x, y + 0.2, z, Math.max(1, Math.round(hero.maxHp * P.BLOOD_FRACTION)), TUNE.BLOOD, 0.8, 0, -(slot * 4 + 3), false);
+    if (own) vfx.number(x, y + 0.2, z, Math.max(1, Math.round(paid > 0 ? paid : hero.maxHp * P.BLOOD_FRACTION)), TUNE.BLOOD, 0.8, 0, -(slot * 4 + 3), false);
     hero.hitFlash(c[0], c[1], c[2], 0.55);
   }
 
@@ -705,9 +742,8 @@ export class KeystoneFx {
     const hex = PALETTE.shield;
     const d = r * 2;
     vfx.ring(x, z, 1.2, d * 1.03, 0.4, hex, 0.5, 2.1);
-    vfx.groundFlash(x, z, d, 0.4, hex, 0.7);
-    vfx.flash(x, 1.1, z, PALETTE.white, 2.4, 0.1, 1.1);
-    vfx.flash(x, 1.1, z, hex, r * 1.2, 0.22, 1.2);
+    vfx.groundFlash(x, z, d, 0.4, hex, 0.45);
+    vfx.flash(x, 1.1, z, hex, r * 0.9, 0.2, 1);
     vfx.sparks(x, 1, z, PALETTE.holy, 10, 9);
     // the shield itself flies apart: plates thrown outwards in a ring
     const c = rgb(hex);
@@ -751,8 +787,8 @@ export class KeystoneFx {
     const vfx = this.vfx;
     for (let i = 0; i < count; i++) {
       const a = rot + (count > 1 ? (i - (count - 1) / 2) * 0.32 : 0);
-      vfx.streak(x + Math.sin(a) * 1.2, z + Math.cos(a) * 1.2, a, 5.2, 1.5, 0.34, hex, delay);
-      vfx.slash(x + Math.sin(a) * 1.4, z + Math.cos(a) * 1.4, a, 2.3, 1.9, 0.3, hex, i % 2 === 0 ? 1 : -1, delay, -1, 1.8);
+      vfx.streak(x + Math.sin(a) * 1.2, z + Math.cos(a) * 1.2, a, 5.2, count > 1 ? 1 : 1.5, 0.34, hex, delay);
+      vfx.slash(x + Math.sin(a) * 1.4, z + Math.cos(a) * 1.4, a, 2.3, 1.9, 0.3, hex, i % 2 === 0 ? 1 : -1, delay, -1, count > 1 ? 1.1 : 1.6);
     }
     vfx.ring(x + Math.sin(rot) * 1.4, z + Math.cos(rot) * 1.4, 0.6, 2.6 + count * 0.5, 0.26, hex, 0.3, 1.6, delay);
     if (count > 1 && !this.foreign(slot)) this.trauma += 0.08;
@@ -808,7 +844,7 @@ export class KeystoneFx {
     for (let s = 0; s < this.slots.length; s++) {
       const st = this.slots[s];
       const h = this.heroes.get(s);
-      if (!h) { st.seen = false; st.dashing = false; st.famInit = false; continue; }
+      if (!h) { st.seen = false; st.famInit = false; continue; }
       const alive = h.state === 'alive';
       const own = !this.foreign(s);
       // size (Colossus) eases in so taking the keystone is a visible growth
@@ -868,37 +904,8 @@ export class KeystoneFx {
       }
       st.px = x; st.pz = z;
 
-      // dash: the burning trail is laid from where the hero is drawn, and the shockwave where the dash ends
-      const dashing = alive && h.anim === 'dash';
-      const wake = st.held.includes('ember_wake') && this.time - st.wakeProcAt > 1;
-      if (dashing && !st.dashing) { st.segX = x; st.segZ = z; }
-      if (dashing && wake) {
-        const d = Math.hypot(x - st.segX, z - st.segZ);
-        if (d >= TUNE.WAKE_STEP) {
-          this.wake(s, st.segX, st.segZ, x, z, this.elementHex(s, 'dash', PALETTE.ember));
-          st.segX = x; st.segZ = z;
-        }
-      }
-      if (!dashing && st.dashing) {
-        if (wake) this.wake(s, st.segX, st.segZ, x, z, this.elementHex(s, 'dash', PALETTE.ember));
-        if (st.held.includes('shockstep') && alive) {
-          this.vfx.owner(own ? OWNER.SELF : OWNER.ALLY);
-          this.shockstep(st, s, x, z, P.SHOCK_RADIUS * this.areaMul(s));
-          this.vfx.owner(OWNER.WORLD);
-        }
-      }
-      st.dashing = dashing;
-
-      // Shieldburst without its event: the shield was there and is gone
-      if (st.held.includes('ks_knight') && st.shield > 0.5 && h.shield <= 0 && alive) {
-        this.vfx.owner(own ? OWNER.SELF : OWNER.ALLY);
-        this.shieldBurst(st, s, x, z, P.KNIGHT_RADIUS * this.areaMul(s));
-        this.vfx.owner(OWNER.WORLD);
-      }
-      st.shield = h.shield;
-
-      // Arc Stream: channelling = the primary animation is held
-      const channel = alive && st.held.includes('ks_mage') && (h.anim === 'primary1' || h.anim === 'primary2' || h.anim === 'primary3');
+      // Arc Stream: the snapshot says when the mage is channelling
+      const channel = alive && st.held.includes('ks_mage') && (h.flags & PF.CHANNELING) !== 0;
       st.streamHold = channel ? TUNE.STREAM_HOLD : Math.max(0, st.streamHold - dt);
       st.stream += ((st.streamHold > 0 ? 1 : 0) - st.stream) * Math.min(1, dt * 16);
 
@@ -947,9 +954,9 @@ export class KeystoneFx {
       else {
         const c = rgb(st.pillarHex);
         const rise = Math.min(1, k * 5);
-        const fade = (1 - k) * (1 - k);
-        const a = (own ? 0.95 : quiet ? 0.3 : 0.5) * fade;
-        const wide = (own ? 2.6 : 1.5) * (1.2 - 0.5 * k);
+        const fade = k < 0.55 ? 1 : 1 - (k - 0.55) / 0.45;
+        const a = (own ? 1 : quiet ? 0.3 : 0.5) * fade;
+        const wide = (own ? 3.4 : 1.5) * (1.2 - 0.4 * k);
         fx.push(SPRITE.COLUMN, x, 0.05, z, wide, TUNE.PILLAR_HEIGHT * rise, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, a, 1, 1, 0, 0, TUNE.PILLAR_HEIGHT * rise * 0.5);
         if (own) fx.push(SPRITE.COLUMN, x, 0.05, z, wide * 0.4, TUNE.PILLAR_HEIGHT * rise * 1.1, 1.4, 1.4, 1.4, a * 0.8, 1, 1, 0, 0, TUNE.PILLAR_HEIGHT * rise * 0.55);
         decals.push(DECAL.RUNE, x, 0.048, z, time * 2.4, 3.2 + k * 1.2, 3.2 + k * 1.2, c[0] * 1.6, c[1] * 1.6, c[2] * 1.6, (own ? 0.9 : 0.4) * fade, 0.8, k);
@@ -968,7 +975,7 @@ export class KeystoneFx {
       const y = HERO_VIS.LABEL_Y + tall + h.lift;
       if (uv && h.root.visible) {
         const s = TUNE.BADGE * pop * (own ? 1 : 0.9);
-        ui.push(SPRITE.GLOW, x, y, z, s * 1.5, s * 1.5, 0, 0, 0, 0.55, 0, 0.8, 0, side * TUNE.BADGE_X, TUNE.BADGE_Y);
+        ui.push(SPRITE.GLOW, x, y, z, s * 1.4, s * 1.4, 0, 0, 0, 0.4, 0, 0.8, 0, side * TUNE.BADGE_X, TUNE.BADGE_Y);
         ui.push(SPRITE.ATLAS, x, y, z, s, s, Math.min(1.3, c[0] * 1.3 + 0.18), Math.min(1.3, c[1] * 1.3 + 0.18), Math.min(1.3, c[2] * 1.3 + 0.18), 1,
           0, 0, 0, side * TUNE.BADGE_X, TUNE.BADGE_Y, uv[0], uv[1], uv[2], uv[3]);
       }
@@ -993,7 +1000,7 @@ export class KeystoneFx {
           if (st.phaseLeft <= 0) break;
           // the empowered window: a ring that runs down, and a star at the weapon that is the promised crit
           const c = rgb(KEYSTONE_COLOR.phase_walker);
-          const frac = st.phaseLeft / P.PHASE_SECONDS;
+          const frac = st.phaseLeft / st.phaseTotal;
           decals.push(DECAL.PROGRESS, x, 0.05, z, h.rot, ringD + 0.95, ringD + 0.95, c[0] * 1.6, c[1] * 1.6, c[2] * 1.6, own ? 0.95 : 0.5, 0.6, frac);
           if (!quiet) fx.push(SPRITE.GLOW, x, h.lift + 1.15, z, 2.6, 3, c[0], c[1], c[2], 0.2 * lv, 1, 0);
           if (h.hand && h.root.visible) {
@@ -1106,7 +1113,7 @@ export class KeystoneFx {
           this.drawRush(st, slot, h, x, z, dt, own, quiet, ringD, decals, fx);
           break;
         case 'ks_barbarian':
-          this.drawVortex(st, slot, h, x, z, dt, own, quiet, decals);
+          this.drawVortex(st, slot, x, z, dt, own, quiet, decals);
           break;
         case 'ks_mage':
           this.drawStream(st, slot, h, x, z, dt, own, quiet, decals, fx);
@@ -1141,7 +1148,7 @@ export class KeystoneFx {
           const c = rgb(PALETTE.mark);
           const squash = 0.62;
           if (own) {
-            decals.push(DECAL.PROGRESS, x, 0.05, z, h.rot, ringD + 0.95, ringD + 0.95, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, 0.9 * st.veilK, 0.5, st.veilLeft / P.VEIL_SECONDS);
+            decals.push(DECAL.PROGRESS, x, 0.05, z, h.rot, ringD + 0.95, ringD + 0.95, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, 0.9 * st.veilK, 0.5, st.veilLeft / st.veilTotal);
             if (Math.random() < dt * 9 * vfx.density) vfx.smoke(x, 0.3 + Math.random() * 1.2, z, PALETTE.shadow, 1, 0.5, 0.3, 0.6, 0.9);
             fx.push(SPRITE.GLOW, x, h.lift + 1.1, z, 2.2, 2.8, c[0] * 0.5, c[1] * 0.5, c[2] * 0.6, 0.22 * st.veilK, 1, 0);
           } else {
@@ -1161,7 +1168,7 @@ export class KeystoneFx {
     const turn = (P.BLADE_RPM / 60) * Math.PI * 2;
     // the simulation's tick drives the angle when there is one, so the blades are where they cut
     const base = (this.tick > 0 ? this.tick * TICK_DT : this.time) * turn;
-    const r = P.BLADE_RADIUS;
+    const r = P.BLADE_RADIUS * this.areaMul(slot);
     const y = TUNE.BLADE_Y + h.lift;
     const a0 = own ? 1 : lv;
     if (own) decals.push(DECAL.SHOCK, x, 0.042, z, 0, r * 2 + 0.3, r * 2 + 0.3, c[0], c[1], c[2], 0.16, 1, 0.06);
@@ -1213,7 +1220,9 @@ export class KeystoneFx {
         this.vfx.particle(fx0, y - 0.1, fz0, 0, -0.5, 0, 0.5, 0.2, 0.03, c[0] * 1.8, c[1] * 1.8, c[2] * 1.8, 0.8, SPRITE.GLOW, 1, 0, 0, 0, 1);
       }
     }
-    // the wisp itself: a hard bright core everyone sees
+    // the wisp itself: a hard bright core everyone sees, on a breath of shade so it also reads over lit floor
+    fx.push(SPRITE.GLOW, fx0, y, fz0, s * 2.1, s * 2.1, 0, 0.02, 0.02, 0.5, 0, 0.6);
+    fx.push(SPRITE.HOOP, fx0, y, fz0, s * 1.9, s * 1.9, c[0] * 1.4, c[1] * 1.4, c[2] * 1.4, own ? 0.8 : 0.45, 0.6, 0.05);
     fx.push(SPRITE.GLOW, fx0, y, fz0, s, s, c[0] * 1.6 + 0.3, c[1] * 1.6 + 0.3, c[2] * 1.6 + 0.3, own ? 1 : 0.75, 1, 1.6);
     fx.push(SPRITE.SHARD, fx0, y - s * 0.75, fz0, s * 0.42, s * 0.8, c[0] * 1.3, c[1] * 1.3, c[2] * 1.3, own ? 0.85 : 0.5, 0.7, 1, Math.PI);
   }
@@ -1253,28 +1262,33 @@ export class KeystoneFx {
     void fx;
   }
 
-  private drawVortex(st: SlotState, slot: number, h: HeroView, x: number, z: number, dt: number, own: boolean, quiet: boolean, decals: DecalBatch): void {
+  private drawVortex(st: SlotState, slot: number, x: number, z: number, dt: number, own: boolean, quiet: boolean, decals: DecalBatch): void {
+    if (st.maelLeft > 0) {
+      st.maelLeft -= dt;
+      this.drawSpiral(slot, st.maelX, st.maelZ, st.maelR, Math.min(1, (st.maelTotal - st.maelLeft) * 6, st.maelLeft * 3), dt, own, quiet, decals);
+    }
     if (st.vortexLeft <= 0) return;
     if (st.vortexDelay > 0) { st.vortexDelay -= dt; return; }
     st.vortexLeft -= dt;
-    const vx = st.vortexFollow ? x : st.vortexX;
-    const vz = st.vortexFollow ? z : st.vortexZ;
+    this.drawSpiral(slot, st.vortexFollow ? x : st.vortexX, st.vortexFollow ? z : st.vortexZ, st.vortexR, Math.min(1, (st.vortexTotal - st.vortexLeft) * 6, st.vortexLeft * 3),
+      dt, own, quiet, decals);
+  }
+
+  private drawSpiral(slot: number, vx: number, vz: number, radius: number, k: number, dt: number, own: boolean, quiet: boolean, decals: DecalBatch): void {
     const c = rgb(this.elementHex(slot, 'secondary', KEYSTONE_COLOR.ks_barbarian));
-    const k = Math.min(1, (st.vortexTotal - st.vortexLeft) * 6, st.vortexLeft * 3);
-    const d = st.vortexR * 2 * 1.08;
+    const d = radius * 2 * 1.08;
     // the drag: arms turning inwards, dust and sparks pulled to the middle
-    decals.push(DECAL.VORTEX, vx, 0.046, vz, 0, d, d, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, (own ? 0.85 : quiet ? 0.35 : 0.5) * k, quiet ? 0.3 : 1, own ? 0.7 : 0.2, 7);
+    decals.push(DECAL.VORTEX, vx, 0.046, vz, 0, d, d, c[0] * 1.5, c[1] * 1.5, c[2] * 1.5, (own ? 0.6 : quiet ? 0.3 : 0.4) * k, quiet ? 0.3 : 0.8, own ? 0.35 : 0.1, 7);
     if (quiet) return;
     const vfx = this.vfx;
     if (Math.random() < dt * 40 * vfx.density) {
       const a = Math.random() * Math.PI * 2;
-      const r = st.vortexR * (0.9 + Math.random() * 0.3);
+      const r = radius * (0.9 + Math.random() * 0.3);
       const t = 0.32;
       vfx.particle(vx + Math.sin(a) * r, 0.3 + Math.random() * 0.8, vz + Math.cos(a) * r, (-Math.sin(a) * r) / t + Math.cos(a) * 4, 0.4, (-Math.cos(a) * r) / t - Math.sin(a) * 4,
         t, 0.2, 0.05, c[0] * 2, c[1] * 2, c[2] * 2, 0.95, SPRITE.SPARK, 1, 0, 0, 6);
     }
-    if (Math.random() < dt * 12 * vfx.density) vfx.puff(vx + (Math.random() - 0.5) * st.vortexR * 1.6, 0.25, vz + (Math.random() - 0.5) * st.vortexR * 1.6, TUNE.DUST, 1, 0.3, 0.3);
-    void h;
+    if (Math.random() < dt * 12 * vfx.density) vfx.puff(vx + (Math.random() - 0.5) * radius * 1.6, 0.25, vz + (Math.random() - 0.5) * radius * 1.6, TUNE.DUST, 1, 0.3, 0.3);
   }
 
   private drawStream(
@@ -1300,7 +1314,7 @@ export class KeystoneFx {
     const hex = this.elementHex(slot, 'primary', PALETTE.arcane);
     const c = rgb(hex);
     const y = TUNE.STREAM_Y + h.lift;
-    const w = P.STREAM_WIDTH;
+    const w = P.STREAM_WIDTH * this.heavyWide(slot);
     const flick = 0.85 + 0.15 * Math.sin(this.time * 38);
     if (!own) {
       // another mage's stream: the line of it, no light
@@ -1333,7 +1347,7 @@ export class KeystoneFx {
       const out = k > 0.8 ? 1 - (k - 0.8) / 0.2 : 1;
       const own = !this.foreign(w.slot);
       const quiet = !own && CL.outlines;
-      const width = P.WAKE_WIDTH;
+      const width = w.width;
       if (quiet) {
         // another hero's trail: where it burns, as an outline
         decals.push(DECAL.WAKE, w.x, 0.047, w.z, w.rot, width, w.len, c[0] * 1.4, c[1] * 1.4, c[2] * 1.4, 0.6 * fadeIn * out, 0.6, k * 0.5, w.seed, 1);
@@ -1399,7 +1413,7 @@ export class KeystoneFx {
           // a blade spinning along the line, the line staying a moment as the path it took
           const fly = Math.min(1, l.age / (l.dur * 0.45));
           const fade = k < 0.45 ? 1 : 1 - (k - 0.45) / 0.55;
-          decals.push(DECAL.THREAD, mx, 1.0, mz, rot, quiet ? 0.2 : 0.34, len, c[0] * 1.6, c[1] * 1.6, c[2] * 1.6, fade * (own ? 0.95 : 0.5), 0.8, 0, -1);
+          decals.push(DECAL.THREAD, mx, 1.0, mz, rot, quiet ? 0.22 : 0.5, len, c[0] * 1.6, c[1] * 1.6, c[2] * 1.6, fade * (own ? 0.95 : 0.5), 0.8, 0, -1);
           if (fly < 1) {
             const bx = l.x0 + dx * fly;
             const bz = l.z0 + dz * fly;
@@ -1422,8 +1436,9 @@ export class KeystoneFx {
           const bz = l.z0 + dz * e;
           const y = l.kind === LK.CHARGE ? 1.2 : 0.9 + Math.sin(k * Math.PI) * 0.7;
           const big = l.kind === LK.CHARGE;
-          if (big) decals.push(DECAL.THREAD, mx, 0.06, mz, rot, 0.5, len, c[0] * 1.6, c[1] * 1.6, c[2] * 1.6, (1 - k) * (own ? 0.9 : 0.45), 1, 7, e);
-          fx.push(SPRITE.GLOW, bx, y, bz, big ? 1.1 : 0.42, big ? 1.1 : 0.42, c[0] * 1.6 + (big ? 0.3 : 0), c[1] * 1.6 + (big ? 0.3 : 0), c[2] * 1.6 + (big ? 0.3 : 0),
+          if (big) decals.push(DECAL.THREAD, mx, 0.06, mz, rot, 0.9, len, c[0] * 1.6, c[1] * 1.6, c[2] * 1.6, (1 - k) * (own ? 0.9 : 0.45), 1, 7, e);
+          if (!big && own) decals.push(DECAL.THREAD, mx, 0.055, mz, rot, 0.22, len, c[0] * 1.4, c[1] * 1.4, c[2] * 1.4, 0.5 * (1 - k), 0.6, 0, -1);
+          fx.push(SPRITE.GLOW, bx, y, bz, big ? 1.1 : 0.62, big ? 1.1 : 0.62, c[0] * 1.6 + (big ? 0.3 : 0), c[1] * 1.6 + (big ? 0.3 : 0), c[2] * 1.6 + (big ? 0.3 : 0),
             (own ? 0.95 : 0.5), big ? 1 : 0.7, 1.2);
           if (!quiet) fx.push(SPRITE.GLOW, bx - (dx / len) * 0.35, y, bz - (dz / len) * 0.35, big ? 0.7 : 0.3, big ? 0.7 : 0.3, c[0], c[1], c[2], 0.5 * lv, big ? 1 : 0.7, 0.4);
           if (k > 0.86 && !l.done) {
@@ -1472,7 +1487,8 @@ export class KeystoneFx {
       const c = rgb(g.hex);
       const a = g.alpha * Math.min(1, g.age * 14) * (1 - k * k);
       const h = HERO_VIS.HEIGHT * g.size;
-      fx.push(SPRITE.FIGURE, g.x, h * 0.5, g.z, 1.15 * g.size, h, c[0] * 1.3, c[1] * 1.3, c[2] * 1.3, a, 0.85, g.scan);
+      fx.push(SPRITE.GLOW, g.x, h * 0.5, g.z, 1.5 * g.size, h * 1.1, c[0], c[1], c[2], a * 0.22, 1, 0);
+      fx.push(SPRITE.FIGURE, g.x, h * 0.5, g.z, 1.3 * g.size, h, c[0] * 1.4, c[1] * 1.4, c[2] * 1.4, a, 0.7, g.scan);
     }
   }
 
@@ -1483,18 +1499,18 @@ export class KeystoneFx {
     for (const g of this.ghosts) g.active = false;
     for (const c of this.corpses) c.at = -100;
     for (const st of this.slots) {
-      st.dashing = false; st.seen = false; st.famInit = false; st.vortexLeft = 0; st.echoAt = -1; st.veilLeft = 0; st.phaseLeft = 0; st.stream = 0; st.streamHold = 0;
+      st.maelLeft = 0; st.seen = false; st.famInit = false; st.vortexLeft = 0; st.echoAt = -1; st.veilLeft = 0; st.phaseLeft = 0; st.stream = 0; st.streamHold = 0;
       st.lastT.fill(-100);
     }
     this.replaySlot = -1;
     this.trauma = 0;
   }
 
-  /** Session over: nobody holds anything. */
+  /** Session over. */
   reset(): void {
     this.clear();
+    // what a hero holds stays with the roster (setRoster); only what it built up during the session goes
     for (const st of this.slots) {
-      st.held.length = 0;
       st.stacks = 0; st.stackLeft = 0; st.stacksFromProc = false; st.shots = 0; st.size = 1; st.pillarAge = -1; st.bloodPulse = 0; st.chargeFlash = 0; st.veilK = 0;
     }
   }

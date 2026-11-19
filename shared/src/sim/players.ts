@@ -9,6 +9,7 @@ import { emptyStats, maxDashCharges } from './boons.ts';
 import { buildAbilities, noSetTiers, permanentOf, refreshHero, sanitizeBuild } from './build.ts';
 import { dotHero, reviveHero } from './combat.ts';
 import { clamp, finite, TAU } from './geom.ts';
+import { dashHaste, onDashEnd, onDashMove, resetKeystoneTimers, stepKeystones } from './keystones.ts';
 import { computeMeta } from './meta.ts';
 import { emptyMods } from '../data/mods.ts';
 import { emptyKeystoneState } from './ksState.ts';
@@ -82,6 +83,7 @@ export function placeHero(h: Hero, x: number, z: number): void {
   h.revive = 0;
   h.burnTime = 0;
   h.chillTime = 0;
+  resetKeystoneTimers(h);
 }
 
 /** Untrusted input: every field is forced into its legal range before it reaches the simulation. */
@@ -130,12 +132,17 @@ export function stepHero(w: World, h: Hero): void {
     stepMovement(h.body, cmd.moveX, cmd.moveZ, dt, w.room);
     if (dashing) {
       if (h.lunge) lungeSweep(w, h, fromX, fromZ);
-      else if (!h.flight) dashSweep(w, h, fromX, fromZ);
+      else if (!h.flight) {
+        dashSweep(w, h, fromX, fromZ);
+        onDashMove(w, h, fromX, fromZ);
+      }
     }
+    if (h.ks.dashing && h.body.dashTime <= SIM.EPS) onDashEnd(w, h);
     if (h.lunge && h.body.dashTime <= SIM.EPS) h.lunge = null;
     stepAbilities(w, h, dt);
     h.rot = h.body.dashTime > SIM.EPS ? Math.atan2(h.body.dashDirX, h.body.dashDirZ) : cmd.aim;
   } else {
+    if (h.ks.dashing) onDashEnd(w, h, true);
     h.body.moveSpeed = 0;
     h.body.dashTime = 0;
     h.pressPrimary = 0;
@@ -196,7 +203,7 @@ export function stepHero(w: World, h: Hero): void {
   }
   const maxCharges = maxDashCharges(h);
   if (h.dashCharges < maxCharges) {
-    h.dashRecharge -= dt;
+    h.dashRecharge -= dt * dashHaste(h);
     if (h.dashRecharge <= SIM.EPS) {
       h.dashCharges++;
       h.dashRecharge = h.dashCharges < maxCharges ? dashRechargeSeconds(h) : 0;
@@ -204,6 +211,8 @@ export function stepHero(w: World, h: Hero): void {
   } else {
     h.dashRecharge = 0;
   }
+
+  stepKeystones(w, h, dt);
 
   // Passive animation once the action clip has finished.
   if (h.state !== 'alive') {

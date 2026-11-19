@@ -12,13 +12,16 @@
  * the first run), --quiet, --meta max (every bot claims all permanent upgrades and a mastered class: level 10, the
  * art, the first talent of every tier; default: none), --descend [N] (after a final boss take the descend door,
  * always or until depth N; default: ascend), --tutorial (one bot plays the training session instead of a run;
- * implies --create --bots 1), --objectives (prefer doors with a special objective).
+ * implies --create --bots 1), --objectives (prefer doors with a special objective), --keystone id[,id] (keystone
+ * drafts: take these whenever they are offered, replacing the weakest other keystone if need be; start the server
+ * with DEBUG_KEYSTONES=id[,id] so that every keystone draft offers them).
  */
 import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
 import { NET, TICK_DT } from '../../../shared/src/constants.ts';
 import { RUN } from '../../../shared/src/constants.ts';
 import { CLASSES } from '../../../shared/src/data/classes.ts';
+import { KEYSTONE_BY_ID } from '../../../shared/src/data/keystones.ts';
 import { MASTERY } from '../../../shared/src/data/mastery.ts';
 import { DEFAULT_LOOK, META_UPGRADES, PARAGON } from '../../../shared/src/data/meta.ts';
 import { decodeSnapshot, encodeInput, type ClientMsg, type ServerMsg } from '../../../shared/src/protocol.ts';
@@ -40,6 +43,8 @@ export interface BotClientOptions {
   descendTo?: number;
   /** Door choice: prefer doors with a special objective. */
   preferObjectives?: boolean;
+  /** Keystone drafts: ids to take whenever they are offered. */
+  keystones?: string[];
   /** Host only: start once this many players are connected and everyone else is ready. */
   startWhenPlayers?: number;
   /** Host only: oath level to set. */
@@ -126,6 +131,8 @@ export class BotClient {
   inputsSent = 0;
   maxAck = 0;
   runsEnded = 0;
+  /** Keystone drafts this bot was offered. */
+  keystoneDrafts = 0;
   lastError = '';
   rttMs = 0;
   closed = false;
@@ -163,7 +170,7 @@ export class BotClient {
     };
     this.inbound = new DelayLine(opts.latencyMs ?? 0, opts.jitterMs ?? 0, rand);
     this.outbound = new DelayLine(opts.latencyMs ?? 0, opts.jitterMs ?? 0, rand);
-    this.brain = new BotBrain(0, opts.cls, opts.seed ?? 1, { descendTo: opts.descendTo, preferObjectives: opts.preferObjectives });
+    this.brain = new BotBrain(0, opts.cls, opts.seed ?? 1, { descendTo: opts.descendTo, preferObjectives: opts.preferObjectives, keystones: opts.keystones });
   }
 
   private log(line: string): void {
@@ -295,7 +302,7 @@ export class BotClient {
         this.reconnects = 0;
         this.seq = 0;
         this.maxAck = 0;
-        this.brain = new BotBrain(msg.slot, this.opts.cls, this.opts.seed ?? 1, { descendTo: this.opts.descendTo, preferObjectives: this.opts.preferObjectives });
+        this.brain = new BotBrain(msg.slot, this.opts.cls, this.opts.seed ?? 1, { descendTo: this.opts.descendTo, preferObjectives: this.opts.preferObjectives, keystones: this.opts.keystones });
         this.startLoops();
         welcomed();
         this.onWelcome?.();
@@ -310,7 +317,7 @@ export class BotClient {
         break;
       case 'draft':
         this.rerolls = msg.rerolls;
-        this.onDraft(msg.options);
+        this.onDraft(msg.options, msg.keystone);
         break;
       case 'ev':
         this.brain.observe(msg.events, msg.tick);
@@ -369,13 +376,20 @@ export class BotClient {
     }
   }
 
-  private onDraft(options: BoonOffer[]): void {
+  private onDraft(options: BoonOffer[], keystone?: { held: string[]; skip: number }): void {
     if (this.pickTimer) clearTimeout(this.pickTimer);
     this.pickTimer = null;
     if (options.length === 0) return;
     const boons = this.roster.find((p) => p.slot === this.slot)?.boons ?? [];
-    const index = this.brain.chooseBoon(options, boons);
-    this.pickTimer = setTimeout(() => this.send({ t: 'pick', index }), BOT_CLIENT.PICK_DELAY_MS / this.scale);
+    let pick: ClientMsg;
+    if (keystone) {
+      this.keystoneDrafts++;
+      const choice = this.brain.chooseKeystone(options, keystone.held, keystone.skip, boons);
+      pick = choice.replace !== undefined ? { t: 'pick', index: choice.index, replace: choice.replace } : { t: 'pick', index: choice.index };
+    } else {
+      pick = { t: 'pick', index: this.brain.chooseBoon(options, boons) };
+    }
+    this.pickTimer = setTimeout(() => this.send(pick), BOT_CLIENT.PICK_DELAY_MS / this.scale);
   }
 
   private onSnapshot(bytes: Uint8Array): void {
@@ -412,8 +426,11 @@ export class BotClient {
     const run = this.run;
     const snap = this.snapshot;
     if (!run || !snap || run.phase === 'lobby' || run.phase === 'victory' || run.phase === 'defeat') return;
-    const art = this.roster.find((p) => p.slot === this.slot)?.art ?? 0;
-    const view: BotView = { tick: snap.tick, slot: this.slot, cls: this.opts.cls, players: snap.players, enemies: snap.enemies, projectiles: snap.projectiles, run, art };
+    const me = this.roster.find((p) => p.slot === this.slot);
+    const view: BotView = {
+      tick: snap.tick, slot: this.slot, cls: this.opts.cls, players: snap.players, enemies: snap.enemies, projectiles: snap.projectiles, run,
+      art: me?.art ?? 0, keystones: me?.keystones ?? [],
+    };
     const cmd = this.brain.think(view);
     // The client owns the sequence numbers (monotonic per connection).
     cmd.seq = ++this.seq;
@@ -444,13 +461,15 @@ interface Args {
   descendTo: number;
   /** Bots prefer doors with a special objective. */
   objectives: boolean;
+  /** Keystones the bots take whenever they are offered. */
+  keystones: string[];
 }
 
 /** `--descend` without a number: keep descending for as long as the party lives (soak tests). */
 const DESCEND_FOREVER = 1e9;
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { url: 'ws://localhost:8787', code: '', create: false, bots: 1, classes: [], name: 'Bot', latency: 0, jitter: 0, once: false, quiet: false, timeScale: 1, metaMax: false, tutorial: false, descendTo: 0, objectives: false };
+  const args: Args = { url: 'ws://localhost:8787', code: '', create: false, bots: 1, classes: [], name: 'Bot', latency: 0, jitter: 0, once: false, quiet: false, timeScale: 1, metaMax: false, tutorial: false, descendTo: 0, objectives: false, keystones: [] };
   const num = (v: string | undefined, name: string): number => {
     const n = Number(v);
     if (v === undefined || !Number.isFinite(n)) throw new Error(`--${name} needs a number`);
@@ -493,6 +512,14 @@ function parseArgs(argv: string[]): Args {
       }
       case '--tutorial': args.tutorial = true; args.create = true; args.bots = 1; break;
       case '--objectives': args.objectives = true; break;
+      case '--keystone': {
+        for (const id of (value ?? '').split(',')) {
+          if (!KEYSTONE_BY_ID.has(id)) throw new Error(`unknown keystone "${id}"`);
+          args.keystones.push(id);
+        }
+        i++;
+        break;
+      }
       case '--quiet': args.quiet = true; break;
       default: throw new Error(`unknown argument "${flag}"`);
     }
@@ -521,7 +548,7 @@ async function cli(): Promise<void> {
       startWhenPlayers: hosting ? (args.wait ?? args.bots) : undefined, oath: hosting ? args.oath : undefined,
       relobbyAfterMs: hosting && !args.once ? 6000 : undefined, latencyMs: args.latency, jitterMs: args.jitter,
       timeScale: args.timeScale, seed: 1 + i, reconnect: true, log, tutorial: args.tutorial,
-      loadout: args.metaMax ? maxLoadout(cls) : defaultLoadout(), descendTo: args.descendTo, preferObjectives: args.objectives,
+      loadout: args.metaMax ? maxLoadout(cls) : defaultLoadout(), descendTo: args.descendTo, preferObjectives: args.objectives, keystones: args.keystones,
     });
     bot.onRunEnd = (phase, run) => {
       const reward = run.rewards.find((r) => r.slot === bot.slot);
@@ -530,6 +557,8 @@ async function cli(): Promise<void> {
         ? `tutorial ${phase === 'victory' ? 'completed' : 'failed'} (${run.tutorial.total} steps)`
         : `run over: ${phase} at depth ${run.depth}, chamber ${run.chamber + 1}/${RUN.CHAMBERS.length} vs ${run.finalBoss}, bosses slain ${run.cleared}, objectives ${run.objectivesDone} (${run.objectiveBonuses} with bonus), ultimates ${stats?.ultimates ?? 0}`;
       const relics = reward && reward.relics.length > 0 ? reward.relics.join(',') : 'none';
+      const held = bot.roster.find((p) => p.slot === bot.slot)?.keystones ?? [];
+      say(`[${bot.opts.name}] keystones: ${held.length > 0 ? held.join(',') : 'none'} (${bot.keystoneDrafts} keystone drafts)`);
       say(`[${bot.opts.name}] ${what} after ${Math.round(run.elapsed)} s, +${reward?.glimmer ?? 0} glimmer, +${reward?.xp ?? 0} xp, relics ${relics} (snapshots ${bot.snapshots}, rtt ${Math.round(bot.rttMs)} ms)`);
       if (args.once && ++finished >= bots.length) shutdown(0);
     };

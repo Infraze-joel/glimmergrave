@@ -7,7 +7,7 @@ import { RUN, TICK_DT, WORLD } from '../constants.ts';
 import { ENEMIES, ENEMY_TUNING, STATUS } from '../data/enemies.ts';
 import { AFFIX_IDS, type AffixId, type ElementId, type EnemyAnim, type EnemyKind, type GameEvent, type Hazard } from '../types.ts';
 import { BUFFS } from '../data/classes.ts';
-import { chillSlow, clearStatus, damageHero, enemyDamage, isBoss, moveSlow, rawDamageEnemy } from './combat.ts';
+import { allDamage, chillSlow, clearStatus, damageHero, enemyDamage, isBoss, moveSlow, rawDamageEnemy } from './combat.ts';
 import { stepBoss, createBossState } from './boss.ts';
 import { angleTo, closestT, DEG, inArc, inLine, sweepHit, TAU } from './geom.ts';
 import { firstSpecial, flyReaver, isHorde, resolveHordeAttack, stepDome, stepHorde } from './horde.ts';
@@ -117,6 +117,23 @@ export function spawnEnemy(w: World, kind: EnemyKind, x: number, z: number, opts
 
 export const isTargetHero = (h: Hero): boolean => h.state === 'alive' && h.connected;
 
+/** Can enemies pick this hero as their target? (A veiled shade can still be hurt, but nobody goes after it.) */
+export const isSeenHero = (h: Hero): boolean => isTargetHero(h) && h.ks.veilTime <= 0;
+
+/** Nearest hero enemies can see; if every hero is veiled, nobody. */
+export function nearestSeenHero(w: World, x: number, z: number): Hero | null {
+  let best: Hero | null = null;
+  let bestD = Infinity;
+  for (const h of w.heroes) {
+    if (!isSeenHero(h)) continue;
+    const dx = h.body.x - x;
+    const dz = h.body.z - z;
+    const d = dx * dx + dz * dz;
+    if (d < bestD) { bestD = d; best = h; }
+  }
+  return best;
+}
+
 export function nearestHero(w: World, x: number, z: number): Hero | null {
   let best: Hero | null = null;
   let bestD = Infinity;
@@ -150,11 +167,11 @@ export function pickTarget(w: World, e: Enemy, dt: number): Hero | null {
   }
   const current = w.hero(e.target);
   e.retarget -= dt;
-  if (current && isTargetHero(current) && e.retarget > 0) return current;
+  if (current && isSeenHero(current) && e.retarget > 0) return current;
   e.retarget = AI.RETARGET_SECONDS;
-  const nearest = nearestHero(w, e.x, e.z);
+  const nearest = nearestSeenHero(w, e.x, e.z);
   if (!nearest) { e.target = -1; return null; }
-  if (current && isTargetHero(current) && current !== nearest) {
+  if (current && isSeenHero(current) && current !== nearest) {
     const dc = Math.hypot(current.body.x - e.x, current.body.z - e.z);
     const dn = Math.hypot(nearest.body.x - e.x, nearest.body.z - e.z);
     if (dn > dc * AI.STICKINESS) return current;

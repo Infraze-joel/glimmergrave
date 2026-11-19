@@ -7,10 +7,13 @@ import { BTN, ELEMENT_IDS, type AbilitySlot, type ElementId, type InputCmd } fro
 import { heroElements } from './boons.ts';
 import { applyElement, grantShield, healHero, isTargetable, strikeEnemy } from './combat.ts';
 import { clamp, DEG, inArc, segDist } from './geom.ts';
+import { KEYSTONE_CAPS } from '../data/keystones.ts';
+import { onBolt, onDashStart, onMeleeSwing, proc, spinPulse, streamPulse, tempest } from './keystones.ts';
+import { KP } from './ksState.ts';
 import { resolveCollisions, startDash } from './movement.ts';
 import { popFragileArc, popFragileCircle, popFragileSegment, spawnProjectile } from './projectiles.ts';
 import type { Enemy, Hero, PendingHit } from './state.ts';
-import { SIM, TALENT } from './tuning.ts';
+import { KS, SIM, TALENT } from './tuning.ts';
 import type { World } from './world.ts';
 import { spawnZone } from './zones.ts';
 
@@ -21,6 +24,10 @@ export function heroMoveSpeed(h: Hero): number {
   if (h.buffs.bloodrage > 0) speed *= 1 + BUFFS.bloodrage.moveSpeed;
   if (h.slipstreamTime > 0) speed *= 1 + h.stats.slipstream;
   if (h.chillTime > 0) speed *= 1 - HAZARD.FROST.SLOW;
+  // Keystones: Colossus is slower, Bloodrush faster per stack, channelling the Arc Stream slows.
+  if (h.ks.colossus) speed *= 1 + KP.colossus.moveSpeed;
+  if (h.ks.stacks > 0) speed *= 1 + KP.rush.perKill * h.ks.stacks;
+  if (h.ks.channel > SIM.EPS) speed *= 1 - KP.mage.slow;
   if (h.lockTime > SIM.EPS) speed *= h.lockMoveMul;
   return speed;
 }
@@ -30,10 +37,20 @@ export const dashRechargeSeconds = (h: Hero): number => DASH.COOLDOWN / (h.stats
 /** Secondary cooldown after boons (quick_wits shortens it) and haste (recharges faster). */
 export const secondaryCooldown = (h: Hero): number => (h.abil.secondary.cooldown * (1 - h.stats.secondaryCdr)) / (1 + h.mods.secondaryHaste);
 
+/**
+ * Blood Price: the secondary may be used again `minCooldown` seconds after its last use although it has not
+ * recharged — for a price in health (see activate). Never the last point of health: at 1 health it waits.
+ */
+export const canCastEarly = (h: Hero): boolean =>
+  h.ks.bloodPrice && h.hp > 1 && h.secondaryCd > SIM.EPS && h.secondaryCdMax - h.secondaryCd >= KP.price.minCooldown - SIM.EPS;
+
 /** Primary attacks are this many times faster (cooldown, windup and lock are divided by it). */
 export function attackSpeed(h: Hero): number {
   let speed = h.stats.attackSpeed + h.mods.attackSpeed + h.rampage * TALENT.RAMPAGE_ATTACK_SPEED;
   if (h.buffs.bloodrage > 0) speed += BUFFS.bloodrage.attackSpeed;
+  if (h.ks.stacks > 0) speed += KP.rush.perKill * h.ks.stacks;
+  // Titan Grip: every primary attack is slower.
+  if (h.ks.heavyHitter) speed *= 1 - KP.heavy.slow;
   return speed;
 }
 
@@ -48,7 +65,19 @@ function playAction(h: Hero, def: AbilityDef, seconds: number): void {
   h.animTime = Math.max(seconds, SIM.ACTION_ANIM_MIN_SECONDS);
 }
 
-const moves = (p: PendingHit): boolean => p.def.shape === 'lunge' || p.def.shape === 'leap';
+const moves = (p: PendingHit): boolean => !p.twin && (p.def.shape === 'lunge' || p.def.shape === 'leap');
+
+/**
+ * Twin Cast: queues the repeat of a secondary (`fraction` of its damage and healing, no shield, after `delay`).
+ * The repeat never moves the hero: see `releaseTwin` for what each ability shape does.
+ */
+function queueTwin(h: Hero, def: AbilityDef, slot: AbilitySlot, aim: number, tx: number, tz: number, ox: number, oz: number): void {
+  let waiting = 0;
+  for (const p of h.pending) if (p.twin) waiting++;
+  if (waiting >= KEYSTONE_CAPS.TWINS_PENDING) return;
+  const twin: AbilityDef = { ...def, damage: def.damage * KP.twin.fraction, heal: def.heal * KP.twin.fraction, selfShield: 0, special: def.special === 'max3' ? null : def.special };
+  h.pending.push({ def: twin, slot, t: KP.twin.delay, aim, tx, tz, twin: true, ox, oz });
+}
 
 function dash(w: World, h: Hero, cmd: InputCmd): void {
   startDash(h.body, cmd.moveX, cmd.moveZ, cmd.aim);
@@ -63,6 +92,7 @@ function dash(w: World, h: Hero, cmd: InputCmd): void {
   h.flight = false;
   for (let i = h.pending.length - 1; i >= 0; i--) if (moves(h.pending[i] as PendingHit)) h.pending.splice(i, 1);
   h.dashHit.clear();
+  onDashStart(h);
   if (h.stats.slipstream > 0) h.slipstreamTime = BOON_TUNING.SLIPSTREAM_SECONDS + DASH.DURATION;
   h.anim = 'dash';
   h.animSeq++;
@@ -81,6 +111,16 @@ function activate(w: World, h: Hero, def: AbilityDef, slot: AbilitySlot, cmd: In
     h.comboTime = lock + COMBO_WINDOW;
     h.pressPrimary = 0;
   } else if (slot === 'secondary') {
+    if (h.ks.bloodPrice) {
+      h.ks.casts++;
+      if (h.secondaryCd > SIM.EPS) {
+        // Blood Price: cast before it had recharged, paid in health (never the last point).
+        const cost = Math.min(h.hp - 1, h.maxHp * KP.price.hpFraction);
+        h.hp -= cost;
+        h.ks.extraCasts++;
+        proc(w, h, 'blood_price', h.body.x, h.body.z, { n: Math.round(cost) }, true);
+      }
+    }
     const cd = secondaryCooldown(h);
     h.secondaryCd = cd;
     h.secondaryCdMax = cd;
@@ -121,6 +161,7 @@ function activate(w: World, h: Hero, def: AbilityDef, slot: AbilitySlot, cmd: In
   if (def.shape === 'trap') {
     // Traps lie on the ground at once and arm after the windup.
     spawnZone(w, h, def, slot, tx, tz, windup);
+    if (slot === 'secondary' && h.ks.twinCast) queueTwin(h, def, slot, cmd.aim, tx, tz, tx, tz);
     return;
   }
   if (def.shape === 'leap' && h.invuln < windup) h.invuln = windup;
@@ -139,10 +180,12 @@ export function startAbilities(w: World, h: Hero, cmd: InputCmd, buttons: number
   if (h.lockTime > SIM.EPS || h.body.dashTime > SIM.EPS) return;
   if (h.pressUltimate > SIM.EPS && h.ult >= ULTIMATE.MAX) {
     activate(w, h, h.abil.ultimate, 'ultimate', cmd);
-  } else if (h.pressSecondary > SIM.EPS && h.secondaryCd <= SIM.EPS) {
+  } else if (h.pressSecondary > SIM.EPS && (h.secondaryCd <= SIM.EPS || canCastEarly(h))) {
     activate(w, h, h.abil.secondary, 'secondary', cmd);
   } else if (((buttons & BTN.PRIMARY) !== 0 || h.pressPrimary > SIM.EPS) && h.primaryCd <= SIM.EPS) {
-    activate(w, h, h.abil.primary[h.comboIndex % h.abil.primary.length] as AbilityDef, 'primary', cmd);
+    // Arc Stream: the mage's primary is a channelled beam (no wind-up, no lock) while the button is held.
+    if (h.ks.streamDef) streamPulse(w, h, cmd, attackSpeed(h));
+    else activate(w, h, h.abil.primary[h.comboIndex % h.abil.primary.length] as AbilityDef, 'primary', cmd);
   }
 }
 
@@ -222,10 +265,65 @@ function deathMark(w: World, h: Hero, def: AbilityDef, slot: AbilitySlot, x: num
   }
 }
 
+/**
+ * Twin Cast going off. arc / projectile / beam: again from where the hero stands now, along the original aim.
+ * circle / zone / trap: again at the same spot (a zone around the hero: where the hero stands now).
+ * spin: a second spin runs alongside the first. lunge: an afterimage repeats the charge along its path (the hero
+ * stays put). leap: a second blast where the hero landed. Returns true when it handled the repeat itself.
+ */
+function releaseTwin(w: World, h: Hero, p: PendingHit): boolean {
+  const def = p.def;
+  const ox = p.ox ?? h.body.x;
+  const oz = p.oz ?? h.body.z;
+  switch (def.shape) {
+    case 'spin':
+      h.ks.spinTwin = { def, slot: p.slot, pulsesLeft: Math.max(1, Math.round(def.duration / Math.max(def.tick, SIM.EPS))), timer: 0 };
+      proc(w, h, 'twin_cast', h.body.x, h.body.z, { r: def.radius }, true);
+      return true;
+    case 'lunge': {
+      const ex = clamp(ox + Math.sin(p.aim) * def.range, -w.room.w / 2, w.room.w / 2);
+      const ez = clamp(oz + Math.cos(p.aim) * def.range, -w.room.d / 2, w.room.d / 2);
+      proc(w, h, 'twin_cast', ox, oz, { tx: ex, tz: ez, r: def.radius }, true);
+      for (const e of w.enemies) {
+        if (!isTargetable(e) || segDist(ox, oz, ex, ez, e.x, e.z) > def.radius + e.radius) continue;
+        strikeEnemy(w, h, e, def.damage, p.slot, { fromX: ox, fromZ: oz, stun: def.stun, knockback: def.knockback, special: def.special });
+      }
+      popFragileSegment(w, h.slot, ox, oz, ex, ez, def.radius);
+      return true;
+    }
+    case 'leap':
+      proc(w, h, 'twin_cast', p.tx, p.tz, { r: def.radius }, true);
+      blast(w, h, def, p.slot, p.tx, p.tz);
+      return true;
+    case 'trap':
+      proc(w, h, 'twin_cast', p.tx, p.tz, { r: def.radius }, true);
+      spawnZone(w, h, def, p.slot, p.tx, p.tz, KS.TWIN_TRAP_ARM);
+      return true;
+    case 'circle': case 'zone':
+      proc(w, h, 'twin_cast', def.range > 0 ? p.tx : h.body.x, def.range > 0 ? p.tz : h.body.z, { r: def.radius }, true);
+      return false;
+    default:
+      proc(w, h, 'twin_cast', h.body.x, h.body.z, undefined, true);
+      return false;
+  }
+}
+
 function release(w: World, h: Hero, p: PendingHit): void {
+  if (!p.twin) { releaseCore(w, h, p); return; }
+  // A twin's hits are ordinary direct hits of the ability; what they deal at once is counted for the keystone.
+  const dealt = h.run.damage;
+  if (!releaseTwin(w, h, p)) releaseCore(w, h, p);
+  h.ks.dealt.twin_cast = (h.ks.dealt.twin_cast ?? 0) + h.run.damage - dealt;
+}
+
+function releaseCore(w: World, h: Hero, p: PendingHit): void {
   const def = p.def;
   const x = h.body.x;
   const z = h.body.z;
+  if (!p.twin && p.slot === 'secondary' && h.ks.twinCast && !p.echo && def.shape !== 'buff') {
+    // The repeat of a lunge starts where the charge started; of a leap, where the hero came down.
+    queueTwin(h, def, p.slot, p.aim, def.shape === 'leap' ? x : p.tx, def.shape === 'leap' ? z : p.tz, x, z);
+  }
   switch (def.shape) {
     case 'arc': {
       const arc = def.arc * DEG;
@@ -234,6 +332,10 @@ function release(w: World, h: Hero, p: PendingHit): void {
         strikeEnemy(w, h, e, def.damage, p.slot, { fromX: x, fromZ: z, stun: def.stun, knockback: def.knockback, special: def.special });
       }
       popFragileArc(w, h.slot, x, z, p.aim, def.range, arc);
+      if (p.slot === 'primary') {
+        if (h.ks.heavyHitter) proc(w, h, 'heavy_hitter', x, z, { r: def.range });
+        if (h.ks.ricochet || h.ks.spellblade) onMeleeSwing(w, h, def, p.aim);
+      }
       break;
     }
     case 'projectile': {
@@ -253,7 +355,16 @@ function release(w: World, h: Hero, p: PendingHit): void {
           kind: def.projectile, x, z, rot, speed: def.speed, radius: def.radius, range: def.range, damage: def.damage,
           hostile: false, owner: h.slot, slot: p.slot, pierce, element: elementCode(h, p.slot),
           stun: def.stun, knockback: def.knockback, bonus,
+          bounces: p.slot === 'primary' && h.ks.ricochet ? KP.ricochet.bounces : 0, ks: p.twin ? 'twin_cast' : null,
         });
+      }
+      if (p.slot === 'primary') {
+        if (h.ks.heavyHitter) proc(w, h, 'heavy_hitter', x, z);
+        if (!p.echo) {
+          if (h.ks.rogue) onBolt(w, h, p.aim);
+          // Blade Tempest: the finisher sends three waves (its own and one to either side).
+          if (h.ks.spellblade) tempest(w, h, p.aim, 2);
+        }
       }
       if (h.talent.arcaneEcho && p.slot === 'primary' && !p.echo && ++h.echoCount >= TALENT.ARCANE_ECHO_EVERY) {
         h.echoCount = 0;
@@ -268,6 +379,7 @@ function release(w: World, h: Hero, p: PendingHit): void {
       break;
     case 'spin':
       h.spin = { def, slot: p.slot, pulsesLeft: Math.max(1, Math.round(def.duration / Math.max(def.tick, SIM.EPS))), timer: 0 };
+      if (def.special === 'maelstrom') proc(w, h, 'ks_barbarian', x, z, { r: def.radius * KS.PULL_REACH }, true);
       break;
     case 'lunge': {
       const duration = def.range / DASH.SPEED;
@@ -294,6 +406,9 @@ function release(w: World, h: Hero, p: PendingHit): void {
       // Landed: the blast is centred on where the hero actually came down.
       h.flight = false;
       blast(w, h, def, p.slot, x, z);
+      // Class keystones with the leap arts: a maelstrom / hallowed ground where the hero lands.
+      if (p.slot === 'secondary' && h.ks.whirlDef) spawnZone(w, h, h.ks.whirlDef, p.slot, x, z, 0);
+      if (p.slot === 'secondary' && h.ks.groundDef) spawnZone(w, h, h.ks.groundDef, p.slot, x, z, 0);
       break;
     case 'zone':
       spawnZone(w, h, def, p.slot, def.range > 0 ? p.tx : x, def.range > 0 ? p.tz : z, 0);
@@ -384,7 +499,7 @@ export function stepAbilities(w: World, h: Hero, dt: number): void {
   for (let i = 0; i < h.pending.length; i++) {
     const p = h.pending[i] as PendingHit;
     p.t -= dt;
-    if (p.def.shape === 'leap') {
+    if (p.def.shape === 'leap' && !p.twin) {
       if (!p.launched) launchLeap(h, p);
       // The blast waits for the hero to touch down.
       if (p.launched && h.body.dashTime > SIM.EPS) continue;
@@ -400,16 +515,7 @@ export function stepAbilities(w: World, h: Hero, dt: number): void {
     if (spin.timer <= SIM.EPS) {
       spin.timer += spin.def.tick;
       spin.pulsesLeft--;
-      const def = spin.def;
-      for (const e of w.enemies) {
-        if (!isTargetable(e)) continue;
-        const reach = def.radius + e.radius;
-        const dx = e.x - h.body.x;
-        const dz = e.z - h.body.z;
-        if (dx * dx + dz * dz > reach * reach) continue;
-        strikeEnemy(w, h, e, def.damage, spin.slot, { fromX: h.body.x, fromZ: h.body.z, stun: def.stun, knockback: def.knockback, special: def.special });
-      }
-      popFragileCircle(w, h.slot, h.body.x, h.body.z, def.radius);
+      spinPulse(w, h, spin);
       if (spin.pulsesLeft <= 0) h.spin = null;
     }
   }

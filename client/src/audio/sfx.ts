@@ -1208,6 +1208,8 @@ export function createSfx(g: AudioGraph, bank: Bank) {
       return { designed, fallbacks, voices: p.active, dropped: p.dropped, stolen: p.stolen, chain: chain.n, mixNodes: retired.length };
     },
     player,
+    /** The context the sounds play in (live or offline). */
+    context: g.ctx,
   };
   return api;
 }

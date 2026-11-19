@@ -29,14 +29,17 @@ import { pageHead } from './pages.ts';
 import { richEl } from './rich.ts';
 import { ui, type CodexTab } from './store.ts';
 import { FOE_ICON, NEW_FOES, foeParams, tipContent, type TipDetail, type TipId } from './tips.ts';
+import { KEYSTONES, KEYSTONE_TUNING, type KeystoneDef } from '@shared/data/keystones.ts';
+import { costLine } from './keystoneDraft.ts';
+import { keystoneBody, keystoneEmblem, keystoneName, tagChips } from './keystones.ts';
 import { OBJECTIVE_ICON, hasBonus, objectiveBonus, objectiveGoal, objectiveName } from './objective.ts';
 import type { View } from './view.ts';
 
 const PERCENT = 100;
-const TABS: readonly CodexTab[] = ['elements', 'classes', 'combat', 'objectives', 'hazards', 'bestiary', 'doors', 'boons', 'progress', 'tips'];
+const TABS: readonly CodexTab[] = ['elements', 'classes', 'combat', 'objectives', 'hazards', 'bestiary', 'doors', 'boons', 'keystones', 'progress', 'tips'];
 const TAB_ICON: Record<CodexTab, IconName> = {
   elements: 'element', classes: 'users', combat: 'combat', objectives: 'hunt', hazards: 'spikes', bestiary: 'skull', doors: 'door', boons: 'boon',
-  progress: 'ascension', tips: 'tip',
+  keystones: 'keystone', progress: 'ascension', tips: 'tip',
 };
 const HAZARD_KINDS: readonly Hazard['kind'][] = ['spikes', 'vent', 'frost'];
 const FOES: readonly EnemyKind[] = ['minion', 'warrior', 'archer', 'mage'];
@@ -530,7 +533,7 @@ const TIP_GROUPS: readonly { title: I18nKey; ids: readonly TipId[] }[] = [
   { title: 'codex.tips.group.basics', ids: ['status.ember', 'status.rime', 'status.storm', 'status.umbra', 'resonance', 'ally', 'set'] },
   { title: 'codex.tips.group.fight', ids: ['ultimate', 'downed', 'hazard', 'elite', 'affix', 'boss'] },
   { title: 'codex.tips.group.foes', ids: ['enemy.shaman', 'enemy.aegis', 'enemy.bomber', 'enemy.necromancer', 'enemy.reaver', 'ward'] },
-  { title: 'codex.tips.group.path', ids: ['objective', 'cursed', 'descend'] },
+  { title: 'codex.tips.group.path', ids: ['objective', 'cursed', 'descend', 'keystone', 'fits'] },
 ];
 
 function tipsTab(): HTMLElement[] {
@@ -548,9 +551,64 @@ function tipsTab(): HTMLElement[] {
   return out;
 }
 
+// ------------------------------------------------------------------ update 5: keystones and how builds work
+
+function keystoneRow(def: KeystoneDef): HTMLElement {
+  const body = h('p', { class: 'gg-codex-ks-body' });
+  body.append(...highlight(keystoneBody(def.id)));
+  const slot = def.slot;
+  return h('li', { class: `gg-codex-ks gg-cut${def.cls ? ` gg-cls-${def.cls}` : ''}`, 'data-testid': `codex-keystone-${def.id}`, 'data-cls': def.cls ?? '', 'data-slot': slot ?? '' },
+    keystoneEmblem(def.id, 'm'),
+    h('div', { class: 'gg-codex-ks-main' },
+      h('div', { class: 'gg-codex-ks-head' },
+        h('b', null, keystoneName(def.id)),
+        h('em', null, def.cls ? t('keystone.class', { cls: t(`class.${def.cls}.name`) }) : t('codex.keystones.generic')),
+      ),
+      h('span', { class: 'gg-codex-ks-slot' }, icon(slot ? (slot === 'ultimate' ? 'ultimate' : slot === 'dash' ? 'dash' : slot === 'primary' ? 'mouseLeft' : 'mouseRight') : 'keystone'),
+        slot ? t('keystone.transforms', { slot: t(`keystone.slot.${slot}`) }) : t('keystone.passive')),
+      body,
+      costLine(def.id),
+      tagChips(def.tags),
+    ),
+  );
+}
+
+function keystonesTab(): HTMLElement[] {
+  const how = h('ol', { class: 'gg-codex-builds' });
+  const params = { n: KEYSTONE_TUNING.CHOICES, max: KEYSTONE_TUNING.MAX_HELD };
+  for (const n of [1, 2, 3, 4] as const) how.append(h('li', null, richEl('span', '', t(`codex.builds.${n}`, params))));
+  const list = h('ul', { class: 'gg-codex-keystones' });
+  const count = h('span', { class: 'gg-codex-ks-count gg-num' });
+  const filters = h('div', { class: 'gg-codex-ks-filter', role: 'group', 'aria-label': t('codex.keystones.filter') });
+  const options: (typeof ui.codexKeystones)[] = ['all', 'generic', ...CLASS_IDS];
+  const paint = (): void => {
+    const pick = options.includes(ui.codexKeystones) ? ui.codexKeystones : 'all';
+    // A class sees the keystones of everyone plus its own.
+    const shown = KEYSTONES.filter((def) => (pick === 'all' ? true : pick === 'generic' ? !def.cls : !def.cls || def.cls === pick));
+    list.replaceChildren(...shown.map(keystoneRow));
+    list.dataset.count = String(shown.length);
+    count.textContent = t('codex.keystones.count', { n: shown.length });
+    for (const btn of Array.from(filters.children)) btn.classList.toggle('is-selected', (btn as HTMLElement).dataset.filter === pick);
+  };
+  for (const option of options) {
+    filters.append(h('button', {
+      class: 'gg-codex-ks-filter-btn', type: 'button', 'data-testid': `codex-keystone-filter-${option}`, 'data-filter': option, 'data-sfx': 'tab',
+      onClick: () => { ui.codexKeystones = option; paint(); },
+    }, option === 'all' || option === 'generic' ? null : icon(option),
+      option === 'all' ? t('codex.keystones.filter.all') : option === 'generic' ? t('codex.keystones.filter.generic') : t(`class.${option}.name`)));
+  }
+  paint();
+  return [
+    h('p', { class: 'gg-codex-lead' }, t('codex.keystones.intro')),
+    h('section', { class: 'gg-codex-how', 'data-testid': 'codex-builds' }, heading(t('codex.builds.title'), 'keystone'), how),
+    h('div', { class: 'gg-codex-ks-bar' }, filters, count),
+    list,
+  ];
+}
+
 const BUILDERS: Record<CodexTab, () => HTMLElement[]> = {
   elements: elementsTab, classes: classesTab, combat: combatTab, objectives: objectivesTab, hazards: hazardsTab, bestiary: bestiaryTab, doors: doorsTab,
-  boons: boonsTab,
+  boons: boonsTab, keystones: keystonesTab,
   progress: progressTab, tips: tipsTab,
 };
 

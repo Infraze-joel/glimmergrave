@@ -11,6 +11,7 @@ import { MOD_KEYS, type Mods } from '@shared/data/mods.ts';
 import { REACTIONS, type ReactionDef } from '@shared/data/reactions.ts';
 import { RELICS, RELIC_TUNING, rankScale, type RelicDef } from '@shared/data/relics.ts';
 import { OBJECTIVES } from '@shared/data/objectives.ts';
+import { BUILD_TAGS, KEYSTONES } from '@shared/data/keystones.ts';
 import { AFFIX_IDS, CLASS_IDS, DOOR_TYPES, ELEMENT_IDS, ENEMY_KINDS, OBJECTIVE_KINDS, type AffixId } from '@shared/types.ts';
 import { formatInt, formatNum, hasKey, LANGS, t, textIn, tx } from './i18n.ts';
 
@@ -126,6 +127,8 @@ export const paragonBody = (def: ParagonDef, rank: number): string =>
 
 /** Foes with a first-encounter tip (kept in step with tips.ts NEW_FOES; text.ts must not import the HUD). */
 const NEW_FOE_KINDS = ['shaman', 'aegis', 'bomber', 'necromancer', 'reaver'] as const;
+/** Playstyle families of keystones (kept in step with keystones.ts FAMILY; every pair needs a build name). */
+export const BUILD_FAMILIES = ['step', 'strike', 'cast', 'company', 'body', 'chain'] as const;
 const NUMBERS = /\d+(?:[.,]\d+)?/g;
 const numbersOf = (text: string): string => (text.match(NUMBERS) ?? []).map((n) => n.replace(',', '.')).sort().join(' ');
 
@@ -174,6 +177,16 @@ export function missingTexts(): string[] {
   }
   for (const kind of ENEMY_KINDS) keys.push(`enemy.${kind}.name`, `enemy.${kind}.desc`, `enemy.${kind}.tip`);
   for (const kind of NEW_FOE_KINDS) keys.push(`tip.enemy.${kind}.body`, `tip.enemy.${kind}.short`);
+  // update 5: every keystone (name, what it changes, its cost), every build tag, and a name for every pair of families
+  for (const def of KEYSTONES) {
+    mirrored.push(`keystone.${def.id}.name`, `keystone.${def.id}.body`);
+    if (def.cost !== '') mirrored.push(`keystone.${def.id}.cost`);
+    for (const tag of def.tags) keys.push(`tag.${tag}`);
+  }
+  for (const tag of BUILD_TAGS) keys.push(`tag.${tag}`);
+  for (const slot of ['primary', 'secondary', 'dash', 'ultimate']) keys.push(`keystone.slot.${slot}`);
+  for (const el of [...ELEMENT_IDS, 'resonance']) keys.push(`build.of.${el}`);
+  BUILD_FAMILIES.forEach((a, i) => { for (const b of BUILD_FAMILIES.slice(i)) keys.push(`build.family.${[a, b].sort().join('+')}`); });
 
   const out: string[] = [];
   const names = /\.name$/;

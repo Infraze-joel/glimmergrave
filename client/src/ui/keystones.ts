@@ -11,6 +11,7 @@ import { infusionsOf } from './elements.ts';
 import type { IconName } from './icons.ts';
 import { formatBoon, formatList, hasKey, t, tx } from './i18n.ts';
 import { abilityIcon, abilityName, boonIcon } from './model.ts';
+import { BUILD_FAMILIES } from './text.ts';
 
 // ------------------------------------------------------------------ texts and emblems
 
@@ -150,7 +151,7 @@ export function worksWith(keystoneId: string, boons: readonly BoonStack[], held:
 // ------------------------------------------------------------------ build names
 
 /** Rough playstyle of a keystone; two families name a build when no pair has a name of its own. */
-type Family = 'step' | 'strike' | 'cast' | 'company' | 'body' | 'chain';
+type Family = (typeof BUILD_FAMILIES)[number];
 const FAMILY: Record<string, Family> = {
   ember_wake: 'step', shockstep: 'step', phase_walker: 'step', ks_shade: 'step',
   ricochet: 'strike', chain_lightning: 'strike', heavy_hitter: 'strike', ks_mage: 'strike', ks_rogue: 'strike', ks_spellblade: 'strike',

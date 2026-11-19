@@ -17,19 +17,23 @@
 import { BOONS } from '@shared/data/boons.ts';
 import { ABILITY_BY_ID, BUFFS, CLASSES } from '@shared/data/classes.ts';
 import { ENEMIES, ENEMY_TUNING } from '@shared/data/enemies.ts';
+import { KEYSTONES, KEYSTONE_TUNING } from '@shared/data/keystones.ts';
 import { OBJECTIVE_TUNING } from '@shared/data/objectives.ts';
 import {
-  AFFIX_IDS, BIOME_IDS, BOSS_KINDS, CLASS_IDS, ELEMENT_IDS, OBJECTIVE_KINDS,
+  AFFIX_IDS, BIOME_IDS, BOSS_KINDS, CLASS_IDS, ELEMENT_IDS, OBJECTIVE_KINDS, PF,
   type BiomeId, type BossKind, type ClassId, type GameEvent, type ObjectiveKind, type ObjectiveState, type RosterEntry, type RunPhase, type RunState,
 } from '@shared/types.ts';
 import { audioDebug, audioInternals, initAudio, type AudioDebug } from '../audio/index.ts';
 import { SAMPLES } from '../audio/manifest.ts';
 import {
-  BOSS_CUE_IDS, HORDE_SEQUENCES, loadOfflineBank, objectiveStressEvents, renderAmbience, renderMusic, renderObjectiveStress, renderSequence,
+  BOSS_CUE_IDS, closestPairs, HORDE_SEQUENCES, keystoneStressEvents, loadOfflineBank, objectiveStressEvents, renderAmbience, renderKeystoneMasking,
+  renderKeystoneStress, renderMusic, renderObjectiveStress, renderSequence,
   renderSfx, renderStinger, renderStress, renderStressTimed, renderUltimateStress, SFX_CASES, STRESS, stressEvents, ultimateStressEvents,
-  type RenderStats,
+  type Closeness, type MaskingResult, type RenderStats,
 } from '../audio/offline.ts';
+import { keystoneFamily, unmappedKeystones } from '../audio/keystone-map.ts';
 import { HORDE_KINDS } from '../audio/sfx-horde.ts';
+import { KEYSTONE_SIGNATURE_IDS } from '../audio/sfx-keystones.ts';
 import { abilitySoundTable, unmappedAbilities } from '../audio/sfx-abilities.ts';
 import { bus } from '../core/EventBus.ts';
 import { state, type Screen } from '../core/GameState.ts';
@@ -94,6 +98,8 @@ let cleared = 0;
 let zoneId: number = DEMO.ZONE_ID;
 let objectiveKind: ObjectiveKind = 'slay';
 let timelineTimer = 0;
+/** Update 5: keystones per roster slot (the own hero is slot 0), as the roster would carry them. */
+const keystonesOf = new Map<number, string[]>();
 const LEGENDARY_ID = BOONS.find((b) => b.rarity === 'legendary')?.id ?? 'keen_edge';
 
 function roster(): RosterEntry[] {
@@ -101,6 +107,7 @@ function roster(): RosterEntry[] {
   return CLASS_IDS.map((cls, i) => ({
     slot: i, name: i === DEMO.OWN_SLOT ? 'You' : `Ally ${i}`, cls: i === DEMO.OWN_SLOT ? ownClass : cls, look,
     mastery: 1, art: i === DEMO.OWN_SLOT ? ownArt : 0, relics: 0, talents: 0, ready: true, connected: true, host: i === DEMO.OWN_SLOT, boons: [],
+    keystones: keystonesOf.get(i) ?? [],
   }));
 }
 
@@ -160,6 +167,7 @@ function scene(name: string, newChamber = true): void {
   state.screen = def.screen;
   state.run = def.phase ? fakeRun(def.phase, def.kind ?? 'combat', def.boss ?? state.run?.finalBoss ?? 'regent') : null;
   state.draft = [];
+  state.draftKeystone = null;
   bus.emit('state:screen');
   bus.emit('state:run', { previousPhase: previous });
   paintActive();
@@ -289,8 +297,122 @@ function hookTickLog(): void {
   }
 }
 
-const LOGGED_CALLS = ['interrupt', 'wardDeflect', 'hit', 'objectiveStart', 'siteLit', 'anchorHit', 'anchorShatter', 'huntEnrage', 'bonusLost', 'objectiveDone', 'dome', 'mendRelease', 'enemyCast', 'kill'] as const;
+const LOGGED_CALLS = ['keystoneProc', 'keystoneTaken', 'keystoneDraftOpen', 'fitsPick', 'powerLayer', 'brittleHit', 'titanSwing', 'sanctumWalk', 'sanctumEnd', 'draftPick', 'heal', 'buff', 'interrupt', 'wardDeflect', 'hit', 'objectiveStart', 'siteLit', 'anchorHit', 'anchorShatter', 'huntEnrage', 'bonusLost', 'objectiveDone', 'dome', 'mendRelease', 'enemyCast', 'kill'] as const;
 const callLog: string[] = [];
+
+// ------------------------------------------------------------------ update 5: keystones as the server reports them
+
+/** Sets the keystones of a roster slot and announces the roster, like the server does after a pick. */
+function setKeystones(ids: string[], slot: number = DEMO.OWN_SLOT): void {
+  keystonesOf.set(slot, ids.slice(0, KEYSTONE_TUNING.MAX_HELD));
+  state.roster = roster();
+  bus.emit('state:roster');
+  paintActive();
+}
+
+/** A hero takes a keystone: the `keystone` event, then the roster (with full slots the oldest is replaced). */
+function takeKeystone(id: string, slot: number = DEMO.OWN_SLOT): void {
+  const before = keystonesOf.get(slot) ?? [];
+  if (before.includes(id)) return;
+  const replaced = before.length >= KEYSTONE_TUNING.MAX_HELD ? before[0] : undefined;
+  fire(replaced === undefined ? { e: 'keystone', slot, id } : { e: 'keystone', slot, id, replaced });
+  setKeystones([...before.filter((k) => k !== replaced), id], slot);
+}
+
+/** Opens / closes the own keystone draft the way net/ does: state first, then `state:draft`. */
+function keystoneDraft(open: boolean, full = false): void {
+  if (open && state.run?.phase !== 'draft') scene('game: draft (calm)');
+  const own = keystonesOf.get(DEMO.OWN_SLOT) ?? [];
+  const heldNow = full ? ['ricochet', 'familiar'] : own;
+  if (full) setKeystones(heldNow);
+  const options = KEYSTONES.filter((k) => !heldNow.includes(k.id) && (!k.cls || k.cls === ownClass)).slice(0, KEYSTONE_TUNING.CHOICES);
+  state.draft = open ? options.map((k) => ({ id: k.id, level: 1 })) : [];
+  state.draftKeystone = open ? { held: heldNow, skip: options.length } : null;
+  bus.emit('state:draft');
+}
+
+/** An ordinary draft whose first offer fits the build (two tags), the second one tag, the third none. */
+function fitsDraft(): void {
+  if (state.run?.phase !== 'draft') scene('game: draft (calm)');
+  state.draftKeystone = null;
+  state.draft = [{ id: 'keen_edge', level: 1, fits: ['primary', 'melee'] }, { id: 'fleet_foot', level: 1, fits: ['speed'] }, { id: 'iron_heart', level: 1 }];
+  bus.emit('state:draft');
+}
+
+/** Sets or clears PF.CHANNELING in the own hero's (or an ally's) snapshot row for `ms`, like a held Arc Stream. */
+function channel(slot: number, ms: number): void {
+  const row = () => state.players.find((p) => p.slot === slot);
+  if (!row()) {
+    state.players = [...state.players, {
+      slot, x: 0, z: 0, rot: 0, hp: 100, maxHp: 100, shield: 0, state: 'alive', anim: 'idle', animSeq: 0, cdSecondary: 0, cdDash: 0, ult: 0.4,
+      dashCharges: 1, revive: 0, flags: PF.CONNECTED,
+    }];
+  }
+  const p = row();
+  if (!p) return;
+  p.flags |= PF.CHANNELING;
+  window.setTimeout(() => { p.flags &= ~PF.CHANNELING; }, ms);
+}
+
+const proc = (id: string, slot: number, extra: { n?: number; r?: number; tx?: number; tz?: number } = {}): void => fire({ e: 'keystoneProc', slot, id, x: 0, z: 0, ...extra });
+
+/**
+ * Each keystone as the sim reports it (backend-update5.md): the events of one trigger, for hero `slot`. Keystones the
+ * sim sends nothing for are shown through what the audio derives them from (the hero must hold the keystone).
+ */
+function keystoneTrigger(id: string, slot: number): void {
+  const mine = slot === DEMO.OWN_SLOT;
+  const hitEnemy = (): void => fire({ e: 'hit', target: { t: 'e', id: DEMO.ENEMY_ID }, ...at, dmg: 40, crit: false, el: null, by: slot });
+  const press = (action: 'primary' | 'secondary' | 'dash', ability: string): void => {
+    if (mine) bus.emit('game:localAction', { action });
+    else fire({ e: 'cast', who: { t: 'p', id: slot }, ability, ...at, rot: 0 });
+  };
+  const cls = state.roster.find((p) => p.slot === slot)?.cls ?? 'knight';
+  switch (id) {
+    case 'ember_wake': proc(id, slot, { tx: 4, tz: 0, r: 0.8 }); break;
+    case 'shockstep': fire({ e: 'aoe', ...at, r: 3.2, el: null, hostile: false }); proc(id, slot, { r: 3.2 }); break;
+    case 'phase_walker': proc(id, slot); fire({ e: 'buff', slot, id, dur: 2 }); break;
+    case 'ricochet': for (let i = 0; i < 2; i++) window.setTimeout(() => proc(id, slot, { n: 1 - i, tx: 3, tz: 1 }), i * 180); break;
+    case 'chain_lightning': for (let i = 0; i < 3; i++) { proc(id, slot, { tx: i, tz: 2 }); hitEnemy(); } break;
+    case 'heavy_hitter':
+      press('primary', CLASSES[cls].primary[0].id);
+      proc(id, slot, { r: 2.4 });
+      window.setTimeout(hitEnemy, 420);
+      break;
+    case 'twin_cast': window.setTimeout(() => { proc(id, slot, { r: 3 }); fire({ e: 'aoe', ...at, r: 3, el: null, hostile: false }); }, 450); break;
+    case 'blood_price': press('secondary', CLASSES[cls].secondary.id); proc(id, slot, { n: 8 }); break;
+    case 'orbit_blades': hitEnemy(); break;
+    case 'familiar': proc(id, slot, { tx: 5, tz: 3 }); break;
+    case 'colossus': press('dash', 'dash'); break;
+    case 'corpse_bloom':
+      for (let i = 0; i < 4; i++) window.setTimeout(() => { fire({ e: 'aoe', ...at, r: 3, el: 'ember', hostile: false }); proc(id, slot, { r: 3, n: i + 1 }); }, i * 150);
+      break;
+    case 'resonance_engine': fire({ e: 'resonance', ...at, r: 3.9, a: 'ember', b: 'rime', by: slot }); proc(id, slot, { n: 14 }); break;
+    case 'glass_cannon':
+      press('primary', CLASSES[cls].primary[0].id);
+      window.setTimeout(() => fire({ e: 'hit', target: { t: 'p', id: slot }, ...at, dmg: 22, crit: false, el: null, by: -1 }), 500);
+      break;
+    case 'sanguine': proc(id, slot, { n: 6 }); fire({ e: 'heal', slot, amount: 6 }); break;
+    case 'momentum_engine':
+      for (let i = 0; i < 10; i++) window.setTimeout(() => proc(id, slot, { n: i + 1 }), i * 450);
+      window.setTimeout(() => proc(id, slot, { n: 0 }), 9500);
+      break;
+    case 'ks_knight': fire({ e: 'aoe', ...at, r: 3.2, el: null, hostile: false }); proc(id, slot, { r: 3.2, n: 45 }); break;
+    case 'ks_barbarian':
+      proc(id, slot, { r: 5 });
+      window.setTimeout(() => fire({ e: 'zone', id: zoneId++, kind: 'ks_barbarian', ...at, r: 3, dur: 3, el: null, by: slot }), 1400);
+      break;
+    case 'ks_mage': channel(slot, 1500); break;
+    case 'ks_rogue': proc(id, slot, { n: 5 }); break;
+    case 'ks_templar': {
+      const zone = zoneId++;
+      fire({ e: 'zone', id: zone, kind: 'templar_consecrate', ...at, r: 4, dur: 6, el: null, by: slot });
+      break;
+    }
+    case 'ks_spellblade': proc(id, slot, { n: 1 }); window.setTimeout(() => proc(id, slot, { n: 3 }), 600); break;
+    case 'ks_shade': fire({ e: 'kill', id: DEMO.ENEMY_ID, kind: 'minion', ...at, by: slot }); proc(id, slot); fire({ e: 'buff', slot, id, dur: 1.5 }); break;
+  }
+}
 
 const hordeAt = (kind: (typeof HORDE_KINDS)[number]): number => DEMO.HORDE_ID + HORDE_KINDS.indexOf(kind);
 
@@ -466,6 +588,24 @@ const GAME_EVENTS: [string, () => void][] = [
   ['objective done, no bonus', () => fire({ e: 'objective', kind: 'survive', what: 'done', bonus: false })],
   ['objective done: vault (reliquary opens)', () => fire({ e: 'objective', kind: 'vault', what: 'done', bonus: false })],
   ['draft pick (ui:pick)', () => bus.emit('ui:pick', { index: 0 })],
+  // update 5: keystones — taking one, every signature for the own hero and an ally, drafts, fitting boons
+  ['keystones: clear all', () => { for (const slot of [own, ally]) setKeystones([], slot); }],
+  ...KEYSTONES.flatMap((k): [string, () => void][] => [
+    [`keystone ${k.id}: own trigger`, () => { if (!(keystonesOf.get(own) ?? []).includes(k.id)) setKeystones([k.id]); keystoneTrigger(k.id, own); }],
+    [`keystone ${k.id}: ally trigger`, () => { if (!(keystonesOf.get(ally) ?? []).includes(k.id)) setKeystones([k.id], ally); keystoneTrigger(k.id, ally); }],
+  ]),
+  ['keystone taken: own, first slot', () => { setKeystones([]); takeKeystone('ember_wake'); }],
+  ['keystone taken: own, second slot', () => { setKeystones(['ember_wake']); takeKeystone('corpse_bloom'); }],
+  ['keystone taken: own, replaced', () => { setKeystones(['ember_wake', 'corpse_bloom']); takeKeystone('ricochet'); }],
+  ['keystone taken: ally', () => { setKeystones([], ally); takeKeystone('familiar', ally); }],
+  ['keystone taken: ally, replaced', () => { setKeystones(['familiar', 'ricochet'], ally); takeKeystone('twin_cast', ally); }],
+  ['keystone draft: open', () => { setKeystones([]); keystoneDraft(true); }],
+  ['keystone draft: open (slots full)', () => keystoneDraft(true, true)],
+  ['keystone draft: close', () => keystoneDraft(false)],
+  ['draft: pick a boon that fits (2 tags)', () => { fitsDraft(); bus.emit('ui:pick', { index: 0 }); }],
+  ['draft: pick a boon that does not fit', () => { fitsDraft(); bus.emit('ui:pick', { index: 2 }); }],
+  ['own primary with 2 keystones (weight + sparkle)', () => { setKeystones(['ember_wake', 'shockstep']); bus.emit('game:localAction', { action: 'primary' }); }],
+  ['own secondary with 1 keystone (weight)', () => { setKeystones(['ember_wake']); bus.emit('game:localAction', { action: 'secondary' }); }],
   ['ready on', () => bus.emit('ui:lobby', { ready: true })],
   ['ready off', () => bus.emit('ui:lobby', { ready: false })],
   ['network error', () => bus.emit('net:error', { error: 'unreachable', fatal: false })],
@@ -561,12 +701,58 @@ async function renderUpdate4(withSamples = true): Promise<RenderStats[]> {
   return out;
 }
 
+/** Update 5: every keystone sound, the score with keystone voices on every kind of piece, the draft bed, the worst case. */
+async function renderUpdate5(withSamples = true): Promise<RenderStats[]> {
+  const o = { samples: withSamples };
+  if (withSamples) await loadOfflineBank();
+  const out: RenderStats[] = await renderCases('keystone.', withSamples);
+  for (const name of ['progress.levelUp', 'boon.own', 'boon.legendary', 'ui.draftPick', 'hurt.own']) {
+    for (const c of SFX_CASES.filter(([n]) => n.startsWith(name)).slice(0, 2)) out.push(await renderSfx(c[0], c[1], c[2] ?? DEMO.DEFAULT_RENDER_S, o));
+  }
+  const builds: string[][] = [[], ['ember_wake'], ['ember_wake', 'corpse_bloom'], ['ricochet'], ['twin_cast'], ['familiar'], ['corpse_bloom'], ['ks_knight'], ['ricochet', 'chain_lightning'], ['ks_knight', 'familiar']];
+  for (const keystones of builds) out.push(await renderMusic('combat', 12, 1, { ...o, keystones }));
+  for (const keystones of [[], ['ember_wake', 'corpse_bloom']]) {
+    out.push(await renderMusic('elite', 12, 1, { ...o, keystones }));
+    out.push(await renderMusic('boss', 12, 3, { ...o, keystones }));
+    out.push(await renderMusic('boss', 12, 2, { ...o, keystones, boss: 'matron' }));
+    out.push(await renderMusic('combat', 12, 1, { ...o, keystones, depth: 5 }));
+    for (const objective of OBJECTIVE_KINDS.filter((k) => k !== 'slay')) out.push(await renderMusic('combat', 12, 1, { ...o, keystones, objective, pressure: 0.6, lit: 2 }));
+  }
+  out.push(await renderMusic('calm', 14, 1, o), await renderMusic('calm', 14, 1, { ...o, keystoneDraft: true }), await renderMusic('calm', 14, 1, { ...o, keystoneDraft: true, depth: 5 }));
+  out.push(await renderObjectiveStress(undefined, o), await renderKeystoneStress(undefined, o));
+  return out;
+}
+
+/** The 23 signatures (own hero) and how close each pair is in register and gesture, closest first. */
+async function renderSignatures(withSamples = true): Promise<{ stats: RenderStats[]; pairs: Closeness[] }> {
+  const stats = await renderCases('keystone.sig.', withSamples);
+  return { stats, pairs: closestPairs(stats) };
+}
+
+function liveStress(events: [number, (sfx: NonNullable<ReturnType<typeof audioInternals>>['sfx']) => void][], listenMs: number): Promise<StressResult> {
+  return new Promise((resolve) => {
+    const engine = audioInternals();
+    if (!engine) { resolve({ peak: 0, peakDb: -Infinity, liveBefore: 0, liveAfter: 0, voicesAfter: 0, dropped: 0, stolen: 0 }); return; }
+    const liveBefore = engine.graph.live.count;
+    let peak = 0;
+    const sample = window.setInterval(() => { peak = Math.max(peak, engine.graph.meter()); }, 10);
+    for (const [when, play] of events) window.setTimeout(() => play(engine.sfx), when * 1000);
+    window.setTimeout(() => {
+      window.clearInterval(sample);
+      engine.sfx.keystoneReset();
+      const s = engine.sfx.stats();
+      resolve({ peak, peakDb: 20 * Math.log10(Math.max(peak, 1e-9)), liveBefore, liveAfter: engine.graph.live.count, voicesAfter: s.voices, dropped: s.dropped, stolen: s.stolen });
+    }, listenMs);
+  });
+}
+
 async function renderAll(withSamples = true): Promise<RenderStats[]> {
   const o = { samples: withSamples };
   if (withSamples) await loadOfflineBank();
   const out: RenderStats[] = await renderCases('', withSamples);
   out.push(...await renderDepths(withSamples));
   out.push(...await renderUpdate4(withSamples));
+  out.push(...(await renderUpdate5(withSamples)).filter((s) => !out.some((have) => have.name === s.name)));
   for (const name of ['menu', 'calm', 'combat', 'elite'] as const) out.push(await renderMusic(name, 12, 1, o));
   for (const boss of BOSS_KINDS) for (const phase of [1, 2, 3]) out.push(await renderMusic('boss', 10, phase, { ...o, boss }));
   for (const b of BIOME_IDS) out.push(await renderMusic('combat', 10, 1, { ...o, biome: b }));
@@ -717,6 +903,19 @@ function boot(): void {
     objectives.append(button(`${kind} (bonus kept)`, () => { void timeline(kind, DEMO.TIMELINE_SECONDS, true); }));
     if (kind === 'defend' || kind === 'hunt') objectives.append(button(`${kind} (bonus lost)`, () => { void timeline(kind, DEMO.TIMELINE_SECONDS, false); }));
   }
+  const keys = section(root, 'Keystones (update 5): as the server reports them',
+    `Signatures: ${KEYSTONE_SIGNATURE_IDS.length} of ${KEYSTONES.length} keystones${unmappedKeystones().length > 0 ? ` — NO FAMILY: ${unmappedKeystones().join(', ')}` : ''}. "take" fires the keystone event for the own hero (the third replaces the oldest) and updates the roster: the moment plays, the fighting score gains that family's voice at its next bar, own attacks gain weight / sparkle. "own" / "ally" fire one trigger of that keystone with its real events. Pick a combat scene first to hear the voices and the blades' whirr.`);
+  keys.append(button('clear', () => { for (const slot of [own, ally]) setKeystones([], slot); }));
+  keys.append(button('draft: open', () => { setKeystones([]); keystoneDraft(true); }), button('draft: open, slots full', () => keystoneDraft(true, true)), button('draft: close', () => keystoneDraft(false)));
+  keys.append(button('pick: fits (2 tags)', () => { fitsDraft(); bus.emit('ui:pick', { index: 0 }); }), button('pick: plain', () => { fitsDraft(); bus.emit('ui:pick', { index: 2 }); }));
+  keys.append(button('ally takes one', () => { setKeystones([], ally); takeKeystone('familiar', ally); }));
+  for (const k of KEYSTONES) {
+    const row = el('div', '', 'row');
+    row.append(el('code', `${k.id} (${keystoneFamily(k.id)})`.padEnd(30)));
+    row.append(button('take', () => takeKeystone(k.id), `ks:${k.id}`), button('own', () => { if (!(keystonesOf.get(own) ?? []).includes(k.id)) takeKeystone(k.id); keystoneTrigger(k.id, own); }),
+      button('ally', () => { if (!(keystonesOf.get(ally) ?? []).includes(k.id)) setKeystones([k.id], ally); keystoneTrigger(k.id, ally); }));
+    keys.append(row);
+  }
   const cls = section(root, 'Own hero class (for local actions and weapon layers on hits)');
   for (const c of CLASS_IDS) cls.append(button(c, () => { ownClass = c; state.roster = roster(); paintActive(); }, `class:${c}`));
   for (const a of [0, 1]) cls.append(button(a === 0 ? 'secondary: standard' : 'secondary: art', () => { ownArt = a; state.roster = roster(); paintActive(); }, `art:${a}`));
@@ -782,6 +981,7 @@ function boot(): void {
   }, '', 'warn'), stressOut);
 
   stressRow.append(button('OBJECTIVE STRESS (6 bombers + 2 ultimates + timer + Resonance chain)', () => window.__audiodemo?.objectiveStress(), '', 'warn'));
+  stressRow.append(button('KEYSTONE STRESS (4 heroes × 2 keystones on top of the objective stress)', () => { void window.__audiodemo?.keystoneStress(); }, '', 'warn'));
 
   const measure = section(root, 'Offline measurements', 'Renders every sound, music state and ambience with an OfflineAudioContext at full volume and reports peak, loudest 400 ms, RMS and DC offset after the master chain. Takes a while.');
   const out = el('pre', '');
@@ -840,6 +1040,17 @@ function boot(): void {
     },
     interrupt: (id) => { audioInternals()?.sfx.interrupt(id); },
     loadOfflineBank,
+    renderUpdate5,
+    renderSignatures,
+    renderMasking: async (withSamples = true) => { if (withSamples) await loadOfflineBank(); return renderKeystoneMasking({ samples: withSamples }); },
+    renderMusicWith: async (name, seconds, o) => { await loadOfflineBank(); return renderMusic(name, seconds, o.bossPhase ?? 1, o); },
+    keystoneStress: () => liveStress(keystoneStressEvents(), 6000),
+    setKeystones,
+    takeKeystone,
+    keystoneDraft,
+    keystoneTrigger,
+    channel,
+    keystoneIds: KEYSTONES.map((k) => k.id),
   };
 }
 
@@ -874,6 +1085,17 @@ declare global {
       objectiveStress(): void;
       interrupt(id: number): void;
       loadOfflineBank: typeof loadOfflineBank;
+      renderUpdate5(withSamples?: boolean): Promise<RenderStats[]>;
+      renderSignatures(withSamples?: boolean): Promise<{ stats: RenderStats[]; pairs: Closeness[] }>;
+      renderMasking(withSamples?: boolean): Promise<MaskingResult[]>;
+      renderMusicWith(name: 'menu' | 'calm' | 'combat' | 'elite' | 'boss', seconds: number, o: Parameters<typeof renderMusic>[3] & { bossPhase?: number }): Promise<RenderStats>;
+      keystoneStress(): Promise<StressResult>;
+      setKeystones(ids: string[], slot?: number): void;
+      takeKeystone(id: string, slot?: number): void;
+      keystoneDraft(open: boolean, full?: boolean): void;
+      keystoneTrigger(id: string, slot: number): void;
+      channel(slot: number, ms: number): void;
+      keystoneIds: string[];
     };
   }
 }

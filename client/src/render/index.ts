@@ -36,6 +36,7 @@ import type { QualityProfile } from './config.ts';
 import { Doors } from './doors.ts';
 import { Hazards } from './hazards.ts';
 import { HordeFx } from './horde.ts';
+import { KeystoneFx } from './keystones.ts';
 import { Objectives } from './objectives.ts';
 import { LevelView } from './level.ts';
 import { Projectiles } from './projectiles.ts';
@@ -48,7 +49,8 @@ export type { Assets };
 
 export interface RenderStats { drawCalls: number; triangles: number; geometries: number; textures: number }
 /** `art` (RosterEntry.art) selects which secondary the hero's `art` animation belongs to; 0 / missing = the first art. */
-export interface RosterView { slot: number; cls: ClassId; name: string; look?: Look; art?: number }
+/** `keystones` (RosterEntry.keystones, update 5): the keystones the hero holds, in the order taken; missing = none. */
+export interface RosterView { slot: number; cls: ClassId; name: string; look?: Look; art?: number; keystones?: readonly string[] }
 /** Hero presented on the wardrobe diorama; `screenX` (0..1 of the canvas width) is where it is centred. */
 export interface ShowcaseView { cls: ClassId; look: Look; screenX: number }
 export interface MarkerView { x: number; z: number; r: number }
@@ -158,6 +160,7 @@ export class WorldView implements FollowSource {
   private readonly vfx: Vfx;
   private readonly ability: AbilityFx;
   private readonly horde: HordeFx;
+  private readonly keys: KeystoneFx;
   private readonly objectives: Objectives;
   private readonly decals: DecalBatch;
   /** Hostile warnings have their own batch, drawn after every friendly decal AND every particle. */
@@ -294,6 +297,7 @@ export class WorldView implements FollowSource {
     this.vfx.glare = this.glare;
     this.ability = new AbilityFx(this.vfx, this.atlas, this.heroes, this.enemies);
     this.horde = new HordeFx(this.scene, this.vfx, this.atlas, this.enemies);
+    this.keys = new KeystoneFx(this.vfx, this.atlas, this.heroes);
     this.objectives = new Objectives(this.scene, assets, this.atlas, this.level.stoneUv, this.vfx, this.enemies, this.heroes, this.level);
     this.enemies.prewarm();
 
@@ -406,6 +410,8 @@ export class WorldView implements FollowSource {
     this.vfx.clear();
     this.ability.clear();
     this.horde.clear();
+    this.keys.clear();
+    this.keys.setBounds(room ? room.w : 0, room ? room.d : 0);
     this.objectives.clear();
     this.doors.clear();
     this.glare.clear();
@@ -538,13 +544,23 @@ export class WorldView implements FollowSource {
     this.doors.set(doors, progress, this.level.depth);
   }
 
+  /**
+   * Who is in the party. Update 5: `keystones` of an entry (RosterEntry.keystones) decides the hero's lasting keystone
+   * visuals (orbiting blades, familiar, size, emblems, ...); call again whenever the roster is re-broadcast.
+   */
   setRoster(entries: RosterView[]): void {
     this.heroes.setRoster(entries);
+    this.keys.setRoster(entries);
+    for (let s = 0; s < this.ability.sanctum.length; s++) {
+      this.ability.sanctum[s] = this.keys.sanctum(s);
+      this.heroes.primarySlow[s] = this.keys.heavySlow(s);
+    }
   }
 
   syncPlayers(players: PlayerSnap[], localSlot: number): void {
     this.localSlot = localSlot;
     this.ability.localSlot = localSlot;
+    this.keys.localSlot = localSlot;
     this.heroes.sync(players, localSlot);
   }
 
@@ -615,6 +631,8 @@ export class WorldView implements FollowSource {
       case 'heal':
       case 'boon':
       case 'set':
+      case 'keystone':
+      case 'keystoneProc':
       case 'ultReady': return this.slotOwner(ev.slot);
       case 'aoe': {
         if (ev.hostile) return OWNER.WORLD;
@@ -668,6 +686,7 @@ export class WorldView implements FollowSource {
           vfx.number(ev.x, (v ? v.height : 2) + 0.5, ev.z, ev.dmg, ev.crit ? PALETTE.crit : ev.el ? hex : PALETTE.white, ev.crit ? 1.35 : 1, ev.crit ? 2 : 0,
             ev.target.id * 2 + (mine ? 1 : 2), !mine);
           if (ev.by === this.localSlot) this.shake(ev.crit ? 0.14 : 0.04);
+          this.keys.onHit(ev.by, ev.x, y, ev.z, ev.crit, ev.el);
         } else {
           this.heroes.hit(ev.target.id);
           vfx.sparks(ev.x, 1.2, ev.z, PALETTE.hostile, 7, 6);
@@ -681,6 +700,7 @@ export class WorldView implements FollowSource {
         const big = isBigEnemy(ev.kind);
         const s = enemyDef(ev.kind).scale;
         const dead = this.enemies.get(ev.id);
+        this.keys.onKill(ev.by, ev.x, ev.z, dead ? dead.flags : 0);
         if (dead && dead.markLeft > 0) this.ability.markBurst(ev.x, ev.z);
         if (dead && dead.affix === 'volatile') {
           // the fuse is lit: the body flares before the (telegraphed) blast
@@ -745,6 +765,7 @@ export class WorldView implements FollowSource {
         const named = reactionOf(ev.a, ev.b);
         vfx.word(ev.x, 3.2, ev.z, a, b, ev.by === this.localSlot || this.localSlot < 0 ? 1 : 0.74, named ? REACTION_IDS.indexOf(named.id) + 1 : 0);
         this.ability.reaction(ev);
+        this.keys.onResonance(ev.by, ev.x, ev.z);
         this.shake(ev.by === this.localSlot ? 0.3 : CL.outlines ? 0 : 0.1);
         break;
       }
@@ -849,6 +870,7 @@ export class WorldView implements FollowSource {
       case 'wave':
         break;
       case 'chamberClear': {
+        this.keys.chamberClear();
         this.heroes.forEach((h) => {
           vfx.ring(h.x, h.z, 0.6, 5, 0.6, PALETTE.glimmer, 0.35, 1.6);
           vfx.motes(h.x, 0.2, h.z, PALETTE.glimmer, 14, 0.8, 3, 1.1);
@@ -906,13 +928,24 @@ export class WorldView implements FollowSource {
         break;
       }
       case 'zone':
-        this.ability.zone(ev);
+        if (ev.kind === 'ks_barbarian') this.keys.maelstrom(ev.by, ev.x, ev.z, ev.r, ev.dur);
+        else this.ability.zone(ev);
+        break;
+      case 'keystone':
+        this.keys.taken(ev.slot, ev.id, ev.replaced);
+        this.ability.sanctum[ev.slot] = this.keys.sanctum(ev.slot);
+        this.heroes.primarySlow[ev.slot] = this.keys.heavySlow(ev.slot);
+        this.shake(this.keys.takeShake());
+        break;
+      case 'keystoneProc':
+        this.keys.proc(ev);
+        this.shake(this.keys.takeShake());
         break;
       case 'zoneEnd':
         this.ability.zoneEnd(ev.id, ev.sprung);
         break;
       case 'buff':
-        this.heroes.buff(ev.slot, ev.id, ev.dur);
+        if (!this.keys.buff(ev.slot, ev.id, ev.dur)) this.heroes.buff(ev.slot, ev.id, ev.dur);
         break;
       case 'mark': {
         const v = this.enemies.get(ev.id);
@@ -1075,7 +1108,15 @@ export class WorldView implements FollowSource {
     const a = info.def;
     // an infused ability shows its element in the swing / muzzle / rune; otherwise the class colour
     const infused = this.heroes.infusion(id, a.anim === 'ultimate' ? 'ultimate' : a.anim === 'secondary' || a.anim === 'art' ? 'secondary' : 'primary');
-    const color = infused ? ELEMENT_COLOR[infused] : classColor(info.cls);
+    // a Twin Cast echo is the same ability again, weaker and in the ghost's colour
+    const echo = this.keys.echoing;
+    const color = echo ? ECHO_COLOR : infused ? ELEMENT_COLOR[infused] : classColor(info.cls);
+    if (echo) vfx.soften(ECHO_LIGHT);
+    const primary = a.anim === 'primary1' || a.anim === 'primary2' || a.anim === 'primary3';
+    // Titan Grip and Colossus change the swing itself: longer, wider, slower
+    const reachMul = (primary ? this.keys.heavyReach(id) : 1) * this.keys.areaMul(id);
+    const wideMul = primary ? this.keys.heavyWide(id) : 1;
+    const slowMul = primary ? this.keys.heavySlow(id) : 1;
     const sin = Math.sin(rot);
     const cos = Math.cos(rot);
     if (id >= 0 && id < this.castAt.length) { this.castAt[id] = this.time; this.castTinted[id] = infused !== null; this.castX[id] = x; this.castZ[id] = z; }
@@ -1083,13 +1124,20 @@ export class WorldView implements FollowSource {
     const hero = this.heroes.get(id);
     const hx = hero ? hero.x + hero.offX : x;
     const hz = hero ? hero.z + hero.offZ : z;
-    if (infused) this.elementBurst(infused, hx + sin * 0.8, 1.1, hz + cos * 0.8, 0.3, 0.3);
+    if (infused && !echo) this.elementBurst(infused, hx + sin * 0.8, 1.1, hz + cos * 0.8, 0.3, 0.3);
+    this.keys.onCast(id, a, info.cls, x, z, rot, hx, hz, color, echo);
+    this.shake(this.keys.takeShake());
+    // the echo repeats the effect, never the movement: leaps and lunges are not flown again
+    if (echo && (a.shape === 'leap' || a.shape === 'lunge')) return;
+    // Arc Stream: the bolts are a beam now (drawn while PF.CHANNELING is set); no muzzle flash per pulse
+    if (primary && a.shape === 'projectile' && this.keys.streaming(id)) return;
     if (this.ability.cast(a, info.cls, id, x, z, rot, hx, hz, color, infused)) { this.shake(this.ability.takeShake()); return; }
     switch (a.shape) {
       case 'arc': {
         const heavy = a.knockback > 0;
         const dir = info.index % 2 === 0 ? 1 : -1;
-        vfx.slash(x, z, rot, a.range, a.arc * DEG, Math.max(0.16, a.lock * 0.62), heavy && !infused ? PALETTE.crit : color, dir, a.windup * 0.7, id, heavy ? 2.2 : 1.6);
+        vfx.slash(x, z, rot, a.range * reachMul, Math.min(Math.PI * 2, a.arc * DEG * wideMul), Math.max(0.16, a.lock * 0.62) * slowMul, heavy && !infused && !echo ? PALETTE.crit : color, dir,
+          a.windup * 0.7 * slowMul, id, heavy || slowMul > 1 ? 2.2 : 1.6);
         if (heavy) vfx.puff(x + sin * a.range * 0.6, 0.25, z + cos * a.range * 0.6, VIEW.DUST, 4, 0.8, 0.3);
         break;
       }
@@ -1113,11 +1161,13 @@ export class WorldView implements FollowSource {
         break;
       }
       case 'spin': {
-        const steps = Math.max(1, Math.round(a.duration / Math.max(0.05, a.tick)));
+        // Maelstrom keeps the whirlwind turning half as long again
+        const spinFor = a.duration * (a.id === CLASSES.barbarian.secondary.id && this.keys.has(id, 'ks_barbarian') ? 1.5 : 1);
+        const steps = Math.max(1, Math.round(spinFor / Math.max(0.05, a.tick)));
         for (let k = 0; k < steps; k++) {
-          vfx.slash(x, z, rot + k * 2.2, a.radius, Math.PI * 1.75, a.tick * 1.7, k % 2 === 0 ? color : PALETTE.white, 1, a.windup + k * a.tick, id, 1.5);
+          vfx.slash(x, z, rot + k * 2.2, a.radius * reachMul, Math.PI * 1.75, a.tick * 1.7, k % 2 === 0 ? color : PALETTE.white, 1, a.windup + k * a.tick, id, 1.5);
         }
-        vfx.ring(x, z, 1, a.radius * 2, 0.35, color, 0.3, 1.3, a.windup);
+        vfx.ring(x, z, 1, a.radius * 2 * reachMul, 0.35, color, 0.3, 1.3, a.windup);
         break;
       }
       case 'lunge': {
@@ -1157,6 +1207,8 @@ export class WorldView implements FollowSource {
     if (this.marker && this.hasRoom) this.drawMarker(this.marker, time);
     if (this.level.diorama) this.preview.update(step);
     const blobs = this.profile.blobShadows;
+    this.keys.pre(step, time, this.serverTick);
+    this.replayEcho();
     this.heroes.update(step, time, this.decals, this.ui, this.fx, blobs);
     // clarity: the light hung on enemies (auras, pools, wisps, channel glows) is turned down as one
     this.decals.gain = CL.enemyGlow;
@@ -1179,6 +1231,8 @@ export class WorldView implements FollowSource {
     this.shake(this.objectives.takeShake() + this.horde.takeShake());
     this.ability.update(step, time, this.decals, this.fx);
     this.shake(this.ability.takeShake());
+    this.keys.update(step, time, this.decals, this.fx, this.ui);
+    this.shake(this.keys.takeShake());
     this.drawAim(step);
     this.vfx.update(step, this.decals, this.fx, this.ui, this, this.warnings);
     if (CL.selfMarker) this.drawSelf(time);
@@ -1189,6 +1243,19 @@ export class WorldView implements FollowSource {
     this.ui.end(time);
 
     if (render) this.render(step);
+  }
+
+  /** Twin Cast: the repeat of a secondary goes off; the cast the view saw is drawn again as its echo. */
+  private replayEcho(): void {
+    const slot = this.keys.takeEcho();
+    if (slot < 0) return;
+    const echo = this.keys.echoOf(slot);
+    this.vfx.owner(this.slotOwner(slot));
+    this.keys.echoing = true;
+    this.castEffect('p', slot, echo.echoAbility, echo.echoX, echo.echoZ, echo.echoRot);
+    this.keys.echoing = false;
+    this.keys.echoFlourish(slot, echo.echoX, echo.echoZ);
+    this.vfx.owner(OWNER.WORLD);
   }
 
   /**
@@ -1203,7 +1270,7 @@ export class WorldView implements FollowSource {
     const x = h.x + h.offX;
     const z = h.z + h.offZ;
     const alive = h.state === 'alive';
-    const d = SELF.RING * (1 + SELF.PULSE * Math.sin(time * SELF.RATE));
+    const d = SELF.RING * h.size * (1 + SELF.PULSE * Math.sin(time * SELF.RATE));
     const on = alive ? 1 : 0.6;
     // an overlay ring (an ellipse that matches the camera pitch, so it reads as lying on the floor): thin, drawn over
     // everything, so it shows through a pile of enemies without hiding them
@@ -1211,7 +1278,7 @@ export class WorldView implements FollowSource {
     this.ui.push(SPRITE.HOOP, x, 0.05, z, d * 1.19, d * 1.19 * squash, Math.min(1.3, c[0] * 1.4 + 0.15), Math.min(1.3, c[1] * 1.4 + 0.15), Math.min(1.3, c[2] * 1.4 + 0.15), SELF.OVERLAY * on,
       0, SELF.HOOP);
     const uv = this.atlas.icons.marker;
-    const y = HERO_VIS.LABEL_Y + SELF.CHEVRON_Y + Math.abs(Math.sin(time * SELF.RATE)) * 0.12 + (h.lift > 0 ? h.lift : 0);
+    const y = HERO_VIS.LABEL_Y + HERO_VIS.HEIGHT * (h.size - 1) + SELF.CHEVRON_Y + Math.abs(Math.sin(time * SELF.RATE)) * 0.12 + (h.lift > 0 ? h.lift : 0);
     this.ui.push(SPRITE.ATLAS, x, y, z, SELF.CHEVRON, SELF.CHEVRON, Math.min(1.4, c[0] * 1.5 + 0.2), Math.min(1.4, c[1] * 1.5 + 0.2), Math.min(1.4, c[2] * 1.5 + 0.2), 1,
       0, 0, 0, 0, 0, uv[0], uv[1], uv[2], uv[3]);
   }
@@ -1450,14 +1517,14 @@ export class WorldView implements FollowSource {
   getDebug(): {
     quality: Quality; particles: number; decals: number; fxSprites: number; uiSprites: number; enemies: number; projectiles: number;
     hazards: number; heroTemplates: number; showcase: boolean; zones: number; depth: number; domes: number; objective: ObjectiveKind | null;
-    numbers: number; glare: number; warnings: number;
+    numbers: number; glare: number; warnings: number; keystones: number;
   } {
     return {
       quality: this.quality, particles: this.vfx.particleCount, decals: this.decals.used, fxSprites: this.fx.used,
       uiSprites: this.ui.used, enemies: this.enemies.count, projectiles: this.projectiles.count,
       hazards: this.hazards.active, heroTemplates: this.assets.heroTemplateCount(), showcase: this.level.diorama,
       zones: this.ability.activeZones, depth: this.descent, domes: this.horde.activeDomes, objective: this.objectives.activeKind,
-      numbers: this.vfx.numberCount, glare: this.glare.peak, warnings: this.warnings.used,
+      numbers: this.vfx.numberCount, glare: this.glare.peak, warnings: this.warnings.used, keystones: this.keys.active,
     };
   }
 
@@ -1476,6 +1543,7 @@ export class WorldView implements FollowSource {
     this.vfx.clear();
     this.ability.clear();
     this.horde.clear();
+    this.keys.reset();
     this.objectives.reset();
     this.doors.clear();
     this.hazards.clear();
@@ -1520,6 +1588,9 @@ export class WorldView implements FollowSource {
 }
 
 const DOOR_GOLD = 0xffd166;
+/** Twin Cast: colour and strength of the repeated cast. */
+const ECHO_COLOR = 0x9fdcff;
+const ECHO_LIGHT = 0.65;
 /** Between the particle batch (3) and nothing: warnings are the last thing drawn into the world. */
 const WARNING_ORDER = 3.5;
 const HORDE_VIS = {

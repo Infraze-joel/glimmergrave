@@ -527,33 +527,38 @@ function keystoneLayer({ kit, bar, s, t, sd, barLen, chord }: StepCtx, family: K
       const half = Math.floor(stepsPerBeat / 2);
       const off = s % stepsPerBeat === half;
       if (off || (dense && s % stepsPerBeat === half + 1)) {
-        kit.pluck(t, note(chord, KEY_RUN[(beat * 2 + (off ? 0 : 1) + bar * 3) % KEY_RUN.length], 3 + up), 0.034);
+        kit.pluck(t, note(chord, KEY_RUN[(beat * 2 + (off ? 0 : 1) + bar * 3) % KEY_RUN.length], 3 + up), 0.055);
       }
       if (s === steps - 1 && bar % 2 === 1) kit.noise(t - sd, { dur: sd * 2, gain: 0.02, filter: 'bandpass', freq: 900, freqEnd: 4200, q: 1.5, attack: sd * 1.6, pan: -STEREO.HAT });
       break;
     }
     case 'primary': {
-      if (drive && onBeat && beat % 2 === 1) kit.anvil(t, dense ? 0.03 : 0.04);
+      if (drive && onBeat && beat % 2 === 1) kit.anvil(t, dense ? 0.065 : 0.085);
       const stabAt = stepsPerBeat + Math.floor(stepsPerBeat / 2);
       if (s === stabAt || (dense && s === steps - stabAt)) {
-        const root = note(chord, 0, 2 + up);
-        kit.stab(t, [root, root + 7], 0.034);
+        const root = note(chord, 0, 3 + up);
+        kit.stab(t, [root, root + 7], 0.06);
+        // struck steel rings on: the note and its inharmonic overtone
+        kit.tone(t, { type: 'triangle', freq: midiToHz(root + 12 + kit.shift()), dur: sd * 6, gain: 0.05, send: 0.5 });
+        kit.tone(t, { freq: midiToHz(root + 12 + kit.shift()) * 2.76, dur: sd * 4, gain: 0.012, send: 0.5 });
       }
       if (dense && onBeat && beat === 0 && bar % 2 === 0) kit.glass(t, note(chord, 4, 3), 0.03);
       break;
     }
     case 'secondary':
       if (s === 0 && bar % 2 === 0) {
-        kit.bell(t, note(chord, 0, 2 + up), 0.04);
-        kit.choir(t, [note(chord, 0, 2), note(chord, 4, 2)], barLen * 2, 0.0075, 'oo');
+        kit.bell(t, note(chord, 0, 3 + up), 0.06);
+        kit.choir(t, [note(chord, 0, 2), note(chord, 4, 2)], barLen * 2, 0.011, 'oo');
       }
-      if (dense && s === Math.floor(steps / 2) && bar % 2 === 1) kit.glass(t, note(chord, 2, 3), 0.035);
+      // the bell's echo: one glass note in the bar between, two when dense
+      if (s === Math.floor(steps / 2) && bar % 2 === 1) kit.glass(t, note(chord, 4, 3), 0.05);
+      if (dense && s === steps - stepsPerBeat && bar % 2 === 1) kit.glass(t, note(chord, 2, 4), 0.035);
       break;
     case 'companion': {
       const [a, b] = KEY_ANSWERS[bar % KEY_ANSWERS.length];
       const first = steps - stepsPerBeat;
-      if (s === first) kit.glass(t, note(chord, a, 3 + up), 0.045);
-      if (s === first + Math.floor(stepsPerBeat / 2)) kit.glass(t, note(chord, b, 3 + up), 0.038);
+      if (s === first) kit.glass(t, note(chord, a, 3 + up), 0.07);
+      if (s === first + Math.floor(stepsPerBeat / 2)) kit.glass(t, note(chord, b, 3 + up), 0.06);
       if (dense && s === Math.floor(steps / 2)) kit.glass(t, note(chord, a, 3), 0.03);
       break;
     }
@@ -563,8 +568,8 @@ function keystoneLayer({ kit, bar, s, t, sd, barLen, chord }: StepCtx, family: K
         const beatLen = sd * stepsPerBeat;
         for (const [at, off, dur] of [[0, a, beatLen * 0.9], [beatLen, b, beatLen * 2.6]] as const) {
           const f = midiToHz(note(chord, off, 2 + up) + kit.shift());
-          for (const detune of [-7, 6]) kit.tone(t + at, { type: 'sawtooth', freq: f, detune, dur, gain: 0.02, lpf: 600, lpfEnd: 2000, q: 1.4, attack: 0.03, hold: dur * 0.5, send: 0.45 });
-          kit.tone(t + at, { type: 'triangle', freq: f, dur, gain: 0.02, attack: 0.02, hold: dur * 0.5, send: 0.45 });
+          for (const detune of [-7, 6]) kit.tone(t + at, { type: 'sawtooth', freq: f, detune, dur, gain: 0.032, lpf: 600, lpfEnd: 2000, q: 1.4, attack: 0.03, hold: dur * 0.5, send: 0.45 });
+          kit.tone(t + at, { type: 'triangle', freq: f, dur, gain: 0.032, attack: 0.02, hold: dur * 0.5, send: 0.45 });
         }
         if (drive) kit.war(t, 0.07, 0.9);
       }
@@ -572,8 +577,8 @@ function keystoneLayer({ kit, bar, s, t, sd, barLen, chord }: StepCtx, family: K
       break;
     }
     case 'class':
-      if (s === 0 && bar % 2 === 0) kit.choir(t, chordPad(chord, 2), barLen * 2, 0.0085, 'ah');
-      if (s === 0 && bar % 4 === 2) kit.wail(t, note(chord, dense ? 7 : 4, 3), barLen * 1.5, 0.022);
+      if (s === 0 && bar % 2 === 0) kit.choir(t, chordPad(chord, 2), barLen * 2, 0.012, 'ah');
+      if (s === 0 && bar % 4 === 2) kit.wail(t, note(chord, dense ? 7 : 4, 3), barLen * 1.5, 0.035);
       if (dense && s === Math.floor(steps / 2) && bar % 2 === 0) kit.glass(t, note(chord, 4, 4), 0.03);
       break;
   }
@@ -621,7 +626,7 @@ const DEFS: Record<TrackKey, TrackDef> = {
   },
   // -------------------------------------------------------------- keystone draft: held, expectant, unresolved
   keydraft: {
-    gain: 1, steps: 16, stepsPerBeat: 4,
+    gain: 0.9, steps: 16, stepsPerBeat: 4,
     bpm: () => 60,
     step({ kit, bar, s, t, sd, barLen, chord }) {
       if (s === 0) {

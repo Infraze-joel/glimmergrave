@@ -17,6 +17,7 @@ import {
   type DirectorState, type RunOverrides,
 } from './director.ts';
 import { spawnEnemy, stepEnemy, type SpawnOpts } from './enemies.ts';
+import { stepWorldKeystones, takeKeystone } from './keystones.ts';
 import { stepHazards } from './hazardFx.ts';
 import { refreshDomes } from './horde.ts';
 import { isSpecial } from './objectives.ts';
@@ -28,7 +29,7 @@ import { CLASSES } from '../data/classes.ts';
 import { createHero, placeHero, queueInput, resetHero, stepHero, stepHeroInteractions } from './players.ts';
 import { stepProjectiles } from './projectiles.ts';
 import { Rng } from './rng.ts';
-import type { Enemy, Hero, HeroBuild, PendingBlast, Projectile, Zone } from './state.ts';
+import type { Bloom, Enemy, Hero, HeroBuild, PendingBlast, Projectile, Trail, Zone } from './state.ts';
 import { DIRECTOR, SIM } from './tuning.ts';
 
 const LOBBY_ROOM_W = 30;
@@ -61,6 +62,12 @@ export class World {
   /** Lasting ground effects of hero abilities, and delayed hostile explosions (volatile affix). */
   zones: Zone[] = [];
   blasts: PendingBlast[] = [];
+  /** Keystones: burning dash trails, Corpse Blooms about to burst, the chain depth of the bloom being resolved. */
+  trails: Trail[] = [];
+  blooms: Bloom[] = [];
+  bloomDepth = 0;
+  /** Keystone whose own damage is being dealt right now (null = an ordinary, direct hit). See sim/keystones.ts. */
+  ksSource: string | null = null;
   /** Relic shard rolls have their own seeded stream, so loot never changes how a fight plays out. */
   lootRng = new Rng(1);
   room: RoomLayout = lobbyRoom();
@@ -281,6 +288,10 @@ export class World {
     this.projectiles.length = 0;
     this.zones.length = 0;
     this.blasts.length = 0;
+    this.trails.length = 0;
+    this.blooms.length = 0;
+    this.bloomDepth = 0;
+    this.ksSource = null;
     this.events.length = 0;
     this.nextEnemyId = 1;
     this.nextProjectileId = 1;
@@ -334,6 +345,7 @@ export class World {
       stepProjectiles(this);
       stepZones(this);
       if (this.blasts.length > 0) stepBlasts(this);
+      if (this.trails.length > 0 || this.blooms.length > 0) stepWorldKeystones(this);
     }
     stepDirector(this);
     if (this.run.phase === 'combat') this.checkDefeat();
@@ -378,7 +390,29 @@ export class World {
 
   getDraft(slot: number): BoonOffer[] {
     const h = this.hero(slot);
-    return h && this.run.phase === 'draft' ? h.draft.map((o) => ({ id: o.id, level: o.level })) : [];
+    if (!h || this.run.phase !== 'draft') return [];
+    return h.draft.map((o) => (o.fits ? { id: o.id, level: o.level, fits: [...o.fits] } : { id: o.id, level: o.level }));
+  }
+
+  /**
+   * Set while the hero's current draft offers keystones: the keystones held and the index that takes the
+   * consolation instead (ServerMsg `draft.keystone`). Null in an ordinary draft.
+   */
+  getKeystoneDraft(slot: number): { held: string[]; skip: number } | null {
+    const h = this.hero(slot);
+    if (!h || this.run.phase !== 'draft' || !h.draftKeystone || h.draft.length === 0) return null;
+    return { held: [...h.keystones], skip: h.draft.length };
+  }
+
+  getKeystones(slot: number): string[] {
+    const h = this.hero(slot);
+    return h ? [...h.keystones] : [];
+  }
+
+  /** Tools / tests: hands a hero a keystone outside a draft (same rules as a pick). */
+  grantKeystone(slot: number, id: string, replace?: string): boolean {
+    const h = this.hero(slot);
+    return h ? takeKeystone(this, h, id, replace) : false;
   }
 
   getBoons(slot: number): BoonStack[] {
@@ -386,10 +420,11 @@ export class World {
     return h ? h.boons.map((b) => ({ id: b.id, level: b.level })) : [];
   }
 
-  pickBoon(slot: number, index: number): boolean {
+  /** `replace`: in a keystone draft with full slots, the held keystone to give up. */
+  pickBoon(slot: number, index: number, replace?: string): boolean {
     const h = this.hero(slot);
     if (!h || !Number.isInteger(index)) return false;
-    return pickBoon(this, h, index);
+    return pickBoon(this, h, index, replace);
   }
 
   /** Draft rerolls the hero has left this run (insight upgrade). */
@@ -471,9 +506,10 @@ export class World {
       if (h.state === 'downed' && h.revive > 0) flags |= PF.BEING_REVIVED;
       if (h.inDoor) flags |= PF.IN_DOOR_ZONE;
       if (h.aura > 0) flags |= PF.KINDRED_AURA;
+      if (h.ks.channel > SIM.EPS) flags |= PF.CHANNELING;
       players.push({
         slot: h.slot, x: h.body.x, z: h.body.z, rot: h.rot, hp: Math.max(0, h.state === 'alive' ? Math.max(1, h.hp) : 0), maxHp: h.maxHp,
-        shield: h.barrier + h.tempShield, state: h.state, anim: h.anim, animSeq: h.animSeq & 0xff,
+        shield: h.barrier + h.tempShield + h.ks.overheal, state: h.state, anim: h.anim, animSeq: h.animSeq & 0xff,
         cdSecondary: h.secondaryCdMax > 0 ? Math.min(1, h.secondaryCd / h.secondaryCdMax) : 0,
         cdDash: h.dashCharges >= maxCharges ? 0 : Math.min(1, h.dashRecharge / dashRechargeSeconds(h)),
         ult: Math.min(1, h.ult / ULTIMATE.MAX), dashCharges: h.dashCharges, revive: Math.min(1, h.revive), flags,

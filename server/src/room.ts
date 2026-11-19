@@ -47,6 +47,8 @@ export interface RoomOptions {
   debugStartChamber: number;
   /** QA aid: objective pinned to the first door of every choice (undefined = normal). */
   debugObjective?: ObjectiveKind;
+  /** QA aid: keystone ids every keystone draft offers first (undefined = normal). */
+  debugKeystones?: string[];
   /** Fixed run seed (tests); random when undefined. */
   seed?: number;
   log: Logger;
@@ -125,6 +127,7 @@ export class Room {
         ready: s.ready, connected: s.peer !== null,
         host: s.slot === this.hostSlot,
         boons: this.world.getBoons(s.slot),
+        keystones: this.world.getKeystones(s.slot),
       });
     }
     return out;
@@ -152,10 +155,12 @@ export class Room {
     if (!s.peer) return;
     const options = this.world.getDraft(s.slot);
     const rerolls = this.world.getRerolls(s.slot);
-    const sig = `${rerolls}:${JSON.stringify(options)}`;
+    // Present in a keystone draft only: what the hero holds and the index of the consolation.
+    const keystone = this.world.getKeystoneDraft(s.slot);
+    const sig = `${rerolls}:${JSON.stringify(options)}:${keystone ? JSON.stringify(keystone) : ''}`;
     if (!force && sig === s.draftSig) return;
     s.draftSig = sig;
-    s.peer.sendJson({ t: 'draft', options, rerolls });
+    s.peer.sendJson(keystone ? { t: 'draft', options, rerolls, keystone } : { t: 'draft', options, rerolls });
   }
 
   /** Sends each player their private draft whenever it changed (new offers, a pick, a reroll). */
@@ -335,7 +340,8 @@ export class Room {
         if (this.phase !== 'lobby' || this.tutorial) return null;
         return this.start();
       case 'pick':
-        if (this.world.pickBoon(session.slot, msg.index)) this.afterWorldChange();
+        // `replace` only means something in a keystone draft with full slots; the simulation validates it.
+        if (this.world.pickBoon(session.slot, msg.index, msg.replace)) this.afterWorldChange();
         return null;
       case 'reroll':
         if (this.world.rerollDraft(session.slot)) this.afterWorldChange();
@@ -362,7 +368,7 @@ export class Room {
     // Players who are not connected right now do not take part in this run.
     for (const s of this.sessions) if (s && !s.peer) this.remove(s, 'absent_at_start');
     const seed = this.opts.seed ?? randomInt(1, 0x7fffffff);
-    if (!this.world.start(this.oath, seed, this.opts.debugStartChamber, { objective: this.opts.debugObjective })) return 'not_ready';
+    if (!this.world.start(this.oath, seed, this.opts.debugStartChamber, { objective: this.opts.debugObjective, keystones: this.opts.debugKeystones })) return 'not_ready';
     this.endedAt = 0;
     this.opts.log('info', 'run_start', { room: this.code, players: this.playerCount, oath: this.world.run.oath });
     this.broadcastRoster();

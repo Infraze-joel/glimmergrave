@@ -10,7 +10,7 @@ import { ENEMY_TUNING } from '../data/enemies.ts';
 import type { EnemyKind } from '../types.ts';
 import { chillSlow, damageHero, enemyDamage } from './combat.ts';
 import {
-  beginAttack, emitTelegraph, enemySpeed, isTargetHero, landAttack, livingEnemies, nearestHero, rayLength, setAnim, taunting,
+  beginAttack, emitTelegraph, enemySpeed, isSeenHero, isTargetHero, landAttack, livingEnemies, nearestSeenHero, rayLength, setAnim, taunting,
   spawnEnemy, steer,
 } from './enemies.ts';
 import { angleTo, DEG, TAU } from './geom.ts';
@@ -49,12 +49,12 @@ export function bossTarget(w: World, e: Enemy, b: BossState, dt: number): Hero |
     return taunter;
   }
   const current = w.hero(e.target);
-  if (current && isTargetHero(current) && b.retarget > 0) return current;
+  if (current && isSeenHero(current) && b.retarget > 0) return current;
   b.retarget = AI.REGENT.RETARGET_SECONDS;
-  const candidates = w.heroes.filter(isTargetHero);
+  const candidates = w.heroes.filter(isSeenHero);
   if (candidates.length === 0) { e.target = -1; return null; }
   // Mostly the nearest hero, sometimes a random one so that ranged heroes are not ignored.
-  const pick = candidates.length > 1 && w.rng.chance(AI.BOSS_RANDOM_TARGET_CHANCE) ? w.rng.pick(candidates) : nearestHero(w, e.x, e.z);
+  const pick = candidates.length > 1 && w.rng.chance(AI.BOSS_RANDOM_TARGET_CHANCE) ? w.rng.pick(candidates) : nearestSeenHero(w, e.x, e.z);
   const target = pick ?? (candidates[0] as Hero);
   e.target = target.slot;
   return target;

@@ -60,7 +60,7 @@ export const emptyKeystoneState = (): KeystoneState => ({
   ...noKeystoneFlags(), damageMul: 1, area: 1, primaryBase: 0, dashing: false, trail: null,
   phaseTime: 0, phaseCrit: false, phaseTick: -1, phaseDone: false, veilTime: 0, veilHit: false, veilTick: -1,
   swings: 0, bolts: 0, chainCd: 0, bladeAt: new Map(), familiarCd: 0, stacks: 0, stackTime: 0, leech: 0, leechTimer: 0, overheal: 0,
-  shieldPeak: 0, barrierPeak: 0, channel: 0, spinTwin: null, priceCd: 0, procTick: new Map(), procCount: new Map(),
+  shieldPeak: 0, barrierPeak: 0, channel: 0, spinTwin: null, procTick: new Map(), procCount: new Map(),
   fanDef: null, whirlDef: null, groundDef: null, streamDef: null, dealt: {}, casts: 0, extraCasts: 0, secondaryDealt: 0,
 });
 

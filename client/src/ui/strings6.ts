@@ -32,7 +32,7 @@ export const EN6 = {
   'keystone.draft.sub': 'A keystone changes how you fight — and which boons you are offered from now on.',
   'keystone.draft.subFull': 'Both slots are full: a new keystone replaces one of yours.',
   'keystone.draft.auto': 'A keystone is chosen for you when the time runs out.',
-  'keystone.draft.autoFull': 'When the time runs out, your build stays as it is.',
+  'keystone.draft.autoFull': 'When the time runs out, your build stays and a boon is chosen for you.',
   'keystone.draft.rerollHint': 'Replaces all offered keystones',
   'keystone.held': 'Your keystones',
   'keystone.held.slot': 'Slot {n}',
@@ -76,6 +76,8 @@ export const EN6 = {
   'hud.keystone.empty': 'Free keystone slot',
   'hud.keystone.emptyHint': 'Keystones are offered after the champion and after the herald.',
   'hud.keystone.frame': 'Transformed by {name}',
+  'buff.phase_walker.name': 'Empowered — next hit crits',
+  'buff.ks_shade.name': 'Veiled — next hit +{v}%',
   'hud.ks.bloodrush': 'Bloodrush ×{n}',
   'hud.ks.bloodrushValue': '+{v}% speed',
   'hud.ks.phase': 'Empowered: next hit crits',
@@ -177,7 +179,7 @@ export const EN6 = {
 
   // ---------------------------------------------------------------- tips
   'tip.keystone.title': 'Keystones',
-  'tip.keystone.body': 'A keystone changes an ability for the rest of the run. Read the **cost** line: some have a price. You hold two — from now on, boons that share a tag with your keystone are marked and offered more often.',
+  'tip.keystone.body': 'A keystone changes an ability for the rest of the run. Read the [[b|cost]] line: some have a price. You hold two — from now on, boons that share a tag with your keystone are marked and offered more often.',
   'tip.fits.title': 'Fits your build',
   'tip.fits.body': 'The gold mark means this boon shares a tag with one of your keystones and makes it stronger. Boons without the mark still work — they just do not build on your keystone.',
 } as const;
@@ -206,7 +208,7 @@ export const DE6: Record<Key6, string> = {
   'keystone.draft.sub': 'Ein Schlussstein ändert, wie du kämpfst – und welche Boons dir ab jetzt angeboten werden.',
   'keystone.draft.subFull': 'Beide Plätze sind belegt: Ein neuer Schlussstein ersetzt einen von deinen.',
   'keystone.draft.auto': 'Läuft die Zeit ab, wird ein Schlussstein für dich gewählt.',
-  'keystone.draft.autoFull': 'Läuft die Zeit ab, bleibt dein Build, wie er ist.',
+  'keystone.draft.autoFull': 'Läuft die Zeit ab, bleibt dein Build, und ein Boon wird für dich gewählt.',
   'keystone.draft.rerollHint': 'Ersetzt alle angebotenen Schlusssteine',
   'keystone.held': 'Deine Schlusssteine',
   'keystone.held.slot': 'Platz {n}',
@@ -248,6 +250,8 @@ export const DE6: Record<Key6, string> = {
   'hud.keystone.empty': 'Freier Schlussstein-Platz',
   'hud.keystone.emptyHint': 'Schlusssteine gibt es nach dem Champion und nach dem Herold.',
   'hud.keystone.frame': 'Verwandelt durch {name}',
+  'buff.phase_walker.name': 'Gestärkt – nächster Treffer kritisch',
+  'buff.ks_shade.name': 'Verhüllt – nächster Treffer +{v} %',
   'hud.ks.bloodrush': 'Blutrausch ×{n}',
   'hud.ks.bloodrushValue': '+{v} % Tempo',
   'hud.ks.phase': 'Gestärkt: nächster Treffer kritisch',
@@ -344,7 +348,7 @@ export const DE6: Record<Key6, string> = {
   'codex.keystones.count': '{n} Schlusssteine',
 
   'tip.keystone.title': 'Schlusssteine',
-  'tip.keystone.body': 'Ein Schlussstein verändert eine Fähigkeit für den Rest des Runs. Lies die Zeile **Preis**: Manche kosten etwas. Du hältst zwei – ab jetzt sind Boons, die ein Tag mit deinem Schlussstein teilen, markiert und werden öfter angeboten.',
+  'tip.keystone.body': 'Ein Schlussstein verändert eine Fähigkeit für den Rest des Runs. Lies die Zeile [[b|Preis]]: Manche kosten etwas. Du hältst zwei – ab jetzt sind Boons, die ein Tag mit deinem Schlussstein teilen, markiert und werden öfter angeboten.',
   'tip.fits.title': 'Passt zu deinem Build',
   'tip.fits.body': 'Die goldene Markierung heißt: Dieser Boon teilt ein Tag mit einem deiner Schlusssteine und macht ihn stärker. Boons ohne Markierung wirken trotzdem – sie bauen nur nicht auf deinem Schlussstein auf.',
 };

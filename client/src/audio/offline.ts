@@ -11,7 +11,9 @@ import {
   type BiomeId, type BossKind, type ObjectiveKind,
 } from '@shared/types.ts';
 import { createAmbience, type SceneId } from './ambience.ts';
+import { KEYSTONES } from '@shared/data/keystones.ts';
 import { createGraph, MIX, type AudioGraph } from './engine.ts';
+import { KEYSTONE_FAMILIES, keystoneFamily, scoreVoices } from './keystone-map.ts';
 import { createMusic, type MusicState } from './music.ts';
 import { createBank, type Bank, type BankStats } from './samples.ts';
 import { createSfx, type Sfx } from './sfx.ts';
@@ -54,6 +56,8 @@ export interface RenderStats {
   riseS: number;
   activeS: number;
   onsets: number;
+  /** Only with `RenderOptions.band`: level of the signal between those two frequencies over the whole render, dBFS. */
+  bandDb?: number;
   /** Only with `RenderOptions.envelope`: RMS per 50 ms in dBFS, from the end of the pre-roll. */
   env?: number[];
 }
@@ -71,6 +75,11 @@ export interface RenderOptions {
   objective?: ObjectiveKind;
   pressure?: number;
   lit?: number;
+  /** Update 5: keystones the own hero holds (their voices join the fighting pieces); the keystone-draft bed for 'calm'. */
+  keystones?: string[];
+  keystoneDraft?: boolean;
+  /** Also measure the level inside this band [lo, hi] in Hz (`RenderStats.bandDb`): where a single voice of the score lives. */
+  band?: [number, number];
   /** Also return the level curve (`RenderStats.env`), for checks of what happens at a given moment. */
   envelope?: boolean;
 }
@@ -239,6 +248,8 @@ function analyse(name: string, seconds: number, buffer: AudioBuffer, from = 0): 
 /** Runs `fire` when the render reaches `at` seconds (rounded to a render quantum). */
 function atTime(ctx: OfflineAudioContext, at: number, fire: () => void): void {
   if (typeof ctx.suspend !== 'function') { fire(); return; }
+  // an event after the end of the render cannot sound in it
+  if (Math.round(at / QUANTUM_S) * QUANTUM_S >= ctx.length / ctx.sampleRate) return;
   void ctx.suspend(Math.round(at / QUANTUM_S) * QUANTUM_S).then(() => {
     try { fire(); } finally { void ctx.resume(); }
   });
@@ -248,11 +259,13 @@ function atTime(ctx: OfflineAudioContext, at: number, fire: () => void): void {
  * Renders `seconds` after the pre-roll. `build` wires the graph at time 0 and may return what to fire once the
  * pre-roll is over (one-shots); continuous material (music, ambience) simply starts in `build`.
  */
-async function render(name: string, seconds: number, build: (ctx: OfflineAudioContext) => (() => void) | void): Promise<RenderStats> {
+async function render(name: string, seconds: number, build: (ctx: OfflineAudioContext) => (() => void) | void, band?: [number, number]): Promise<RenderStats> {
   const ctx = new OfflineAudioContext(CHANNELS, Math.ceil((PREROLL_S + seconds) * SAMPLE_RATE), SAMPLE_RATE);
   const fire = build(ctx);
   if (fire) atTime(ctx, PREROLL_S, fire);
-  return analyse(name, seconds, await ctx.startRendering(), PREROLL_S);
+  const buffer = await ctx.startRendering();
+  const stats = analyse(name, seconds, buffer, PREROLL_S);
+  return band ? { ...stats, bandDb: bandDb(buffer, PREROLL_S, PREROLL_S + seconds, band[0], band[1]) } : stats;
 }
 
 function levels(graph: AudioGraph): void {
@@ -264,7 +277,8 @@ function levels(graph: AudioGraph): void {
 /** Renders `seconds` of a music state at full user volume. `bossPhase` only matters for 'boss'. */
 export function renderMusic(stateName: Exclude<MusicState, 'none'>, seconds: number, bossPhase = 1, o: RenderOptions = {}): Promise<RenderStats> {
   const objective = o.objective && o.objective !== 'slay' ? `[${o.objective}${o.pressure !== undefined ? ` p${o.pressure}` : ''}${o.lit !== undefined ? ` lit${o.lit}` : ''}]` : '';
-  const label = `music:${stateName}${objective}${stateName === 'boss' ? `.${o.boss ?? 'regent'}.${bossPhase}` : ''}${o.biome ? `@${o.biome}` : ''}${o.depth ? `/depth${o.depth}` : ''}`;
+  const keys = o.keystones?.length ? `+ks(${o.keystones.join(',')})` : o.keystoneDraft ? '+keystoneDraft' : '';
+  const label = `music:${stateName}${objective}${stateName === 'boss' ? `.${o.boss ?? 'regent'}.${bossPhase}` : ''}${o.biome ? `@${o.biome}` : ''}${o.depth ? `/depth${o.depth}` : ''}${keys}`;
   return render(label, seconds, (ctx) => {
     const graph = createGraph(ctx);
     levels(graph);
@@ -274,9 +288,11 @@ export function renderMusic(stateName: Exclude<MusicState, 'none'>, seconds: num
     music.setBiome(o.biome ?? 'crypt');
     music.setDepth(o.depth ?? 0);
     music.setObjective(o.objective ?? null, o.pressure ?? 0, o.lit ?? 0);
+    music.setKeystones(scoreVoices(o.keystones ?? []));
+    music.setKeystoneDraft(o.keystoneDraft === true);
     music.setState(stateName, 0.05);
     music.schedule(PREROLL_S + seconds);
-  });
+  }, o.band);
 }
 
 export function renderStinger(kind: 'victory' | 'defeat', o: RenderOptions = {}): Promise<RenderStats> {
@@ -309,6 +325,11 @@ let zoneId = 1;
 /** Substring -> signature cue ids the bosses are expected to use (unknown ids fall back to the generic cast). */
 export const BOSS_CUE_IDS = ['regent_volley', 'regent_slam', 'regent_summon', 'champion_sweep', 'champion_charge',
   'matron_beam', 'matron_wisp', 'matron_summon', 'stalker_leap', 'stalker_spear', 'stalker_volley', 'blink'] as const;
+
+/** Signatures with a tail longer than the default render. */
+const KEYSTONE_RENDER_S: Record<string, number> = { ember_wake: 4.5, phase_walker: 3, momentum_engine: 6, ks_shade: 3 };
+/** One keystone per family for the moment renders. */
+const MOMENT_IDS = Object.fromEntries(KEYSTONE_FAMILIES.map((family) => [family, KEYSTONES.find((def) => keystoneFamily(def.id) === family)?.id ?? 'ricochet'])) as Record<(typeof KEYSTONE_FAMILIES)[number], string>;
 
 export const SFX_CASES: SfxCase[] = [
   ['ui.hover', (s) => s.hover()],
@@ -432,7 +453,55 @@ export const SFX_CASES: SfxCase[] = [
   ['objective.reliquary', (s) => s.objectiveDone('vault', false), 4],
   // the whole countdown, scheduled ahead like the clock does it second by second
   ...TIMED_OBJECTIVES.map((kind): SfxCase => [`objective.timer.${kind}`, (s) => s.timerCountdown(kind), OBJECTIVE_SFX.TIMER_SECONDS + 1]),
+  // ---- update 5: keystones
+  ...KEYSTONES.flatMap((def): SfxCase[] => [
+    [`keystone.sig.${def.id}`, (s) => playSignature(s, def.id, true), KEYSTONE_RENDER_S[def.id] ?? 2.5],
+    [`keystone.sigAlly.${def.id}`, (s) => playSignature(s, def.id, false), 2.5],
+  ]),
+  ['keystone.ricochet.last', (s) => s.keystoneProc('ricochet', true, { n: 0 })],
+  ['keystone.bloom.chain4', (s) => { for (let i = 0; i < 4; i++) atOffset(s, i * 0.15, () => s.keystoneProc('corpse_bloom', true, { n: i + 1, r: 3 })); }],
+  ...[1, 5, 10].map((n): SfxCase => [`keystone.rush.${n}`, (s) => s.keystoneProc('momentum_engine', true, { n }), 6]),
+  ['keystone.resonanceEngine.full', (s) => s.keystoneProc('resonance_engine', true, { n: 100 })],
+  ['keystone.cost.brittle', (s) => s.brittleHit(true)],
+  ['keystone.cost.brittleAlly', (s) => s.brittleHit(false)],
+  ['keystone.cost.hurt+brittle', (s) => { s.hurt(true, 30); s.brittleHit(true); }],
+  ['keystone.cost.titanSwing', (s) => s.titanSwing(true)],
+  ['keystone.cost.titan.swing+blow', (s) => { s.primary('knight', 0, true); s.titanSwing(true); atOffset(s, 0.45, () => { s.hit({ dmg: 60, crit: false, el: null, own: true, weapon: 'knight' }); s.keystoneProc('heavy_hitter', true); }); }],
+  ...KEYSTONE_FAMILIES.map((family): SfxCase => [`keystone.moment.${family}`, (s) => s.keystoneTaken(MOMENT_IDS[family], true), 4.5]),
+  ['keystone.moment.replaced', (s) => s.keystoneTaken('ricochet', true, true), 5],
+  ['keystone.momentAlly', (s) => s.keystoneTaken('ricochet', false)],
+  ['keystone.momentAlly.replaced', (s) => s.keystoneTaken('ricochet', false, true)],
+  ['keystone.draftOpen', (s) => s.keystoneDraftOpen(false), 3.5],
+  ['keystone.draftOpen.full', (s) => s.keystoneDraftOpen(true), 3.5],
+  ['keystone.pick.plain', (s) => s.draftPick()],
+  ['keystone.pick.fits1', (s) => { s.draftPick(); s.fitsPick(1); }],
+  ['keystone.pick.fits3', (s) => { s.draftPick(); s.fitsPick(3); }],
+  ...(['knight', 'mage', 'shade'] as const).flatMap((cls): SfxCase[] => [0, 1, 2].flatMap((held): SfxCase[] => [
+    [`keystone.power.primary.${cls}.${held}`, (s) => { s.primary(cls, 0, true); s.powerLayer('primary', held); }],
+    [`keystone.power.secondary.${cls}.${held}`, (s) => { s.secondary(cls, true); s.powerLayer('secondary', held); }],
+  ])),
+  ['keystone.loop.whirr', (s) => s.orbitWhirr(true), 4],
+  ['keystone.loop.stream', (s) => { for (let i = 0; i < 20; i++) atOffset(s, i * 0.1, () => s.stream('own')); }, 4],
+  ['keystone.loop.streamAlly', (s) => { for (let i = 0; i < 20; i++) atOffset(s, i * 0.1, () => s.stream(1)); }, 4],
+  ['keystone.loop.sanctum', (s) => s.sanctumWalk(zoneId++, 6, true), 7],
 ];
+
+/** Runs `fire` `seconds` later on the context the sounds play in (offline: at that render time; live: by timer). */
+function atOffset(sfx: Sfx, seconds: number, fire: () => void): void {
+  const ctx = sfx.context;
+  if (seconds <= 0) { fire(); return; }
+  if (typeof OfflineAudioContext !== 'undefined' && ctx instanceof OfflineAudioContext) atTime(ctx, ctx.currentTime + seconds, fire);
+  else window.setTimeout(fire, seconds * 1000);
+}
+
+/** One keystone's signature as the game triggers it (a chain-lightning burst is three arcs in one tick). */
+export function playSignature(sfx: Sfx, id: string, own: boolean): void {
+  if (id === 'chain_lightning') { for (let i = 0; i < 3; i++) sfx.keystoneProc(id, own); return; }
+  if (id === 'ricochet') { sfx.keystoneProc(id, own, { n: 1 }); return; }
+  if (id === 'ks_spellblade') { sfx.keystoneProc(id, own, { n: 1 }); return; }
+  if (id === 'orbit_blades') { sfx.keystoneProc(id, own); return; }
+  sfx.keystoneProc(id, own, { r: 3, n: id === 'momentum_engine' ? 3 : id === 'resonance_engine' ? 40 : undefined });
+}
 
 let hordeId = 1000;
 
@@ -669,3 +738,188 @@ export function renderStressTimed(seconds = 5, o: RenderOptions = {}): Promise<R
 
 export const OFFLINE_BIOMES = BIOME_IDS;
 export const OFFLINE_BOSSES = BOSS_KINDS;
+
+// ------------------------------------------------------------------ update 5: keystone worst case and masking
+
+/**
+ * Update 5 worst case: four heroes with two keystones each at the sim's caps (a proc burst per hero and keystone
+ * every 0.15 s; corpse blooms chaining four per tick; three chain-lightning arcs per burst; ricochets; the own
+ * hero's attacks with both power layers, the blades' whirr, the Bloodrush pulse at ten stacks, a keystone moment),
+ * on top of the whole update 4 worst case, over the survive piece at full pressure, deepest depth, two keystone voices.
+ */
+export const KEYSTONE_STRESS = { SECONDS: 7, SPAN_S: 3.2, PROC_GAP_S: 0.15, HEROES: 4 } as const;
+/** Two keystones per hero slot (slot 0 = the own hero). */
+const STRESS_BUILDS: [string, string][] = [['corpse_bloom', 'chain_lightning'], ['ricochet', 'orbit_blades'], ['momentum_engine', 'ks_knight'], ['twin_cast', 'shockstep']];
+
+export function keystoneLayerEvents(): TimedEvent[] {
+  const events: TimedEvent[] = [];
+  events.push([0, (s) => s.orbitWhirr(true)]);
+  for (let at = 0, i = 0; at < KEYSTONE_STRESS.SPAN_S; at += KEYSTONE_STRESS.PROC_GAP_S, i++) {
+    const tick = i;
+    STRESS_BUILDS.forEach((build, slot) => {
+      const own = slot === 0;
+      for (const id of build) {
+        if (id === 'corpse_bloom') events.push([at, (s) => { for (let c = 0; c < 4; c++) s.keystoneProc(id, own, { n: (tick % 4) + 1, r: 3 }); }]);
+        else if (id === 'chain_lightning') { if (tick % 2 === 0) events.push([at, (s) => { for (let c = 0; c < 3; c++) s.keystoneProc(id, own); }]); }
+        else if (id === 'ricochet') events.push([at, (s) => s.keystoneProc(id, own, { n: tick % 2 })]);
+        else if (id === 'momentum_engine') events.push([at, (s) => s.keystoneProc(id, own, { n: Math.min(10, tick + 1) })]);
+        else if (id === 'orbit_blades') events.push([at, (s) => s.keystoneProc(id, own)]);
+        else if (tick % 3 === 0) events.push([at, (s) => s.keystoneProc(id, own, { r: 3.2 })]);
+      }
+    });
+    // the own hero keeps attacking with both layers; a second own Bloodrush would be a third keystone, so slot 2 is an ally
+    if (tick % 2 === 0) events.push([at, (s) => { s.primary('spellblade', tick % 3, true); s.powerLayer('primary', 2); }]);
+    if (tick % 7 === 3) events.push([at, (s) => { s.secondary('mage', true); s.powerLayer('secondary', 2); }]);
+  }
+  events.push([0.4, (s) => s.keystoneProc('momentum_engine', true, { n: 10 })]);
+  events.push([1.2, (s) => { s.hurt(true, 40); s.brittleHit(true); }]);
+  return events.sort((a, b) => a[0] - b[0]);
+}
+
+export function keystoneStressEvents(): TimedEvent[] {
+  return [...keystoneLayerEvents(), ...objectiveStressEvents()].sort((a, b) => a[0] - b[0]);
+}
+
+interface TimedRender { events: TimedEvent[]; seconds: number; music?: boolean; keystones?: string[]; samples?: boolean }
+
+/** Renders a timed list over (optionally) the survive piece at full pressure and depth 5, and returns the raw buffer. */
+function renderTimedBuffer(r: TimedRender): Promise<AudioBuffer> {
+  const ctx = new OfflineAudioContext(CHANNELS, Math.ceil((PREROLL_S + r.seconds) * SAMPLE_RATE), SAMPLE_RATE);
+  const graph = createGraph(ctx);
+  levels(graph);
+  const sfx = createSfx(graph, bankFor({ samples: r.samples }));
+  if (r.music !== false) {
+    const music = createMusic(graph, sfx.player);
+    music.setDepth(5);
+    music.setObjective('survive', 1);
+    music.setKeystones(scoreVoices(r.keystones ?? []));
+    music.setState('combat', 0.05);
+    music.schedule(PREROLL_S + r.seconds);
+  }
+  fireTimed(ctx, sfx, r.events, STRESS.START_S);
+  return ctx.startRendering();
+}
+
+export function renderKeystoneStress(seconds: number = KEYSTONE_STRESS.SECONDS, o: RenderOptions = {}): Promise<RenderStats> {
+  return renderTimedBuffer({ events: keystoneStressEvents(), seconds, keystones: STRESS_BUILDS[0], samples: o.samples })
+    .then((buffer) => analyse('stress.keystones', seconds, buffer, PREROLL_S));
+}
+
+/** Level (dBFS, RMS of the band-limited signal, left channel) between `lo` and `hi` Hz over [fromS, toS) of a buffer. */
+function bandDb(buffer: AudioBuffer, fromS: number, toS: number, lo: number, hi: number): number {
+  const data = buffer.getChannelData(0);
+  const re = new Float32Array(FFT_SIZE);
+  const im = new Float32Array(FFT_SIZE);
+  const binHz = buffer.sampleRate / FFT_SIZE;
+  const first = Math.floor(fromS * buffer.sampleRate);
+  const last = Math.min(data.length, Math.floor(toS * buffer.sampleRate));
+  let power = 0;
+  let frames = 0;
+  let window = 0;
+  for (let i = 0; i < FFT_SIZE; i++) window += Math.pow(0.5 - 0.5 * Math.cos((2 * Math.PI * i) / FFT_SIZE), 2);
+  for (let at = first; at + FFT_SIZE <= last; at += FFT_HOP) {
+    for (let i = 0; i < FFT_SIZE; i++) {
+      re[i] = data[at + i] * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / FFT_SIZE));
+      im[i] = 0;
+    }
+    fft(re, im);
+    for (let b = Math.ceil(lo / binHz); b <= Math.floor(hi / binHz) && b < FFT_SIZE / 2; b++) power += 2 * (re[b] * re[b] + im[b] * im[b]);
+    frames++;
+  }
+  // Parseval: mean square of the band-limited signal
+  return toDb(Math.sqrt(power / Math.max(1, frames) / (FFT_SIZE * window)));
+}
+
+export const MASKING = {
+  /** When the warning starts in the stress (s after its start) and how long its band is measured. */
+  CUE_AT_S: 1.2,
+  FUSE: { lo: 5000, hi: 12000, seconds: 0.8 },
+  LEAP: { lo: 2000, hi: 8000, seconds: 0.8 },
+  RUNS: 3,
+} as const;
+
+export interface MaskingResult {
+  cue: 'fuse' | 'leap';
+  /** The cue alone, in its band (dBFS). */
+  aloneDb: number;
+  /** The fight without keystones (hits, casts, Resonances, score) in that band at that moment: the bed before update 5. */
+  bedBeforeDb: number;
+  /** The same fight with the whole keystone layer on top. */
+  bedAfterDb: number;
+  /** The keystone bed with the cue in it. */
+  withCueDb: number;
+  /** Cue above bed, before and after update 5 (dB; positive = the cue is the loudest thing in its band). */
+  marginBeforeDb: number;
+  marginAfterDb: number;
+  /** How much the band rises when the cue joins the keystone bed (dB). */
+  liftDb: number;
+}
+
+/** The fight the warnings have to cut through, without bombers and reavers of its own. */
+function maskingBed(keystones: boolean): TimedEvent[] {
+  const events: TimedEvent[] = [];
+  for (let i = 0; i < 60; i++) {
+    events.push([i * 0.055, (s) => s.hit({ dmg: 15 + (i % 6) * 12, crit: i % 4 === 0, el: ELEMENT_IDS[i % 4], own: i % 3 === 0, weapon: CLASS_IDS[i % CLASS_IDS.length] })]);
+  }
+  for (let i = 0; i < 12; i++) events.push([i * 0.27, (s) => s.kill('minion', i % 2 === 0)]);
+  for (let i = 0; i < 4; i++) events.push([0.3 + i * 0.7, (s) => s.resonance(ELEMENT_IDS[i % 3], ELEMENT_IDS[(i + 1) % 3], i % 2 === 0)]);
+  if (keystones) events.push(...keystoneLayerEvents());
+  else for (let i = 0; i < 11; i++) events.push([i * 0.3, (s) => s.primary('spellblade', i % 3, true)]);
+  return events.sort((a, b) => a[0] - b[0]);
+}
+
+/**
+ * Do the bomber's fuse and the reaver's leap still stand out when four heroes' keystones are going off? Renders the
+ * cue alone, the fight without and with the keystone layer, and the keystone fight with the cue, and compares the
+ * level in the cue's own band while it sounds. Random variation is averaged over MASKING.RUNS renders each.
+ */
+export async function renderKeystoneMasking(o: RenderOptions = {}): Promise<MaskingResult[]> {
+  const out: MaskingResult[] = [];
+  const seconds = 5;
+  const cues: ['fuse' | 'leap', (s: Sfx) => void, { lo: number; hi: number; seconds: number }][] = [
+    ['fuse', (s) => s.enemyCast('fuse', 'bomber', 900 + hordeId++), MASKING.FUSE],
+    ['leap', (s) => s.enemyCast('reaver_leap', 'reaver', 900 + hordeId++), MASKING.LEAP],
+  ];
+  for (const [cue, play, band] of cues) {
+    const from = PREROLL_S + STRESS.START_S + MASKING.CUE_AT_S;
+    const measure = async (events: TimedEvent[], music: boolean, keystones: string[]): Promise<number> => {
+      let sum = 0;
+      for (let run = 0; run < MASKING.RUNS; run++) {
+        const buffer = await renderTimedBuffer({ events, seconds, music, keystones, samples: o.samples });
+        sum += Math.pow(10, bandDb(buffer, from, from + band.seconds, band.lo, band.hi) / 10);
+      }
+      return 10 * Math.log10(sum / MASKING.RUNS);
+    };
+    const cueEvent: TimedEvent = [MASKING.CUE_AT_S, play];
+    const aloneDb = await measure([cueEvent], false, []);
+    const bedBeforeDb = await measure(maskingBed(false), true, []);
+    const bedAfterDb = await measure(maskingBed(true), true, STRESS_BUILDS[0]);
+    const withCueDb = await measure([...maskingBed(true), cueEvent].sort((a, b) => a[0] - b[0]), true, STRESS_BUILDS[0]);
+    out.push({ cue, aloneDb, bedBeforeDb, bedAfterDb, withCueDb, marginBeforeDb: aloneDb - bedBeforeDb, marginAfterDb: aloneDb - bedAfterDb, liftDb: withCueDb - bedAfterDb });
+  }
+  return out;
+}
+
+export interface Closeness { a: string; b: string; distance: number; centroidRatio: number; riseDiffS: number; activeDiffS: number; onsetDiff: number; levelDiffDb: number }
+
+/**
+ * How far apart two renders are for a listener who only has register and gesture to go by: octaves between the
+ * centroids, plus differences of attack time, sounding time and number of attacks (each scaled to "clearly
+ * different" = 1). Below 1 two sounds share a register AND a gesture.
+ */
+export function closeness(a: RenderStats, b: RenderStats): Closeness {
+  const centroidRatio = Math.max(a.centroidHz, b.centroidHz) / Math.max(1, Math.min(a.centroidHz, b.centroidHz));
+  const riseDiffS = Math.abs(a.riseS - b.riseS);
+  const activeDiffS = Math.abs(a.activeS - b.activeS);
+  const onsetDiff = Math.abs(a.onsets - b.onsets);
+  const octaves = Math.log2(centroidRatio);
+  const distance = Math.hypot(octaves / 0.5, riseDiffS / 0.1, Math.abs(Math.log2(Math.max(0.05, a.activeS) / Math.max(0.05, b.activeS))) / 1, onsetDiff / 2);
+  return { a: a.name, b: b.name, distance, centroidRatio, riseDiffS, activeDiffS, onsetDiff, levelDiffDb: Math.abs(a.loudDb - b.loudDb) };
+}
+
+/** All pairs of `stats`, closest first. */
+export function closestPairs(stats: RenderStats[]): Closeness[] {
+  const out: Closeness[] = [];
+  for (let i = 0; i < stats.length; i++) for (let j = i + 1; j < stats.length; j++) out.push(closeness(stats[i], stats[j]));
+  return out.sort((x, y) => x.distance - y.distance);
+}
