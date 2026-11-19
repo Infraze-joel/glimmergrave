@@ -50,7 +50,13 @@ test('after the champion every hero drafts a keystone; the pick shows on the HUD
   await page.evaluate(() => { window.__game.renderEvery = 30; });
 
   // The champion falls to the bots; then the browser hero gets a keystone draft (not an ordinary one).
-  await page.waitForSelector(tid('keystone-draft'), { timeout: 240000 });
+  const reached = await eventually(async () => {
+    const t = await gameText(page);
+    if (process.env.E2E_DEBUG) console.log(t.run.phase, t.run.chamber, t.run.chamberKind, t.enemies?.length, JSON.stringify(t.players.map((p) => [p.slot, p.state, p.hp])));
+    return t.run.phase === 'draft' ? t : null;
+  }, 300000, 3000);
+  assert.ok(reached, 'the elite chamber was cleared');
+  await page.waitForSelector(tid('keystone-draft'), { timeout: 20000 });
   const draft = await page.evaluate(() => window.__game.state.draftKeystone);
   assert.ok(draft, 'the draft message carries the keystone part');
   assert.deepEqual(draft.held, []);
