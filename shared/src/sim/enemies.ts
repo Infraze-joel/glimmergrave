@@ -7,7 +7,7 @@ import { RUN, TICK_DT, WORLD } from '../constants.ts';
 import { ENEMIES, ENEMY_TUNING, STATUS } from '../data/enemies.ts';
 import { AFFIX_IDS, type AffixId, type ElementId, type EnemyAnim, type EnemyKind, type GameEvent, type Hazard } from '../types.ts';
 import { BUFFS } from '../data/classes.ts';
-import { chillSlow, clearStatus, damageHero, enemyDamage, isBoss, moveSlow, rawDamageEnemy } from './combat.ts';
+import { allDamage, chillSlow, clearStatus, damageHero, enemyDamage, isBoss, moveSlow, rawDamageEnemy } from './combat.ts';
 import { stepBoss, createBossState } from './boss.ts';
 import { angleTo, closestT, DEG, inArc, inLine, sweepHit, TAU } from './geom.ts';
 import { firstSpecial, flyReaver, isHorde, resolveHordeAttack, stepDome, stepHorde } from './horde.ts';
@@ -117,6 +117,23 @@ export function spawnEnemy(w: World, kind: EnemyKind, x: number, z: number, opts
 
 export const isTargetHero = (h: Hero): boolean => h.state === 'alive' && h.connected;
 
+/** Can enemies pick this hero as their target? (A veiled shade can still be hurt, but nobody goes after it.) */
+export const isSeenHero = (h: Hero): boolean => isTargetHero(h) && h.ks.veilTime <= 0;
+
+/** Nearest hero enemies can see; if every hero is veiled, nobody. */
+export function nearestSeenHero(w: World, x: number, z: number): Hero | null {
+  let best: Hero | null = null;
+  let bestD = Infinity;
+  for (const h of w.heroes) {
+    if (!isSeenHero(h)) continue;
+    const dx = h.body.x - x;
+    const dz = h.body.z - z;
+    const d = dx * dx + dz * dz;
+    if (d < bestD) { bestD = d; best = h; }
+  }
+  return best;
+}
+
 export function nearestHero(w: World, x: number, z: number): Hero | null {
   let best: Hero | null = null;
   let bestD = Infinity;
@@ -141,6 +158,18 @@ export function taunting(w: World, e: Enemy): Hero | null {
   return null;
 }
 
+/** The nearest veiled hero (Veil of Knives), whose last seen position enemies search. */
+function lastSeenVeiled(w: World, e: Enemy): Hero | null {
+  let best: Hero | null = null;
+  let bestD = Infinity;
+  for (const h of w.heroes) {
+    if (h.ks.veilTime <= 0 || !isTargetHero(h)) continue;
+    const d = Math.hypot(h.ks.veilX - e.x, h.ks.veilZ - e.z);
+    if (d < bestD) { bestD = d; best = h; }
+  }
+  return best;
+}
+
 /** Nearest living hero with stickiness: the current target is kept unless another hero is clearly closer. */
 export function pickTarget(w: World, e: Enemy, dt: number): Hero | null {
   const taunter = taunting(w, e);
@@ -150,11 +179,11 @@ export function pickTarget(w: World, e: Enemy, dt: number): Hero | null {
   }
   const current = w.hero(e.target);
   e.retarget -= dt;
-  if (current && isTargetHero(current) && e.retarget > 0) return current;
+  if (current && isSeenHero(current) && e.retarget > 0) return current;
   e.retarget = AI.RETARGET_SECONDS;
-  const nearest = nearestHero(w, e.x, e.z);
+  const nearest = nearestSeenHero(w, e.x, e.z);
   if (!nearest) { e.target = -1; return null; }
-  if (current && isTargetHero(current) && current !== nearest) {
+  if (current && isSeenHero(current) && current !== nearest) {
     const dc = Math.hypot(current.body.x - e.x, current.body.z - e.z);
     const dn = Math.hypot(nearest.body.x - e.x, nearest.body.z - e.z);
     if (dn > dc * AI.STICKINESS) return current;
@@ -508,7 +537,7 @@ export function stepEnemy(w: World, e: Enemy): void {
       if (e.burnTimer <= SIM.EPS) {
         e.burnTimer += SIM.BURN_TICK_SECONDS;
         const src = w.hero(e.statusBy);
-        rawDamageEnemy(w, e, STATUS.BURN.DPS * e.statusPotency * e.statusPower * (1 + e.statusBonus) * (src ? 1 + src.mods.damage : 1) * SIM.BURN_TICK_SECONDS, e.statusBy, 'ember');
+        rawDamageEnemy(w, e, STATUS.BURN.DPS * e.statusPotency * e.statusPower * (1 + e.statusBonus) * (src ? allDamage(src) : 1) * SIM.BURN_TICK_SECONDS, e.statusBy, 'ember');
         if (e.dead) return;
       }
     }
@@ -574,7 +603,16 @@ export function stepEnemy(w: World, e: Enemy): void {
     pad = shard.r;
   }
   if (!target) {
-    setAnim(e, 'idle');
+    // Nobody in sight. If a shade just vanished (Veil of Knives), the enemy walks to where it was last seen.
+    const lost = lastSeenVeiled(w, e);
+    if (lost && e.attackCd < AI.VEIL_REACQUIRE_MIN) e.attackCd = w.rng.range(AI.VEIL_REACQUIRE_MIN, AI.VEIL_REACQUIRE_MAX);
+    if (lost && Math.hypot(lost.ks.veilX - e.x, lost.ks.veilZ - e.z) > e.radius + AI.VEIL_SEARCH_STOP) {
+      steer(w, e, lost.ks.veilX, lost.ks.veilZ, enemySpeed(e), 1);
+      setAnim(e, 'move');
+      resolveCollisions(e, e.radius, w.room);
+    } else {
+      setAnim(e, 'idle');
+    }
     return;
   }
   if (e.kind === 'archer') stepArcher(w, e, target, dt);

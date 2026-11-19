@@ -108,7 +108,7 @@ async function boot(): Promise<void> {
 
   const INFUSION_ID = /^infuse_([a-z]+)_(primary|secondary|dash|ultimate)$/;
   bus.on('state:roster', () => {
-    view.setRoster(state.roster.map((p) => ({ slot: p.slot, cls: p.cls, name: p.name, look: p.look, art: p.art })));
+    view.setRoster(state.roster.map((p) => ({ slot: p.slot, cls: p.cls, name: p.name, look: p.look, art: p.art, keystones: p.keystones })));
     for (const p of state.roster) {
       const infusions: Record<AbilitySlot, ElementId | null> = { primary: null, secondary: null, dash: null, ultimate: null };
       for (const boon of p.boons) {

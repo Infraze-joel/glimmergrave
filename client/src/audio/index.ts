@@ -16,20 +16,28 @@
  * Update 4: a combat chamber with a special objective (RunState.objective) plays that objective's variation of
  * the combat piece, a vault replaces the biome's ambience, and the last seconds of an objective timer are
  * ticked from the module's own clock (objective-clock.ts), which RunState.objective.timeLeft only anchors.
+ *
+ * Update 5 (keystones): `keystone` is the keystone moment, `keystoneProc` the signature of each keystone. What the
+ * sim does not report is derived here: the orbiting blades' whirr and Arc Stream's beam from the roster and the
+ * snapshot flag PF.CHANNELING, the walking sanctum from its zone, Titan Grip's swing and blow, Glass Cannon's and
+ * Colossus' layers from the hero's own actions and hits. The own hero's keystones add voices to the fighting
+ * score and layers to its attacks; the own keystone draft has its own stinger and bed.
  */
 import { BOON_BY_ID } from '@shared/data/boons.ts';
 import { CLASSES, secondaryOf } from '@shared/data/classes.ts';
 import { STATUS } from '@shared/data/enemies.ts';
+import { KEYSTONE_TUNING } from '@shared/data/keystones.ts';
 import { OBJECTIVE_TUNING } from '@shared/data/objectives.ts';
 import {
-  BOSS_KINDS, ELEMENT_IDS,
+  BOSS_KINDS, ELEMENT_IDS, PF,
   type BossKind, type ClassId, type ElementId, type EnemyKind, type GameEvent, type ObjectiveKind, type ObjectiveState,
 } from '@shared/types.ts';
 import { bus } from '../core/EventBus.ts';
-import { selfRoster, state } from '../core/GameState.ts';
+import { self, selfRoster, state } from '../core/GameState.ts';
 import { settings } from '../core/Settings.ts';
 import { createAmbience, type Ambience, type SceneId } from './ambience.ts';
 import { createGraph, MIX, setLevel, type AudioGraph } from './engine.ts';
+import { heldAfter, powerLevel, scoreVoices } from './keystone-map.ts';
 import { createMusic, MUSIC, type Music, type MusicState } from './music.ts';
 import { createObjectiveClock } from './objective-clock.ts';
 import { createBank, type Bank, type BankStats } from './samples.ts';
@@ -62,6 +70,14 @@ const CONFIG = {
   HUNT_PRESSURE_MAX: 0.99,
   /** An `objective` start event this recent belongs to the chamber whose run state arrives now (s). */
   OBJECTIVE_START_GRACE_S: 2,
+  // update 5
+  /** Titan Grip: a hit by its holder this soon after a swing is that swing's blow (the slowed wind-up included). */
+  TITAN_BLOW_S: 0.9,
+  /** A hit by the own hero this long after its last button press was not struck by hand: an orbiting blade cut. */
+  BLADE_CUT_QUIET_S: 0.5,
+  /** Buff ids that only mark a keystone's window: the keystone's signature already says it. */
+  KEYSTONE_BUFFS: ['phase_walker', 'ks_shade'] as readonly string[],
+  PERCENT: 100,
 } as const;
 
 /** What a click on a progression page bought, read from how the profile changed. */
@@ -107,6 +123,76 @@ const chamberObjective = {
   /** Audio time of the last `objective` start event. */
   startedAt: -Infinity,
 };
+
+/** Keystones per hero slot: the roster's list, moved ahead by `keystone` events until the roster confirms them. */
+const held = new Map<number, string[]>();
+const NO_KEYSTONES: readonly string[] = [];
+/** Until when a hit by this slot's hero is the blow of a Titan Grip swing (audio time). */
+const titanUntil = new Map<number, number>();
+let keystoneDraftOpen = false;
+let lastOwnAction = -Infinity;
+
+const heldOf = (slot: number): readonly string[] => held.get(slot) ?? NO_KEYSTONES;
+const holds = (slot: number, id: string): boolean => heldOf(slot).includes(id);
+
+function syncHeld(): void {
+  held.clear();
+  // `keystones` is missing in roster rows from before update 5 (and in old dev fixtures)
+  for (const p of state.roster) held.set(p.slot, (p.keystones as string[] | undefined) ?? []);
+}
+
+/** In a chamber, fighting, own hero on its feet: the only time the continuous keystone sounds run. */
+function ownFighting(): boolean {
+  return state.screen === 'game' && state.run?.phase === 'combat' && (self()?.state ?? 'alive') === 'alive';
+}
+
+/** Hands the score the own hero's keystone voices and switches the loops that follow the roster. */
+function updateKeystones(e: Engine): void {
+  const mine = heldOf(state.conn.slot);
+  e.music.setKeystones(state.screen === 'game' ? scoreVoices(mine) : []);
+  e.sfx.orbitWhirr(ownFighting() && mine.includes('orbit_blades'));
+  if (state.screen !== 'game') e.sfx.keystoneReset();
+}
+
+/** The own keystone draft opened or closed: its stinger once, its bed for as long as it is open. */
+function updateKeystoneDraft(e: Engine): void {
+  const open = state.screen === 'game' && state.draftKeystone !== null && state.draft.length > 0;
+  if (open && !keystoneDraftOpen) e.sfx.keystoneDraftOpen(state.draftKeystone !== null && state.draftKeystone.held.length >= KEYSTONE_TUNING.MAX_HELD);
+  keystoneDraftOpen = open;
+  e.music.setKeystoneDraft(open);
+}
+
+/** Arc Stream: every hero whose snapshot says it is channelling feeds its beam (called from the scheduler). */
+function tickKeystones(e: Engine): void {
+  if (state.screen === 'game') {
+    for (const p of state.players) {
+      if ((p.flags & PF.CHANNELING) !== 0 && p.state === 'alive') e.sfx.stream(p.slot === state.conn.slot ? 'own' : p.slot);
+    }
+  }
+  // the whirr follows the hero going down and getting up, which no run state announces
+  e.sfx.orbitWhirr(ownFighting() && holds(state.conn.slot, 'orbit_blades'));
+  e.sfx.keystoneTick();
+}
+
+function onKeystone(e: Engine, ev: Extract<GameEvent, { e: 'keystone' }>): void {
+  held.set(ev.slot, heldAfter(heldOf(ev.slot), ev.id, ev.replaced));
+  e.sfx.keystoneTaken(ev.id, ev.slot === state.conn.slot, ev.replaced !== undefined);
+  updateKeystones(e);
+}
+
+function onKeystoneProc(e: Engine, ev: Extract<GameEvent, { e: 'keystoneProc' }>): void {
+  const own = ev.slot === state.conn.slot;
+  switch (ev.id) {
+    case 'heavy_hitter':
+      // the sim reports the release of the swing; its blow is whatever that swing hits (onHit)
+      titanUntil.set(ev.slot, e.ctx.currentTime + CONFIG.TITAN_BLOW_S);
+      e.sfx.titanSwing(own);
+      break;
+    // `n` is the charge gained, not the charge held: the note follows the bar itself
+    case 'resonance_engine': e.sfx.keystoneProc(ev.id, own, { n: own ? (self()?.ult ?? 0) * CONFIG.PERCENT : undefined }); break;
+    default: e.sfx.keystoneProc(ev.id, own, { n: ev.n, r: ev.r }); break;
+  }
+}
 
 type AudioContextCtor = typeof AudioContext;
 
@@ -245,6 +331,8 @@ function updateScene(e: Engine): void {
   e.ambience.setBiome(scene);
   if (biome) e.music.setBiome(biome);
   updateObjective(e);
+  updateKeystones(e);
+  updateKeystoneDraft(e);
   e.graph.setSpace(inGame && run?.chamberKind === 'boss' ? 'hall' : 'room');
   e.music.setBossKind(bossOfRun());
   e.music.setDepth(inGame ? run?.depth ?? 0 : 0);
@@ -284,6 +372,7 @@ function start(): void {
       e.music.schedule();
       e.ambience.schedule();
       tickObjective(e);
+      tickKeystones(e);
     }), MUSIC.TICK_MS);
     updateScene(engine);
   } catch (err) {
@@ -324,7 +413,30 @@ function onCast(e: Engine, ev: Extract<GameEvent, { e: 'cast' }>): void {
   const info = abilityInfo(ev.ability);
   if (!info) { if (!own) e.sfx.primary(classOfSlot(ev.who.id) ?? 'knight', 0, false); return; }
   if (own && now - lastLocal[info.slot] < CONFIG.LOCAL_ECHO_S) return;
+  // Arc Stream replaces the mage's bolt: the beam (fed from the snapshot flag) is its sound
+  if (info.slot === 'primary' && info.cls === 'mage' && holds(ev.who.id, 'ks_mage')) return;
   e.sfx.ability(ev.ability, own);
+  if (own) ownLayers(e, info.slot);
+}
+
+/**
+ * What the own hero's keystones add to an attack it just started: the power layers (weight with one keystone held,
+ * sparkle with two) and the layers of keystones the sim sends no event for.
+ */
+function ownLayers(e: Engine, slot: 'primary' | 'secondary' | 'ultimate' | 'dash'): void {
+  const mine = heldOf(state.conn.slot);
+  lastOwnAction = e.ctx.currentTime;
+  if (mine.length === 0) return;
+  if (slot === 'primary' || slot === 'secondary') {
+    e.sfx.powerLayer(slot, powerLevel(mine));
+    if (mine.includes('glass_cannon')) e.sfx.keystoneProc('glass_cannon', true, { derived: true });
+  }
+  if (slot === 'primary' && mine.includes('heavy_hitter')) {
+    titanUntil.set(state.conn.slot, e.ctx.currentTime + CONFIG.TITAN_BLOW_S);
+    e.sfx.titanSwing(true);
+  }
+  // a giant's weight: every dash and every secondary lands heavier
+  if ((slot === 'dash' || slot === 'secondary') && mine.includes('colossus')) e.sfx.keystoneProc('colossus', true, { derived: true });
 }
 
 function onBoon(e: Engine, id: string, own: boolean): void {
@@ -335,6 +447,7 @@ function onBoon(e: Engine, id: string, own: boolean): void {
 /** A legendary boon among the own draft cards is announced once per draft. */
 function onDraft(): void {
   safe((e) => {
+    updateKeystoneDraft(e);
     const legendary = state.draft.filter((offer) => BOON_BY_ID.get(offer.id)?.rarity === 'legendary').map((offer) => offer.id).join(',');
     if (legendary && legendary !== legendaryShown) e.sfx.legendaryOffered();
     legendaryShown = legendary;
@@ -388,7 +501,12 @@ function playPurchase(e: Engine, kind: Purchase): void {
 
 function onHit(e: Engine, ev: Extract<GameEvent, { e: 'hit' }>): void {
   const own = state.conn.slot;
-  if (ev.target.t === 'p') { e.sfx.hurt(ev.target.id === own, ev.dmg); return; }
+  if (ev.target.t === 'p') {
+    e.sfx.hurt(ev.target.id === own, ev.dmg);
+    // Glass Cannon's price: every blow that gets through sounds like something broke
+    if (ev.dmg > 0 && holds(ev.target.id, 'glass_cannon')) e.sfx.brittleHit(ev.target.id === own);
+    return;
+  }
   const kind = kindOfEnemy(ev.target.id);
   const now = e.ctx.currentTime;
   const splash = ev.el !== null && ev.el === lastResonance.el && now - lastResonance.at < CONFIG.SPLASH_WINDOW_S;
@@ -402,6 +520,15 @@ function onHit(e: Engine, ev: Extract<GameEvent, { e: 'hit' }>): void {
     weapon: classOfSlot(ev.by),
     tick: ev.by < 0 || splash || burn,
   });
+  if (ev.by < 0 || splash || burn || ev.dmg <= 0) return;
+  // Titan Grip: the first thing a swing strikes takes the whole weight
+  if (now < (titanUntil.get(ev.by) ?? -Infinity)) {
+    titanUntil.delete(ev.by);
+    e.sfx.keystoneProc('heavy_hitter', ev.by === own);
+  } else if (ev.by === own && now - lastOwnAction > CONFIG.BLADE_CUT_QUIET_S && holds(own, 'orbit_blades')) {
+    // nothing was pressed: an orbiting blade did this (cuts are ordinary hits; see docs/AUDIO.md 11 for the limits of this guess)
+    e.sfx.keystoneProc('orbit_blades', true);
+  }
 }
 
 function onGameEvent(ev: GameEvent): void {
@@ -423,7 +550,8 @@ function onGameEvent(ev: GameEvent): void {
       case 'telegraph': e.sfx.telegraph(ev.dur); break;
       case 'cast': onCast(e, ev); break;
       case 'aoe': e.sfx.aoe(ev.el, ev.hostile); break;
-      case 'heal': e.sfx.heal(ev.slot === own); break;
+      // Sanguine Pact: its holder is healed by nothing but the pact, and the pact has its own sound
+      case 'heal': if (!holds(ev.slot, 'sanguine')) e.sfx.heal(ev.slot === own); break;
       case 'down': e.sfx.down(ev.slot === own); break;
       case 'revived': e.sfx.revived(ev.slot === own); break;
       case 'shieldBreak': e.sfx.shieldBreak(); break;
@@ -445,9 +573,22 @@ function onGameEvent(ev: GameEvent): void {
       case 'hazardHit':
         e.sfx.hazard(ev.kind, ev.target.t === 'e' ? 'enemy' : ev.target.id === own ? 'own' : 'ally');
         break;
-      case 'zone': e.sfx.zone(ev.id, ev.kind, ev.dur, ev.el, ev.by === own); break;
-      case 'zoneEnd': e.sfx.zoneEnd(ev.id, ev.sprung); break;
-      case 'buff': e.sfx.buff(ev.id, ev.slot === own); break;
+      case 'zone':
+        // the maelstrom a Skullsplitter leaves is the barbarian keystone's own sound
+        if (ev.kind === 'ks_barbarian') { e.sfx.keystoneProc('ks_barbarian', ev.by === own, { r: ev.r }); break; }
+        e.sfx.zone(ev.id, ev.kind, ev.dur, ev.el, ev.by === own);
+        if (ev.kind === 'templar_consecrate' && holds(ev.by, 'ks_templar')) {
+          e.sfx.keystoneProc('ks_templar', ev.by === own);
+          e.sfx.sanctumWalk(ev.id, ev.dur, ev.by === own);
+        }
+        break;
+      case 'zoneEnd':
+        e.sfx.zoneEnd(ev.id, ev.sprung);
+        e.sfx.sanctumEnd(ev.id);
+        break;
+      case 'buff': if (!CONFIG.KEYSTONE_BUFFS.includes(ev.id)) e.sfx.buff(ev.id, ev.slot === own); break;
+      case 'keystone': onKeystone(e, ev); break;
+      case 'keystoneProc': onKeystoneProc(e, ev); break;
       case 'mark': e.sfx.mark(); break;
       case 'ultReady': e.sfx.ultReady(ev.slot === own); break;
       case 'descend':
@@ -477,7 +618,9 @@ function onLocalAction(action: 'primary' | 'secondary' | 'dash' | 'ultimate' | '
       if (now - lastLocal.primary < CONFIG.PRIMARY_MIN_GAP_S) return;
       const chain = CLASSES[cls].primary.length;
       combo = now - lastLocal.primary > CONFIG.COMBO_RESET_S ? 0 : (combo + 1) % chain;
-      e.sfx.ability(CLASSES[cls].primary[combo].id, true);
+      // Arc Stream: the bolt is a beam now (see tickKeystones); the press only starts it a frame early
+      if (cls === 'mage' && holds(state.conn.slot, 'ks_mage')) e.sfx.stream('own');
+      else e.sfx.ability(CLASSES[cls].primary[combo].id, true);
     } else if (action === 'secondary') {
       // the art chosen in the loadout replaces the standard secondary
       e.sfx.ability(secondaryOf(CLASSES[cls], selfRoster()?.art ?? state.profile.arts[cls] ?? 0).id, true);
@@ -487,6 +630,7 @@ function onLocalAction(action: 'primary' | 'secondary' | 'dash' | 'ultimate' | '
       e.sfx.dash(true);
     }
     lastLocal[action] = now;
+    ownLayers(e, action);
   });
 }
 
@@ -501,6 +645,7 @@ function onRun(previousPhase: string | null): void {
       lastChamber = run?.chamber ?? -1;
     }
     if (run && (run.phase === 'victory' || run.phase === 'defeat') && previousPhase !== run.phase) playStinger(e, run.phase);
+    if (!run) titanUntil.clear();
     if (!run || run.phase !== 'combat' || run.chamberKind !== 'boss') e.music.setBossPhase(1);
     updateScene(e);
     // countdown ticks in the last seconds of a draft the player has not answered yet
@@ -574,7 +719,14 @@ export function initAudio(): void {
     // Controls may name their sound with data-sfx="hover|click|confirm|back|error|buy|equip|tab|toggle" or, on the
     // progression pages, "ascend|talent|relic|claim|art". A purchase recognised from the profile wins over both.
     bus.on('ui:lobby', (p) => { if (p.ready !== undefined) intentSound((e) => e.sfx.ready(p.ready === true)); });
-    bus.on('ui:pick', () => intentSound((e) => e.sfx.draftPick()));
+    bus.on('state:roster', () => { syncHeld(); safe(updateKeystones); });
+    syncHeld();
+    bus.on('ui:pick', ({ index }) => intentSound((e) => {
+      e.sfx.draftPick();
+      // a boon that fits the build locks in with a little more
+      const fits = state.draftKeystone ? 0 : state.draft[index]?.fits?.length ?? 0;
+      if (fits > 0) e.sfx.fitsPick(fits);
+    }));
     bus.on('net:error', () => safe((e) => e.sfx.error()));
     document.addEventListener('pointerover', (ev) => {
       const el = interactive(ev.target);
@@ -622,6 +774,10 @@ export interface AudioDebug {
   timerResyncs: number;
   /** Enemy channels (mend, fuse, raise, leap) sounding now. */
   channels: number;
+  /** Update 5: voices the own hero's keystones add to the score (e.g. "movement,win"), whether the keystone-draft bed is on, keystone loops sounding. */
+  keystoneVoices: string;
+  keystoneDraft: boolean;
+  keystoneLoops: number;
 }
 
 /** Dev / test hook: the live engine's state, or null before the first gesture. */
@@ -635,6 +791,7 @@ export function audioDebug(): AudioDebug | null {
     peak: engine.graph.meter(),
     objective: engine.music.objective(), depth: engine.music.depth(), timer: clock.left(engine.ctx.currentTime), timerResyncs: clock.resyncs(),
     channels: engine.sfx.hordeChannels(),
+    keystoneVoices: engine.music.keystoneVoices(), keystoneDraft: keystoneDraftOpen, keystoneLoops: engine.sfx.keystoneLoops(),
   };
 }
 

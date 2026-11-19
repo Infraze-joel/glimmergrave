@@ -159,8 +159,9 @@ export async function aimAt(page, x, z) {
 }
 
 /** Starts scripted bot players (real WebSocket clients) that join `code`. They keep a run alive while the tests poke at it. */
-export function startBots(code, count = 1, cls = 'rogue') {
-  const proc = spawn('npx', ['tsx', 'server/src/tools/botClient.ts', '--url', `ws://127.0.0.1:${SERVER_PORT}`, '--code', code, '--bots', String(count), '--cls', cls],
+/** `extra`: more botClient flags; `port`: a spec's own game server. */
+export function startBots(code, count = 1, cls = 'rogue', extra = [], port = SERVER_PORT) {
+  const proc = spawn('npx', ['tsx', 'server/src/tools/botClient.ts', '--url', `ws://127.0.0.1:${port}`, '--code', code, '--bots', String(count), '--cls', cls, ...extra],
     { cwd: ROOT, stdio: 'ignore', detached: true });
   return { stop: () => { try { process.kill(-proc.pid, 'SIGTERM'); } catch { /* already gone */ } } };
 }

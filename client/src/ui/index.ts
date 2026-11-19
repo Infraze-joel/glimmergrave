@@ -18,6 +18,7 @@ import './styles/pages.css';
 import './styles/update3.css';
 import './styles/update4.css';
 import './styles/polish1.css';
+import './styles/update5.css';
 
 import { REACTIONS } from '@shared/data/reactions.ts';
 import { bus } from '../core/EventBus.ts';
@@ -26,6 +27,7 @@ import { settings } from '../core/Settings.ts';
 import { createCodex } from './codex.ts';
 import { blurActive } from './dom.ts';
 import { createDraft, type DraftView } from './draft.ts';
+import { trackGrowthEvent, trackGrowthRun } from './growth.ts';
 import { createHub } from './hub.ts';
 import { createHud, type HudView } from './hud.ts';
 import { getLang, setLang, t } from './i18n.ts';
@@ -202,6 +204,8 @@ function handleEscape(): void {
   if (!views) return;
   if (ui.page !== null && !ui.fatal) { closePage(); return; }
   if (views.overlays.back()) { refresh(); return; }
+  // Keystone draft: Esc first leaves the "which one do you give up" step.
+  if (views.draft.el.isConnected && views.draft.back()) return;
   if (state.screen === 'game') setPause(true);
   else if (state.screen === 'lobby' || state.screen === 'summary') openModal('leave');
 }
@@ -288,7 +292,7 @@ export function initUI(root: HTMLElement): void {
   });
   bus.on('net:status', refresh);
   bus.on('state:roster', refresh);
-  bus.on('state:run', () => { trackOathBaseline(); trackBiomes(); trackObjectiveRun(); refresh(); });
+  bus.on('state:run', () => { trackOathBaseline(); trackBiomes(); trackObjectiveRun(); trackGrowthRun(); refresh(); });
   bus.on('state:draft', refresh);
   bus.on('state:profile', refresh);
   bus.on('state:hud', () => { if (views?.hud.el.isConnected) views.hud.syncHud(); });
@@ -305,6 +309,8 @@ export function initUI(root: HTMLElement): void {
   bus.on('game:event', (ev) => {
     // The tally for the run summary must not depend on the HUD being on screen.
     if (ev.e === 'objective') trackObjectiveEvent(ev);
+    // ... and neither must the damage-per-chamber chart or the record of who took which keystone when.
+    if (ev.e === 'chamberClear' || ev.e === 'keystone') trackGrowthEvent(ev);
     if (views?.hud.el.isConnected) views.hud.onEvent(ev);
     // A finished objective can change what the draft says about itself.
     if (ev.e === 'objective' && ev.what === 'done' && views?.draft.el.isConnected) views.draft.sync();

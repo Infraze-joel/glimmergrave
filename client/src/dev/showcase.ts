@@ -41,6 +41,13 @@
  *       aim=x,z         ground aim marker at that point (otherwise it follows the mouse)
  *       effects=clear|full|minimal  clarity level (default clear; key E cycles) · allynum=1 other heroes' numbers (key A)
  *       seed=N          reproducible script (same moment before / after a rendering change) · local=0..3 own hero's slot
+ * Update 5 (keystones):
+ *       demo=keystone&id=ID[&id2=ID][&view=ally][&moment=1][&cls=CLASS][&infuse=EL]
+ *                       hero 0 holds that keystone (two with id2) and shows it once at `at`; view=ally = seen as another
+ *                       player's hero; moment=1 = the keystone is TAKEN at `at` (pillar of light) instead of used
+ *       demo=compare    "chamber 1 versus chamber 8": left the bare hero, right the same class with two keystones (id, id2;
+ *                       default orbit_blades + chain_lightning) and infusions; both attack at `at`
+ *       ks=1            stress / fight mode with two keystones on every hero and their procs firing
  */
 import { AnimationMixer, Vector3 } from 'three';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
@@ -59,6 +66,7 @@ import { REACTIONS } from '@shared/data/reactions.ts';
 import { ENEMY_TUNING, STATUS } from '@shared/data/enemies.ts';
 import { DEFAULT_LOOK, LOOK } from '@shared/data/meta.ts';
 import { NET, WORLD } from '@shared/constants.ts';
+import { KEYSTONE_BY_ID } from '@shared/data/keystones.ts';
 import { enemyDef } from '../render/config.ts';
 import { EFFECTS_LEVELS } from '../core/Settings.ts';
 import type { EffectsLevel, Quality } from '../core/Settings.ts';
@@ -87,7 +95,22 @@ const SLOTS = NET.MAX_PLAYERS;
 const OLD_CLASSES: ClassId[] = ['knight', 'barbarian', 'mage', 'rogue'];
 const NEW_CLASSES: ClassId[] = ['templar', 'spellblade', 'shade', 'mage'];
 const DEMOS = ['art', 'ult', 'primary', 'zones', 'reactions', 'umbra', 'affix', 'doors', 'ready', 'lineup',
-  'horde', 'hordeact', 'wards', 'dome', 'mend', 'objective', 'objdoors', 'numbers', 'latejoin'] as const;
+  'horde', 'hordeact', 'wards', 'dome', 'mend', 'objective', 'objdoors', 'numbers', 'latejoin', 'keystone', 'compare'] as const;
+/** Class that shows a generic keystone best (class keystones bring their own). */
+const KS_CLASS: Record<string, ClassId> = {
+  ricochet: 'rogue', chain_lightning: 'mage', twin_cast: 'mage', blood_price: 'mage', heavy_hitter: 'knight', orbit_blades: 'knight', resonance_engine: 'spellblade',
+  sanguine: 'barbarian', momentum_engine: 'rogue', glass_cannon: 'mage', corpse_bloom: 'mage',
+};
+/** Targets of the keystone demo: [kind, x, z]. The hero stands at KS_HERO facing north. */
+const KS_TARGETS: [EnemyKind, number, number][] = [
+  ['warrior', 0, -1.4], ['minion', -2.8, -2.4], ['minion', 2.8, -2.2], ['archer', -1.3, -4.8], ['mage', 1.8, -5.2], ['minion', 5, -0.4], ['minion', -5.2, -0.8],
+];
+const KS_HERO = { x: 0, z: 2.6, DASH_FROM: 6.6 } as const;
+/** Two keystones per slot for the stress scene (ks=1), by the default fight classes and the old four. */
+const KS_STRESS: Record<ClassId, [string, string]> = {
+  mage: ['ks_mage', 'orbit_blades'], templar: ['ks_templar', 'colossus'], spellblade: ['ks_spellblade', 'resonance_engine'], barbarian: ['ks_barbarian', 'momentum_engine'],
+  knight: ['ks_knight', 'ember_wake'], rogue: ['ks_rogue', 'familiar'], shade: ['ks_shade', 'glass_cannon'],
+};
 const HORDE_KINDS: EnemyKind[] = ['shaman', 'aegis', 'bomber', 'necromancer', 'reaver'];
 const OLD_KINDS: EnemyKind[] = ['minion', 'warrior', 'archer', 'mage'];
 const HT = ENEMY_TUNING;
@@ -276,6 +299,14 @@ class Showcase {
   private markerOn = true;
   /** No random chip damage (clean close-ups). */
   private calm = false;
+  /** Update 5: keystones of the demo hero, ally view, "moment" mode, keystones in the stress scene. */
+  private ksIds: string[] = [];
+  private ksMoment = false;
+  private ksStress = false;
+  private ksTimer = 0;
+  private ksCount = 0;
+  /** Scripted movement of a demo hero (slot → path). */
+  private readonly paths = new Map<number, { x0: number; z0: number; x1: number; z1: number; t: number; dur: number; loop: boolean }>();
   private quality: Quality = 'high';
   private stress = false;
   /** Polish 1: `mode=fight`, a four-hero brawl in a special-objective chamber with a scripted climax at `at`. */
@@ -363,6 +394,18 @@ class Showcase {
     if (list.length > 0) this.classes = OLD_CLASSES.map((_, i) => list[i % list.length]);
     const demo = params.get('demo') as Demo | null;
     if (demo && DEMOS.includes(demo)) { this.demo = demo; this.calm = true; this.markerOn = false; this.doorsOn = demo === 'doors' || demo === 'objdoors'; }
+    this.ksStress = params.get('ks') === '1';
+    if (this.demo === 'keystone' || this.demo === 'compare') {
+      const ids = [params.get('id'), params.get('id2')].filter((id): id is string => id !== null && KEYSTONE_BY_ID.has(id));
+      this.ksIds = ids.length > 0 ? ids : this.demo === 'compare' ? ['orbit_blades', 'chain_lightning'] : ['ember_wake'];
+      this.ksMoment = params.get('moment') === '1';
+      const want = params.get('cls') as ClassId | null;
+      const cls = want && CLASS_IDS.includes(want) ? want : this.ksIds.map((id) => KEYSTONE_BY_ID.get(id)?.cls).find((c) => c !== undefined) ?? KS_CLASS[this.ksIds[0]] ?? 'knight';
+      if (this.demo === 'compare') this.classes = [cls, cls, 'templar', 'rogue'];
+      else this.classes = [cls, 'templar', 'barbarian', 'rogue'];
+      if (params.get('view') === 'ally') this.local = 1;
+      else if (this.demo === 'compare' && !params.has('local')) this.local = 1;
+    }
     const obj = params.get('obj') as ObjectiveKind | null;
     if (obj && OBJECTIVE_KINDS.includes(obj)) this.obj = obj;
     if (params.has('prog')) this.objProg = Number(params.get('prog'));
@@ -408,8 +451,22 @@ class Showcase {
     return { color: Math.floor(rnd() * LOOK.COLORS.length), head: rnd() < 0.7, cape: rnd() < 0.7, style: Math.floor(rnd() * LOOK.STYLES) };
   }
 
+  /** Keystones the roster reports for a slot. In "moment" mode the demo hero only gets them with the `keystone` event. */
+  private keystonesOf(slot: number, cls: ClassId): string[] {
+    if (this.demo === 'keystone') return slot === 0 && (!this.ksMoment || this.demoDone) ? this.ksIds : [];
+    if (this.demo === 'compare') return slot === 1 ? this.ksIds : [];
+    return this.ksStress ? KS_STRESS[cls] : [];
+  }
+
   private applyRoster(): void {
-    this.view.setRoster(this.classes.map((cls, slot) => ({ slot, cls, name: NAMES[slot], look: this.looks[slot], art: 1 })));
+    this.view.setRoster(this.classes.map((cls, slot) => ({ slot, cls, name: NAMES[slot], look: this.looks[slot], art: 1, keystones: this.keystonesOf(slot, cls) })));
+    if (this.demo === 'compare') {
+      // the built hero carries infusions as well; the bare one nothing
+      const el = new URLSearchParams(window.location.search).get('infuse') as ElementId | null;
+      const primary: ElementId = el && ELEMENT_IDS.includes(el) ? el : 'storm';
+      for (let slot = 0; slot < SLOTS; slot++) this.view.setInfusions(slot, slot === 1 ? { primary, secondary: 'ember', dash: 'ember', ultimate: null } : { primary: null, secondary: null, dash: null, ultimate: null });
+      return;
+    }
     if (this.demo === 'umbra') {
       for (let slot = 0; slot < SLOTS; slot++) this.view.setInfusions(slot, { primary: 'umbra', secondary: 'umbra', dash: 'umbra', ultimate: 'umbra' });
       return;
@@ -461,6 +518,8 @@ class Showcase {
     this.demoDone = false;
     this.fightDone = false;
     this.fightHit = 0.3;
+    this.paths.clear();
+    this.ksTimer = 1.5;
     this.applyRoster();
     this.applyMenu();
     this.view.setRoom(this.menu ? null : this.room, this.kind, KINDS.indexOf(this.kind) * 3);
@@ -998,6 +1057,8 @@ class Showcase {
       const necro = this.dummy('necromancer', 0, 3);
       const raisedRows = [-2.6, 2.6].map((dx) => ({ id: this.dummy('minion', dx, 4.6).snap.id, raisedBy: necro.snap.id }));
       this.later(this.demoAt, () => { this.traits = [...warded, ...elites, ...raisedRows]; });
+    } else if (demo === 'keystone' || demo === 'compare') {
+      this.setupKeystone();
     } else if (demo === 'objective') {
       const obj = this.obj;
       if (obj === 'defend') {
@@ -1125,6 +1186,21 @@ class Showcase {
       // a hit on a guarded enemy
       const guarded = this.enemies[1];
       this.emit({ e: 'hit', target: { t: 'e', id: guarded.snap.id }, x: guarded.snap.x, z: guarded.snap.z, dmg: 6, crit: false, el: null, by: 0 });
+    } else if (demo === 'keystone') {
+      const h = this.heroes[0];
+      if (this.ksMoment) {
+        this.ksIds.forEach((id, i) => this.later(i * 1.3, () => this.emit({ e: 'keystone', slot: 0, id })));
+        this.applyRoster();
+      } else this.ksIds.forEach((id) => this.ksRun(h, id));
+    } else if (demo === 'compare') {
+      // the same attack from both: the bare hero's and the built hero's
+      for (const h of this.heroes.slice(0, 2)) {
+        this.perform(h, 'primary3'); h.t = 1.2;
+        const near = this.enemies.filter((e) => Math.abs(e.snap.x - h.snap.x) < 4);
+        this.later(0.3, () => near.slice(0, 2).forEach((e) => this.ksHit(h, e, 30, false)));
+      }
+      const built = this.heroes[1];
+      this.ksIds.forEach((id) => this.ksRun(built, id));
     } else if (demo === 'objective') {
       const obj = this.obj;
       const state = this.objective;
@@ -1140,8 +1216,291 @@ class Showcase {
     }
   }
 
+  // ---------------------------------------------------------------------------------------------- keystones (update 5)
+
+  private setupKeystone(): void {
+    const hd = this.room.d / 2;
+    if (this.demo === 'compare') {
+      // left: chamber 1. right: chamber 8. The same targets in front of each.
+      [-6.5, 6.5].forEach((x, i) => {
+        const h = this.heroes[i];
+        h.homeX = x; h.homeZ = 2.6; h.snap.x = x; h.snap.z = 2.6;
+        KS_TARGETS.slice(0, 5).forEach(([kind, dx, dz]) => this.dummy(kind, x + dx * 0.8, dz));
+      });
+      this.heroes.slice(2).forEach((h, i) => { h.homeX = -2 + i * 4; h.homeZ = hd - 1.2; h.snap.x = h.homeX; h.snap.z = h.homeZ; });
+      return;
+    }
+    const dashes = this.ksIds.some((id) => id === 'ember_wake' || id === 'shockstep' || id === 'phase_walker');
+    const h = this.heroes[0];
+    h.homeX = KS_HERO.x; h.homeZ = dashes ? KS_HERO.DASH_FROM : KS_HERO.z; h.snap.x = h.homeX; h.snap.z = h.homeZ;
+    this.heroes.slice(1).forEach((o, i) => { o.homeX = [-11, 11, 8][i]; o.homeZ = hd - 1.5; o.snap.x = o.homeX; o.snap.z = o.homeZ; });
+    KS_TARGETS.forEach(([kind, x, z]) => this.dummy(kind, x, z));
+    // something to dash through
+    if (this.ksIds.includes('phase_walker')) this.dummy('minion', 0, 4.4);
+    if (this.ksIds.includes('colossus') || this.ksIds.includes('momentum_engine') || this.ksIds.includes('ks_templar')) {
+      h.snap.anim = 'run';
+      this.paths.set(0, { x0: -4.5, z0: 3.4, x1: 4.5, z1: 3.4, t: 0, dur: 1.9, loop: true });
+    }
+    if (this.ksIds.includes('sanguine')) h.snap.shield = 22;
+    if (this.ksIds.includes('ks_knight')) h.snap.shield = 20;
+  }
+
+  private ksHit(h: HeroActor, e: EnemyActor, dmg: number, crit: boolean, el: ElementId | null = null): void {
+    if (e.gone > 0) return;
+    this.emit({ e: 'hit', target: { t: 'e', id: e.snap.id }, x: e.snap.x, z: e.snap.z, dmg, crit, el, by: h.snap.slot });
+  }
+
+  private ksKill(h: HeroActor, e: EnemyActor): void {
+    if (e.gone > 0) return;
+    this.emit({ e: 'kill', id: e.snap.id, kind: e.snap.kind, x: e.snap.x, z: e.snap.z, by: h.snap.slot });
+    e.gone = 1e9;
+  }
+
+  /** The enemies nearest to a hero, nearest first. */
+  private ksNear(h: HeroActor): EnemyActor[] {
+    return this.enemies.filter((e) => e.gone <= 0).sort((a, b) => Math.hypot(a.snap.x - h.snap.x, a.snap.z - h.snap.z) - Math.hypot(b.snap.x - h.snap.x, b.snap.z - h.snap.z));
+  }
+
+  private ksDash(h: HeroActor, dist: number, then: (x0: number, z0: number) => void): void {
+    const s = h.snap;
+    const x0 = s.x;
+    const z0 = s.z;
+    s.anim = 'dash'; s.animSeq++; s.flags |= PF.INVULNERABLE; h.t = DASH.DURATION + 0.05;
+    this.paths.set(s.slot, { x0, z0, x1: x0 + Math.sin(s.rot) * dist, z1: z0 + Math.cos(s.rot) * dist, t: 0, dur: DASH.DURATION, loop: false });
+    this.later(DASH.DURATION + 0.02, () => { s.flags &= ~PF.INVULNERABLE; then(x0, z0); });
+  }
+
+  /** What the simulation announces when keystone `id` does its thing once (backend-update5.md, "Per keystone"). */
+  private ksRun(h: HeroActor, id: string): void {
+    const s = h.snap;
+    const slot = s.slot;
+    const near = this.ksNear(h);
+    const proc = (x: number, z: number, extra: { n?: number; r?: number; tx?: number; tz?: number } = {}): void => this.emit({ e: 'keystoneProc', slot, id, x, z, ...extra });
+    const el: ElementId | null = this.demo === 'compare' ? 'storm' : null;
+    switch (id) {
+      case 'ember_wake':
+        this.ksDash(h, DASH.SPEED * DASH.DURATION, (x0, z0) => proc(x0, z0, { tx: s.x, tz: s.z, r: 0.8 }));
+        break;
+      case 'shockstep':
+        this.ksDash(h, DASH.SPEED * DASH.DURATION, () => {
+          this.emit({ e: 'aoe', x: s.x, z: s.z, r: 3.2, el: null, hostile: false });
+          proc(s.x, s.z, { r: 3.2 });
+          this.ksNear(h).slice(0, 3).forEach((e) => this.ksHit(h, e, 26, false));
+        });
+        break;
+      case 'phase_walker': {
+        const through = near[0];
+        this.ksDash(h, DASH.SPEED * DASH.DURATION, () => {
+          proc(through.snap.x, through.snap.z);
+          this.emit({ e: 'buff', slot, id: 'phase_walker', dur: 2 });
+          // the promised crit, a little later so the window can be seen
+          this.later(1.3, () => { this.perform(h, 'primary1'); h.t = 0.6; this.later(0.12, () => this.ksHit(h, this.ksNear(h)[0], 88, true)); });
+        });
+        break;
+      }
+      case 'ricochet': {
+        this.perform(h, 'primary1'); h.t = 0.6;
+        const chain = near.slice(0, 3);
+        this.later(0.2, () => this.ksHit(h, chain[0], 16, false, el));
+        chain.slice(1).forEach((e, i) => this.later(0.2 + i * 0.22, () => {
+          proc(chain[i].snap.x, chain[i].snap.z, { tx: e.snap.x, tz: e.snap.z, n: 1 - i });
+          this.later(0.15, () => this.ksHit(h, e, 11, false, el));
+        }));
+        break;
+      }
+      case 'chain_lightning': {
+        this.perform(h, 'primary1'); h.t = 0.6;
+        this.later(0.25, () => {
+          this.ksHit(h, near[0], 16, false, el);
+          near.slice(1, 4).forEach((e) => { proc(near[0].snap.x, near[0].snap.z, { tx: e.snap.x, tz: e.snap.z }); this.ksHit(h, e, 8, false, el); });
+        });
+        break;
+      }
+      case 'heavy_hitter': {
+        this.perform(h, 'primary3'); h.t = 1.4;
+        const w = CLASSES[h.cls].primary[Math.min(2, CLASSES[h.cls].primary.length - 1)].windup / 0.55;
+        this.later(w, () => { proc(s.x, s.z, { r: 3.7 }); near.slice(0, 2).forEach((e) => this.ksHit(h, e, 82, false)); });
+        break;
+      }
+      case 'twin_cast': {
+        this.perform(h, 'secondary'); h.t = 1.4;
+        const a = CLASSES[h.cls].secondary;
+        const tx = s.x + Math.sin(s.rot) * Math.min(a.range, 7);
+        const tz = s.z + Math.cos(s.rot) * Math.min(a.range, 7);
+        this.later(a.windup + 0.45, () => {
+          proc(s.x, s.z, { tx, tz, r: a.radius });
+          if (a.shape === 'circle') this.emit({ e: 'aoe', x: tx, z: tz, r: a.radius, el: null, hostile: false });
+        });
+        break;
+      }
+      case 'blood_price': {
+        this.perform(h, 'secondary'); h.t = 1.2;
+        const paid = Math.round(s.maxHp * 0.08);
+        s.hp = Math.max(1, s.hp - paid);
+        proc(s.x, s.z, { n: paid });
+        break;
+      }
+      case 'orbit_blades':
+        // cuts are ordinary hits on whatever stands in the ring
+        for (let k = 0; k < 4; k++) this.later(k * 0.33, () => this.ksNear(h).filter((e) => Math.abs(Math.hypot(e.snap.x - s.x, e.snap.z - s.z) - 2.6) < 1.6).slice(0, 2).forEach((e) => this.ksHit(h, e, 9, false, el)));
+        break;
+      case 'familiar':
+        for (let k = 0; k < 3; k++) {
+          this.later(k * 0.9, () => {
+            const t = this.ksNear(h)[k % 3];
+            proc(s.x, s.z, { tx: t.snap.x, tz: t.snap.z });
+            this.shoot('arcBolt', s.x, s.z, Math.atan2(t.snap.x - s.x, t.snap.z - s.z), 22, Math.hypot(t.snap.x - s.x, t.snap.z - s.z), 0, false);
+            this.later(0.2, () => this.ksHit(h, t, 10, false, el));
+          });
+        }
+        break;
+      case 'corpse_bloom': {
+        // a burning enemy dies; the burst kills the next, and so on down the chain
+        const chain = near.slice(0, 4);
+        chain.forEach((e) => { e.snap.flags |= EF.BURN; });
+        chain.forEach((e, i) => this.later(0.15 * i, () => {
+          const { x, z } = e.snap;
+          this.ksKill(h, e);
+          this.emit({ e: 'aoe', x, z, r: 3, el: 'ember', hostile: false });
+          proc(x, z, { r: 3, n: i + 1 });
+        }));
+        break;
+      }
+      case 'resonance_engine': {
+        const e = near[0].snap;
+        this.emit({ e: 'resonance', x: e.x, z: e.z, r: STATUS.RESONANCE.RADIUS * 1.3, a: 'ember', b: 'rime', by: slot });
+        proc(e.x, e.z, { n: 14 });
+        this.later(0.35, () => { s.ult = Math.min(1, s.ult + 0.14); });
+        break;
+      }
+      case 'glass_cannon':
+        this.perform(h, 'primary1'); h.t = 0.6;
+        this.later(0.2, () => near.slice(0, 2).forEach((e, i) => this.ksHit(h, e, 41, i === 0)));
+        break;
+      case 'sanguine':
+        this.perform(h, 'primary2'); h.t = 0.8;
+        for (let k = 0; k < 3; k++) this.later(0.2 + k * 0.14, () => near.slice(0, 3).forEach((e) => this.ksHit(h, e, 27, false)));
+        this.later(0.4, () => { proc(s.x, s.z, { n: 6 }); this.emit({ e: 'heal', slot, amount: 6 }); });
+        break;
+      case 'momentum_engine':
+        // kill after kill: the stacks climb
+        for (let k = 1; k <= 8; k++) this.later((k - 1) * 0.12, () => proc(s.x, s.z, { n: k }));
+        near.slice(0, 2).forEach((e, i) => this.later(i * 0.3, () => this.ksKill(h, e)));
+        break;
+      case 'ks_knight':
+        s.shield = 0;
+        this.emit({ e: 'aoe', x: s.x, z: s.z, r: 3.2, el: null, hostile: false });
+        proc(s.x, s.z, { r: 3.2, n: 30 });
+        near.slice(0, 2).forEach((e) => this.ksHit(h, e, 30, false));
+        break;
+      case 'ks_barbarian':
+        this.perform(h, 'secondary'); h.t = 2.1;
+        proc(s.x, s.z, { r: 5 });
+        for (let k = 0; k < 8; k++) this.later(0.1 + k * 0.25, () => this.ksNear(h).slice(0, 3).forEach((e) => {
+          // dragged in
+          e.homeX += (s.x - e.homeX) * 0.16; e.homeZ += (s.z - e.homeZ) * 0.16; e.snap.x = e.homeX;
+          this.ksHit(h, e, 12, false);
+        }));
+        break;
+      case 'ks_mage':
+        s.flags |= PF.CHANNELING; s.anim = 'primary1'; s.animSeq++; h.t = 2.6;
+        for (let k = 0; k < 20; k++) this.later(k * 0.12, () => this.ksNear(h).filter((e) => Math.abs(e.snap.x - s.x) < 0.9 && e.snap.z < s.z).forEach((e) => this.ksHit(h, e, 7, false, el)));
+        this.later(2.6, () => { s.flags &= ~PF.CHANNELING; });
+        break;
+      case 'ks_rogue': {
+        // four bolts were loosed before `at` (see runDemo's lead): this is the fifth
+        const bolt = CLASSES.rogue.primary[0];
+        const fanDef = CLASSES.rogue.secondary;
+        for (let k = 0; k < 4; k++) this.later(k * bolt.cooldown, () => { this.perform(h, 'primary1'); h.t = 0.3; });
+        this.later(4 * bolt.cooldown + 0.9, () => {
+          this.perform(h, 'primary1'); h.t = 0.5;
+          proc(s.x, s.z, { n: 5 });
+          for (let i = 0; i < 5; i++) this.shoot('knife', s.x, s.z - 0.8, s.rot + (i / 4 - 0.5) * fanDef.arc * DEG, fanDef.speed, fanDef.range, 0, false);
+        });
+        break;
+      }
+      case 'ks_templar':
+        this.emit({ e: 'cast', who: { t: 'p', id: slot }, ability: 'templar_consecrate', x: s.x, z: s.z, rot: s.rot });
+        this.later(0.3, () => this.emit({ e: 'zone', id: this.nextId++, kind: 'templar_consecrate', x: s.x, z: s.z, r: CLASSES.templar.secondary.radius, dur: 7.5, el: null, by: slot }));
+        break;
+      case 'ks_spellblade': {
+        const wave = CLASSES.spellblade.primary[2];
+        this.perform(h, 'primary1'); h.t = 0.4;
+        proc(s.x, s.z, { n: 1 });
+        this.shoot('bladeWave', s.x, s.z - 0.8, s.rot, wave.speed, wave.range, 0, false);
+        this.later(0.7, () => {
+          this.perform(h, 'primary3'); h.t = 0.6;
+          this.later(wave.windup, () => {
+            proc(s.x, s.z, { n: 3 });
+            for (let i = -1; i <= 1; i++) this.shoot('bladeWave', s.x, s.z - 0.8, s.rot + i * 0.32, wave.speed, wave.range, 0, false);
+          });
+        });
+        break;
+      }
+      case 'ks_shade': {
+        const victim = near[0];
+        this.perform(h, 'primary1'); h.t = 0.4;
+        this.later(0.08, () => {
+          const { x, z } = victim.snap;
+          this.ksHit(h, victim, 46, true);
+          this.ksKill(h, victim);
+          proc(x, z);
+          this.emit({ e: 'buff', slot, id: 'ks_shade', dur: 1.5 });
+        });
+        break;
+      }
+      default:
+        // colossus: nothing fires; it is the size and the tread
+        break;
+    }
+  }
+
+  /** Stress scene with keystones: every hero's two keystones keep firing as they would in a fight. */
+  private ksStressStep(dt: number): void {
+    this.ksTimer -= dt;
+    if (this.ksTimer > 0) return;
+    this.ksTimer = 0.22;
+    const n = this.ksCount++;
+    const h = this.heroes[n % this.heroes.length];
+    const s = h.snap;
+    const id = KS_STRESS[h.cls][Math.floor(n / this.heroes.length) % 2];
+    const slot = s.slot;
+    const near = this.ksNear(h);
+    if (near.length < 3) return;
+    const proc = (x: number, z: number, extra: { n?: number; r?: number; tx?: number; tz?: number } = {}): void => this.emit({ e: 'keystoneProc', slot, id, x, z, ...extra });
+    switch (id) {
+      case 'ks_mage': s.flags = n % 8 < 5 ? s.flags | PF.CHANNELING : s.flags & ~PF.CHANNELING; break;
+      case 'ks_spellblade': proc(s.x, s.z, { n: n % 3 === 0 ? 3 : 1 }); break;
+      case 'resonance_engine': proc(near[1].snap.x, near[1].snap.z, { n: 14 }); break;
+      case 'ks_barbarian': if (n % 24 < 4) proc(s.x, s.z, { r: 5 }); break;
+      case 'momentum_engine': proc(s.x, s.z, { n: 3 + (n % 8) }); break;
+      case 'ks_knight': proc(s.x, s.z, { r: 3.2 }); break;
+      case 'ember_wake': proc(s.x, s.z, { tx: s.x + 4, tz: s.z - 3, r: 0.8 }); break;
+      case 'ks_rogue': proc(s.x, s.z, { n: 5 }); break;
+      case 'familiar': proc(s.x, s.z, { tx: near[0].snap.x, tz: near[0].snap.z }); break;
+      case 'ks_shade': proc(near[0].snap.x, near[0].snap.z); this.emit({ e: 'buff', slot, id: 'ks_shade', dur: 1.5 }); break;
+      default: break;
+    }
+    // chain lightning, ricochet and blooms from whoever: the lines that criss-cross a real fight
+    this.emit({ e: 'keystoneProc', slot, id: 'chain_lightning', x: near[0].snap.x, z: near[0].snap.z, tx: near[1].snap.x, tz: near[1].snap.z });
+    if (n % 3 === 0) this.emit({ e: 'keystoneProc', slot, id: 'corpse_bloom', x: near[2].snap.x, z: near[2].snap.z, r: 3, n: 1 });
+  }
+
   private demoHero(h: HeroActor, dt: number): void {
     const s = h.snap;
+    const path = this.paths.get(s.slot);
+    if (path) {
+      // scripted movement (keystone demos): a straight run or dash, optionally back and forth
+      path.t += dt;
+      let k = path.t / path.dur;
+      if (path.loop) { k %= 2; if (k > 1) k = 2 - k; } else if (k >= 1) { k = 1; this.paths.delete(s.slot); h.homeX = path.x1; h.homeZ = path.z1; }
+      const nx = path.x0 + (path.x1 - path.x0) * k;
+      const nz = path.z0 + (path.z1 - path.z0) * k;
+      if (path.loop && (nx !== s.x || nz !== s.z)) s.rot = Math.atan2(nx - s.x, nz - s.z);
+      s.x = nx; s.z = nz;
+      h.t -= dt;
+      return;
+    }
     h.t -= dt;
     if (h.t <= 0 && s.anim !== 'idle') { s.anim = 'idle'; s.animSeq++; }
     if (s.anim === 'idle') { s.x += (h.homeX - s.x) * Math.min(1, dt * 3); s.z += (h.homeZ - s.z) * Math.min(1, dt * 3); }
@@ -1523,6 +1882,7 @@ class Showcase {
         }
       }
       if (this.fight) this.fightScript(dt);
+      if (this.ksStress) this.ksStressStep(dt);
       t.stressFx -= dt;
       if (t.stressFx <= 0) {
         t.stressFx = 0.7;

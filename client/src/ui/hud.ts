@@ -14,6 +14,9 @@ import { FEED_PRIORITY, createFeed } from './feed.ts';
 import { h, icon, key, retrigger, setAttr, setText, setVar, show, toggle } from './dom.ts';
 import { actTitle, bossLabel, chamberActs, distinctElements, enemyName, infusionsOf, phaseThresholds } from './elements.ts';
 import { createBuffs, createSets, createUltimate } from './hud3.ts';
+import { createKeystoneHud } from './hud5.ts';
+import { buildInfo, heldKeystones, keystoneName, keystoneOnSlot } from './keystones.ts';
+import { KEYSTONE_BY_ID } from '@shared/data/keystones.ts';
 import { DOOR_TEXT_PARAMS, formatBoon, formatList, roman, t, type I18nKey } from './i18n.ts';
 import { ABILITY_SLOTS, abilityIcon, depthLabel, infusionOf, maxDashCharges, nameOf } from './model.ts';
 import { OBJECTIVE_ICON, createObjective, createObjectiveBanner, hasBonus, objectiveBonus, objectiveGoal, objectiveName, objectiveReward } from './objective.ts';
@@ -102,7 +105,7 @@ export function createHud(): HudView {
 
   let partyKey = '';
   const renderParty = (): void => {
-    const key = JSON.stringify([state.conn.slot, state.roster.map((p) => [p.slot, p.name, p.cls, p.mastery])]);
+    const key = JSON.stringify([state.conn.slot, state.roster.map((p) => [p.slot, p.name, p.cls, p.mastery, buildInfo(p).short])]);
     if (key === partyKey) return;
     partyKey = key;
     party.replaceChildren();
@@ -115,10 +118,16 @@ export function createHud(): HudView {
       const tag = h('span', { class: 'gg-party-tag' });
       const ult = h('span', { class: 'gg-party-ult', title: t('hud.party.ult') }, icon('ultimate'));
       const level = Math.max(1, Math.floor(p.mastery ?? 1));
-      const el = h('div', { class: `gg-party-frame gg-cls-${p.cls}`, 'data-slot': String(p.slot), 'data-ult': 'false' },
+      // Update 5: once an ally holds a keystone the frame names the build (the emblem keeps showing the class).
+      const build = buildInfo(p);
+      const el = h('div', { class: `gg-party-frame gg-cls-${p.cls}`, 'data-slot': String(p.slot), 'data-ult': 'false', 'data-build': build.short },
         h('span', { class: 'gg-party-emblem', title: t(`class.${p.cls}.name`) }, icon(p.cls), h('b', { class: 'gg-party-level gg-num' }, String(level))),
         h('div', { class: 'gg-party-main' },
-          h('div', { class: 'gg-party-name' }, h('span', null, p.name), h('em', { class: 'gg-party-class' }, t(`class.${p.cls}.name`)), ult),
+          h('div', { class: 'gg-party-name' }, h('span', null, p.name),
+            build.short !== ''
+              ? h('em', { class: 'gg-party-class gg-party-build', title: `${build.name} — ${build.keystones.map(keystoneName).join(', ')}` }, icon('keystone'), build.short)
+              : h('em', { class: 'gg-party-class' }, t(`class.${p.cls}.name`)),
+            ult),
           h('div', { class: 'gg-party-row' }, h('div', { class: 'gg-party-hp' }, hp, shield, revive), tag),
         ),
       );
@@ -173,7 +182,8 @@ export function createHud(): HudView {
   const objectiveBanner = createObjectiveBanner();
   // The objective banner shares the place of the generic banner: whichever came last is shown.
   const bannerSlot = h('div', { class: 'gg-banner-slot' }, banner, objectiveBanner.slot);
-  const topCentre = h('div', { class: 'gg-hud-tc' }, coachSlot, track, waveLine, objective.el, bossSlot, bannerSlot);
+  const keystones = createKeystoneHud();
+  const topCentre = h('div', { class: 'gg-hud-tc' }, coachSlot, track, waveLine, objective.el, bossSlot, bannerSlot, keystones.banner);
   let trackKey = '';
   let bossKey = '';
   let bannerTimer = 0;
@@ -279,6 +289,7 @@ export function createHud(): HudView {
     trackAct();
     strip.sync();
     sets.sync(selfRoster()?.boons ?? []);
+    keystones.sync(selfRoster(), training);
     tips.onRun();
     const combat = run.phase === 'combat';
     const waveless = combat && run.objective !== null && run.objective !== undefined && WAVELESS.includes(run.objective.kind);
@@ -467,16 +478,22 @@ export function createHud(): HudView {
   const sets = createSets();
 
   const slots = new Map<AbilitySlot, AbilitySlotView>();
+  /** Blood Price: what the next secondary costs in health. */
+  const bloodCost = h('b', { class: 'gg-ability-cost gg-num', 'data-testid': 'hud-blood-price' });
+  const engineFeed = h('b', { class: 'gg-ult-feed gg-num' });
   const abilityBar = h('div', { class: 'gg-abilities' });
   for (const slot of ABILITY_SLOTS) {
     const iconBox = h('span', { class: 'gg-ability-icon' });
     const badge = h('span', { class: 'gg-ability-badge' });
     const pips = h('span', { class: 'gg-ability-pips' });
-    const slotEl = h('div', { class: `gg-ability gg-ability--${slot}` },
+    const slotEl = h('div', { class: `gg-ability gg-ability--${slot}`, 'data-keystone': '' },
       pips,
       h('div', { class: 'gg-ability-diamond' },
         h('div', { class: 'gg-ability-frame' }, iconBox, h('i', { class: 'gg-ability-sweep' })),
         badge,
+        // Update 5: the mark of the keystone that transforms this ability.
+        h('i', { class: 'gg-ability-ks' }, icon('keystone')),
+        slot === 'secondary' ? bloodCost : null,
       ),
       key(t(`hud.key.${slot}` as I18nKey)),
     );
@@ -484,6 +501,7 @@ export function createHud(): HudView {
     abilityBar.append(slotEl);
   }
   abilityBar.append(ultimate.el);
+  ultimate.el.append(engineFeed);
 
   const flash = (slot: AbilitySlot, cls: string, ms: number): void => {
     const view = slots.get(slot);
@@ -514,6 +532,38 @@ export function createHud(): HudView {
       }
     }
     ultimate.sync(me, cls, infusionOf(boons, 'ultimate') ?? '');
+    // ---- update 5: keystone frames, Blood Price cost, Phase Walker / Veil windows, Resonance Engine
+    const held = heldKeystones(roster);
+    for (const slot of ABILITY_SLOTS) {
+      const view = slots.get(slot);
+      const ks = keystoneOnSlot(held, slot) ?? '';
+      if (view && view.el.dataset.keystone !== ks) {
+        view.el.dataset.keystone = ks;
+        view.el.title = ks !== '' ? t('hud.keystone.frame', { name: keystoneName(ks) }) : '';
+      }
+    }
+    const engine = keystoneOnSlot(held, 'ultimate') ?? '';
+    if (ultimate.el.dataset.keystone !== engine) {
+      ultimate.el.dataset.keystone = engine;
+      const per = KEYSTONE_BY_ID.get(engine)?.params.perResonance;
+      // The ring is cut into the pieces one Resonance charges.
+      setVar(ultimate.el, '--seg', per ? `${per}%` : '100%');
+    }
+    const fed = keystones.takeEngineFeed();
+    if (fed > 0 && engine !== '') { setText(engineFeed, `+${fed}%`); retrigger(engineFeed, 'is-on'); }
+    const price = held.includes('blood_price') ? KEYSTONE_BY_ID.get('blood_price')?.params.hpFraction ?? 0 : 0;
+    if (price > 0 && me) {
+      // It cannot kill: the last point of health is never spent, and at 1 health the ability does not fire.
+      const cost = Math.max(0, Math.min(Math.round(me.maxHp * price), Math.round(me.hp) - 1));
+      const blocked = me.hp <= 1;
+      setText(bloodCost, blocked ? '!' : `−${cost}`);
+      setAttr(bloodCost, 'data-cost', String(cost));
+      toggle(bloodCost, 'is-blocked', blocked);
+      bloodCost.title = blocked ? t('hud.ks.bloodPriceBlocked') : t('hud.ks.bloodPrice', { n: cost });
+    }
+    show(bloodCost, price > 0 && me !== null);
+    const dashView = slots.get('dash');
+    if (dashView) toggle(dashView.el, 'is-empowered', keystones.windowOpen('phase_walker') || keystones.windowOpen('ks_shade'));
     const secondary = slots.get('secondary');
     const dash = slots.get('dash');
     if (!secondary || !dash) return;
@@ -555,7 +605,7 @@ export function createHud(): HudView {
     tips.el,
     h('div', { class: 'gg-hud-bl' }, vitals),
     h('div', { class: 'gg-hud-br' }, sets.el),
-    h('div', { class: 'gg-hud-bc' }, prompt, buffs.el, h('div', { class: 'gg-ability-row' }, abilityBar, strip.el)),
+    h('div', { class: 'gg-hud-bc' }, prompt, buffs.el, h('div', { class: 'gg-ability-row' }, keystones.el, abilityBar, strip.el)),
   );
   show(prompt, false);
 
@@ -603,6 +653,7 @@ export function createHud(): HudView {
     syncAbilities(me);
     syncPrompt();
     buffs.tick();
+    keystones.tick();
     tips.pump();
     objective.sync();
     // The bar belongs to a living boss: once the fight is over (draft, doors) a dead boss's empty bar goes away.
@@ -637,7 +688,22 @@ export function createHud(): HudView {
   const onEvent = (ev: GameEvent): void => {
     const own = state.conn.slot;
     tips.onEvent(ev);
+    keystones.onEvent(ev);
     switch (ev.e) {
+      case 'keystone':
+        if (ev.slot === own) {
+          // The moment of the run: its own banner, nothing else talks over it.
+          banner.classList.remove('is-on');
+          objectiveBanner.hide();
+          keystones.acquired(ev.id, ev.replaced, selfRoster());
+          keystones.sync(selfRoster(), false);
+        } else {
+          feed.push({
+            key: `keystone-${ev.slot}`, icon: 'keystone', tone: 'keystone', priority: FEED_PRIORITY.INFO,
+            text: t('toast.keystoneAlly', { name: nameOf(ev.slot), keystone: keystoneName(ev.id) }),
+          });
+        }
+        break;
       case 'resonance':
         strip.onResonance(ev.a, ev.b, ev.by);
         break;
@@ -832,6 +898,8 @@ export function createHud(): HudView {
     strip.reset();
     feed.reset();
     buffs.reset();
+    keystones.reset();
+    engineFeed.classList.remove('is-on');
     affixSeen.clear();
     wardSeen.clear();
     litSites.clear();
@@ -848,6 +916,6 @@ export function createHud(): HudView {
   return {
     el, sync, syncHud, onEvent, onLocalAction, reset,
     dismissTip: () => tips.dismiss(),
-    dispose: () => { window.clearTimeout(bannerTimer); objectiveBanner.hide(); coach.dispose?.(); strip.dispose?.(); tips.dispose?.(); feed.dispose(); },
+    dispose: () => { window.clearTimeout(bannerTimer); objectiveBanner.hide(); coach.dispose?.(); strip.dispose?.(); tips.dispose?.(); feed.dispose(); keystones.dispose(); },
   };
 }

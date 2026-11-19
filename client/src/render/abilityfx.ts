@@ -102,6 +102,8 @@ export class AbilityFx {
   private trauma = 0;
   /** Slot of the own hero (-1 = none: everything is drawn in full). */
   localSlot = -1;
+  /** Update 5, Walking Sanctum: heroes (by slot) whose hallowed ground follows them. Written by WorldView.setRoster. */
+  readonly sanctum: boolean[] = [false, false, false, false];
 
   // scratch state of the Void Arc target search (no closures per event)
   private seekX = 0;
@@ -253,6 +255,11 @@ export class AbilityFx {
       if (zn.ended >= out) { zn.active = false; return; }
       a *= 1 - zn.ended / out;
     }
+    const walking = zn.kind === ZK.CONSECRATE && zn.slot >= 0 && this.sanctum[zn.slot] === true;
+    if (walking && zn.ended < 0) {
+      const carrier = this.heroes.get(zn.slot);
+      if (carrier) { zn.x = carrier.x + carrier.offX; zn.z = carrier.z + carrier.offZ; }
+    }
     const { x, z, r } = zn;
     const d = r * 2;
     const live = zn.ended < 0;
@@ -270,6 +277,14 @@ export class AbilityFx {
         const g = rgb(PALETTE.holyDeep);
         decals.push(DECAL.DISC, x, 0.032, z, 0, d * 1.15, d * 1.15, g[0], g[1], g[2], 0.14 * a * fillK, 1, 0.2);
         decals.push(DECAL.HALLOW, x, 0.044, z, 0, d, d, c[0] * 1.4, c[1] * 1.4, c[2] * 1.4, 0.85 * a, 1, 0.07, (zn.age * 1.1) % 1, 1);
+        if (walking) {
+          // Walking Sanctum: the ground is carried, so it turns with the stride: a second wheel inside and four lights on the rim
+          decals.push(DECAL.HALLOW, x, 0.046, z, -time * 0.9, d * 0.58, d * 0.58, g[0] * 1.6, g[1] * 1.6, g[2] * 1.6, 0.8 * a * fillK, 1, 0.04, (zn.age * 1.1 + 0.5) % 1, 1);
+          for (let k = 0; k < 4; k++) {
+            const ang = time * 0.9 + k * (Math.PI / 2);
+            fx.push(SPRITE.GLOW, x + Math.sin(ang) * r, 0.9, z + Math.cos(ang) * r, 0.45, 1.8, c[0] * 1.4, c[1] * 1.4, c[2] * 1.4, 0.4 * a * lit, 1, 0.9);
+          }
+        }
         if (live) {
           zn.acc += dt * 12 * vfx.density;
           while (zn.acc >= 1) { zn.acc -= 1; vfx.motes(x, 0.1, z, tint !== 0 && Math.random() < 0.4 ? tint : PALETTE.holy, 1, r * 0.95, 2.2, 0.9); }

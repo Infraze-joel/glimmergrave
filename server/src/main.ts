@@ -2,6 +2,7 @@
 import { pathToFileURL } from 'node:url';
 import { SERVER } from './config.ts';
 import { consoleLogger } from './log.ts';
+import { KEYSTONE_BY_ID } from '../../shared/src/data/keystones.ts';
 import { OBJECTIVE_KINDS, type ObjectiveKind } from '../../shared/src/types.ts';
 import { parseOrigins, startServer } from './server.ts';
 
@@ -18,6 +19,12 @@ function parseObjective(raw: string | undefined): ObjectiveKind | undefined {
   return OBJECTIVE_KINDS.find((k) => k === raw);
 }
 
+/** DEBUG_KEYSTONES: comma separated keystone ids; unknown ids are ignored. */
+function parseKeystones(raw: string | undefined): string[] | undefined {
+  const ids = (raw ?? '').split(',').map((id) => id.trim()).filter((id) => KEYSTONE_BY_ID.has(id));
+  return ids.length > 0 ? ids : undefined;
+}
+
 export async function main(): Promise<void> {
   const server = await startServer({
     port: envInt('PORT', SERVER.DEFAULT_PORT),
@@ -25,6 +32,7 @@ export async function main(): Promise<void> {
     maxRooms: envInt('MAX_ROOMS', SERVER.DEFAULT_MAX_ROOMS),
     debugStartChamber: envInt('DEBUG_START_CHAMBER', 0),
     debugObjective: parseObjective(process.env.DEBUG_OBJECTIVE),
+    debugKeystones: parseKeystones(process.env.DEBUG_KEYSTONES),
   });
   let stopping = false;
   const stop = (signal: string): void => {

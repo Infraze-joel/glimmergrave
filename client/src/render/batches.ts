@@ -50,10 +50,22 @@ export const DECAL = {
   CRACKLE: 22,
   /** A cell of the sprite atlas lying on the floor (aim marker). p0..p3 = uv rect. Needs the batch's `map`. */
   ATLAS: 23,
+  /** Update 5. A sword lying flat, tip towards +z (orbiting blades, thrown blades). p0 = edge light 0..1. */
+  BLADE: 24,
+  /** Burning lane along +z (Blazing Wake). p0 = burnt out 0..1, p1 = seed, p2 > 0 = outline only. */
+  WAKE: 25,
+  /** Cracked crystal plate around a hero (Glass Cannon). p0 = facet fill, p1 = seed. */
+  FRACTURE: 26,
+  /** Spiral arms dragging inwards (Maelstrom). p0 = fill, p1 = turn rate (signed). */
+  VORTEX: 27,
+  /** Jagged lightning along +z across the quad (Chain Lightning, the familiar's bolt). p0 = seed. */
+  BOLT: 28,
+  /** Straight thread along +z with dashes running towards +z (bounce lines, leech and charge streaks). p0 = dash speed (0 = solid), p1 = head 0..1 (a bright bead at that fraction; < 0 none). */
+  THREAD: 29,
 } as const;
 
 /** How much of a decal shape's area is lit, for the brightness governor (0 = not governed: warnings, fixtures, shadows). */
-const DECAL_GLARE = new Float32Array(24);
+const DECAL_GLARE = new Float32Array(32);
 DECAL_GLARE[DECAL.DISC] = 0.6;
 DECAL_GLARE[DECAL.SHOCK] = 0.3;
 DECAL_GLARE[DECAL.DUO] = 0.3;
@@ -63,6 +75,10 @@ DECAL_GLARE[DECAL.FROST] = 0.25;
 DECAL_GLARE[DECAL.RUNE] = 0.15;
 DECAL_GLARE[DECAL.BEAM] = 0.5;
 DECAL_GLARE[DECAL.STREAK] = 0.3;
+DECAL_GLARE[DECAL.WAKE] = 0.4;
+DECAL_GLARE[DECAL.VORTEX] = 0.2;
+DECAL_GLARE[DECAL.BOLT] = 0.25;
+DECAL_GLARE[DECAL.FRACTURE] = 0.12;
 /** Additive share from which a quad counts as light. */
 const GLARE_ADDITIVE = 0.5;
 const GLARE_SPRITE = 0.5;
@@ -82,6 +98,10 @@ export const SPRITE = {
   SHARD: 8,
   /** Ring with a dark edge filling the quad (an ellipse when the quad is squashed: a floor ring as an overlay). param = band width 0..1. */
   HOOP: 9,
+  /** Update 5. A standing column of light, brightest at its foot (keystone moment). param = core 0..1. */
+  COLUMN: 10,
+  /** Update 5. A plain human silhouette (ghost afterimages, echoes). param = scan-line strength 0..1. */
+  FIGURE: 11,
 } as const;
 
 const DECAL_STRIDE = 16;
@@ -308,6 +328,75 @@ void main() {
     vec4 t = texture2D( uMap, mix( vParam.xy, vParam.zw, vec2( vUv.x, -vUv.y ) * 0.5 + 0.5 ) );
     col *= t.rgb;
     a = t.a;
+  } else if ( shape == 24 ) {       // BLADE: flat sword, tip at +z
+    float t = vUv.y * 0.5 + 0.5;
+    float x = abs( vUv.x );
+    float halfW = mix( 0.46, 0.0, smoothstep( 0.55, 1.0, t ) );
+    float blade = step( 0.24, t ) * ( 1.0 - smoothstep( halfW - 0.1, halfW, x ) );
+    float guard = step( 0.17, t ) * step( t, 0.25 ) * ( 1.0 - smoothstep( 0.85, 0.98, x ) );
+    float grip = step( 0.02, t ) * step( t, 0.2 ) * ( 1.0 - smoothstep( 0.14, 0.2, x ) );
+    float lit = smoothstep( halfW - 0.34, halfW - 0.06, x ) * blade;
+    float fuller = ( 1.0 - smoothstep( 0.0, 0.08, x ) ) * blade * step( t, 0.8 );
+    vec3 steel = vec3( 0.62, 0.68, 0.78 ) * ( 0.8 + 0.3 * vUv.x );
+    col = mix( steel, vColor.rgb, clamp( lit * ( 0.6 + 0.6 * vParam.x ) + guard, 0.0, 1.0 ) );
+    col = mix( col, vec3( 0.16, 0.17, 0.22 ), max( fuller * 0.5, grip * 0.8 ) );
+    a = max( blade, max( guard, grip ) );
+  } else if ( shape == 25 ) {       // WAKE: burning lane
+    float w = 1.0 - abs( vUv.x );
+    float along = vUv.y * vHalf.y + vParam.y * 7.0;
+    float n = sin( along * 4.3 + uTime * 7.0 ) * 0.5 + sin( along * 9.1 - uTime * 11.0 + vUv.x * 3.0 ) * 0.3 + sin( vUv.x * 8.0 + uTime * 5.0 + along * 2.0 ) * 0.2;
+    float ends = smoothstep( 1.0, 0.72, abs( vUv.y ) );
+    if ( vParam.z > 0.0 ) {
+      float dash = step( 0.45, fract( along * 0.9 - uTime * 0.5 ) );
+      a = band( w - 0.12, 0.07, 0.05 ) * ends * mix( 0.35, 1.0, dash ) * ( 1.0 - vParam.x );
+    } else {
+      float burn = vParam.x * 0.55;
+      float body = smoothstep( burn, burn + 0.6, w + n * 0.25 );
+      float core = smoothstep( 0.5 + burn, 1.0 + burn, w + n * 0.22 );
+      a = ( body * 0.5 + core * 0.55 ) * ends;
+      col = mix( col, col * 0.5 + vec3( 0.75, 0.62, 0.35 ), core * 0.7 );
+    }
+  } else if ( shape == 26 ) {       // FRACTURE: cracked crystal plate
+    float seg = 7.0;
+    float aN = ( ang / ( 2.0 * PI ) + 0.5 ) * seg + vParam.y;
+    float cell = floor( aN );
+    float f = fract( aN ) - 0.5;
+    float jag = sin( r * 13.0 + cell * 2.4 ) * 0.14 + sin( r * 29.0 + cell ) * 0.05;
+    float crack = 1.0 - smoothstep( 0.0, 0.05 / max( r, 0.25 ), abs( f - jag ) );
+    float shardR = 0.62 + 0.13 * sin( cell * 3.7 + 1.0 );
+    float chip = band( r - shardR - f * 0.22, 0.012, 0.02 );
+    float mask = smoothstep( 0.34, 0.5, r ) * ( 1.0 - smoothstep( 0.8 + 0.14 * sin( cell * 5.1 ), 1.0, r ) );
+    float facet = fract( sin( cell * 12.9898 ) * 43758.5453 );
+    float glint = pow( 0.5 + 0.5 * sin( uTime * 1.7 + cell * 2.1 ), 6.0 );
+    a = ( crack * 0.95 + chip * 0.7 + ( 0.25 + 0.75 * facet ) * vParam.x + glint * facet * 0.25 ) * mask;
+    col = mix( col, vec3( 1.0 ), crack * 0.5 );
+  } else if ( shape == 27 ) {       // VORTEX: spiral arms
+    float sp = sin( ang * 3.0 + log( r + 0.05 ) * 5.0 + uTime * vParam.y );
+    float arms = smoothstep( 0.35, 0.95, sp ) * smoothstep( 1.0, 0.82, r ) * smoothstep( 0.06, 0.3, r );
+    float rim = band( edge - 0.06, 0.04, 0.04 );
+    float streaks = pow( abs( sin( ang * 11.0 + r * 9.0 + uTime * vParam.y * 1.6 ) ), 18.0 ) * smoothstep( 0.4, 0.95, r ) * step( r, 1.0 );
+    a = arms * ( 0.35 + 0.65 * vParam.x ) + rim * 0.8 + streaks * 0.45;
+    col = mix( col, vec3( 1.0 ), arms * arms * 0.25 );
+  } else if ( shape == 28 ) {       // BOLT: jagged lightning along +z
+    float y = vUv.y * 0.5 + 0.5;
+    float m = y * vHalf.y * 2.0;
+    float s = vParam.x;
+    float x = sin( m * 2.1 + s ) * 0.34 + sin( m * 5.3 + s * 1.7 ) * 0.2 + sin( m * 11.0 + s * 2.3 ) * 0.09;
+    x *= sin( y * PI );
+    float d = abs( vUv.x - x );
+    float core = 1.0 - smoothstep( 0.0, 0.1, d );
+    float halo = 1.0 - smoothstep( 0.0, 0.42, d );
+    col = mix( col, vec3( 1.0 ), core * 0.8 );
+    a = max( halo * 0.45, core ) * smoothstep( 0.0, 0.04, y ) * smoothstep( 1.0, 0.96, y );
+  } else if ( shape == 29 ) {       // THREAD: dashed line with an optional bright bead
+    float w = 1.0 - abs( vUv.x );
+    float y = vUv.y * 0.5 + 0.5;
+    float m = y * vHalf.y * 2.0;
+    float dash = vParam.x == 0.0 ? 1.0 : step( 0.45, fract( m * 1.1 - uTime * vParam.x ) );
+    float line = smoothstep( 0.45, 0.8, w );
+    float bead = vParam.y < 0.0 ? 0.0 : ( 1.0 - smoothstep( 0.0, 0.5, length( vec2( vUv.x * vHalf.x, ( y - vParam.y ) * vHalf.y * 2.0 ) ) ) );
+    a = line * ( 0.3 + 0.7 * dash ) * smoothstep( 0.0, 0.05, y ) * smoothstep( 1.0, 0.95, y ) + bead;
+    col = mix( col, vec3( 1.0 ), bead * 0.7 );
   } else {                          // MARKER
     float ring = band( edge - 0.09, 0.06, 0.03 );
     float dash = step( 0.3, fract( ang / ( 2.0 * PI ) * 10.0 + uTime * 0.18 ) );
@@ -412,6 +501,21 @@ void main() {
     float d = abs( r - 0.84 );
     a = 1.0 - smoothstep( vMisc.z, vMisc.z + 0.03, d );
     col = mix( vec3( 0.02, 0.02, 0.04 ), col, 1.0 - smoothstep( vMisc.z * 0.5, vMisc.z * 0.5 + 0.03, d ) );
+  } else if ( mode == 10 ) {        // COLUMN
+    float y = vQuad.y * 0.5 + 0.5;
+    float w = 1.0 - abs( vQuad.x );
+    float flow = 0.8 + 0.2 * sin( y * 14.0 - uTime * 9.0 + vQuad.x * 3.0 );
+    a = w * w * ( 1.0 - y ) * ( 1.0 - y * 0.4 ) * flow * smoothstep( 0.0, 0.04, y );
+    col = mix( col, vec3( 1.0 ), pow( w, 6.0 ) * vMisc.z * ( 1.0 - y ) );
+  } else if ( mode == 11 ) {        // FIGURE
+    vec2 q = vQuad;
+    float head = 1.0 - smoothstep( 0.3, 0.36, length( ( q - vec2( 0.0, 0.76 ) ) * vec2( 1.0, 1.9 ) ) );
+    float tw = mix( 0.24, 0.52, smoothstep( -0.1, 0.48, q.y ) );
+    float torso = ( 1.0 - smoothstep( tw - 0.06, tw, abs( q.x ) ) ) * step( -0.12, q.y ) * ( 1.0 - smoothstep( 0.5, 0.58, q.y ) );
+    float legs = ( 1.0 - smoothstep( 0.1, 0.16, abs( abs( q.x ) - 0.2 ) ) ) * step( -0.98, q.y ) * step( q.y, -0.1 );
+    float body = max( head, max( torso, legs ) );
+    float scan = 1.0 - vMisc.z * ( 0.5 + 0.5 * sin( q.y * 34.0 + uTime * 12.0 ) ) * 0.6;
+    a = body * scan * ( 0.55 + 0.45 * ( q.y * 0.5 + 0.5 ) );
   } else {                          // ARC
     float y = vQuad.y * 0.5 + 0.5;
     float s = vMisc.z;
@@ -553,7 +657,7 @@ export class BillboardBatch extends QuadBatch {
   ): void {
     if (this.count >= this.capacity) return;
     if (additive > 0) a *= this.gain;
-    if (this.glare && additive >= GLARE_ADDITIVE && (mode === SPRITE.GLOW || mode === SPRITE.FLAME || mode === SPRITE.ARC)) {
+    if (this.glare && additive >= GLARE_ADDITIVE && (mode === SPRITE.GLOW || mode === SPRITE.FLAME || mode === SPRITE.ARC || mode === SPRITE.COLUMN)) {
       a *= this.glare.take(x, y, z, Math.sqrt(w * h), a * Math.max(r, g, b) * GLARE_SPRITE * additive);
     }
     const d = this.data;

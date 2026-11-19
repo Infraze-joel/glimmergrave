@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { encodeSnapshotBody } from '@shared/protocol.ts';
-import { BotBrain, viewFromWorld, World } from '@shared/sim/index.ts';
+import { applyBoon, BotBrain, viewFromWorld, World } from '@shared/sim/index.ts';
 import { OBJECTIVE_KINDS, type ClassId, type ObjectiveKind } from '@shared/types.ts';
 
 const CLASSES: ClassId[] = ['knight', 'mage', 'rogue', 'barbarian'];
@@ -56,6 +56,54 @@ describe('determinism', () => {
       expect(b.run, kind).toBe(a.run);
       expect(b.events, kind).toBe(a.events);
     }
+  }, 120000);
+
+  it('update 5: a party holding eight keystones (blooms, bounces, arcs, twins, companions) replays identically, drafts included', () => {
+    const grant: Record<number, string[]> = {
+      0: ['corpse_bloom', 'twin_cast'], 1: ['ricochet', 'chain_lightning'], 2: ['familiar', 'sanguine'], 3: ['orbit_blades', 'ember_wake'],
+    };
+    const replay = (): { procs: string; frames: string[]; run: string } => {
+      const world = new World();
+      CLASSES.forEach((cls, slot) => world.addPlayer(slot, cls, `B${slot}`));
+      world.start(0, 5150, 2);
+      for (const h of world.heroes) {
+        applyBoon(h, 'infuse_ember_primary');
+        applyBoon(h, 'infuse_rime_secondary');
+        for (const id of grant[h.slot] ?? []) expect(world.grantKeystone(h.slot, id)).toBe(true);
+      }
+      const bots = CLASSES.map((cls, slot) => new BotBrain(slot, cls, 3));
+      let procs = '';
+      const frames: string[] = [];
+      for (let i = 0; i < 5400; i++) {
+        const phase = world.run.phase;
+        if (phase === 'victory' || phase === 'defeat') break;
+        for (const bot of bots) {
+          if (phase === 'draft') {
+            for (let step = 0; step < 2; step++) {
+              const offers = world.getDraft(bot.slot);
+              if (offers.length === 0) break;
+              const ks = world.getKeystoneDraft(bot.slot);
+              if (!ks) { world.pickBoon(bot.slot, bot.chooseBoon(offers, world.getBoons(bot.slot))); break; }
+              const choice = bot.chooseKeystone(offers, ks.held, ks.skip, world.getBoons(bot.slot));
+              world.pickBoon(bot.slot, choice.index, choice.replace);
+            }
+          }
+          world.applyInput(bot.slot, bot.think(viewFromWorld(world, bot.slot)));
+        }
+        world.step();
+        const ev = world.drainEvents();
+        for (const e of ev) if (e.e === 'keystoneProc' || e.e === 'keystone') procs += `${world.tick}:${JSON.stringify(e)};`;
+        for (const bot of bots) bot.observe(ev, world.tick);
+        if (world.tick % 300 === 0) frames.push(Buffer.from(encodeSnapshotBody(world.getSnapshotBody())).toString('base64'));
+      }
+      return { procs, frames, run: JSON.stringify(world.getRunState()) };
+    };
+    const a = replay();
+    const b = replay();
+    for (const id of ['corpse_bloom', 'ricochet', 'chain_lightning', 'familiar', 'ember_wake']) expect(a.procs, id).toContain(`"id":"${id}"`);
+    expect(b.procs).toBe(a.procs);
+    expect(b.frames).toEqual(a.frames);
+    expect(b.run).toBe(a.run);
   }, 120000);
 
   it('a different seed produces a different run', () => {

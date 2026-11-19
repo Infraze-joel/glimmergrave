@@ -187,8 +187,8 @@ describe('snapshot codec', () => {
 });
 
 describe('update 3 on the wire', () => {
-  it('speaks protocol version 3', () => {
-    expect(NET.PROTOCOL_VERSION).toBe(3);
+  it('speaks protocol version 4', () => {
+    expect(NET.PROTOCOL_VERSION).toBe(4);
   });
 
   it('the ultimate button survives the input codec next to the others', () => {
@@ -274,6 +274,9 @@ describe('parseClientMsg', () => {
     expect(parseClientMsg({ t: 'lobby' })).toEqual({ t: 'lobby' });
     expect(parseClientMsg({ t: 'start' })).toEqual({ t: 'start' });
     expect(parseClientMsg({ t: 'pick', index: 2 })).toEqual({ t: 'pick', index: 2 });
+    // Update 5: `replace` names the keystone to give up; it is only checked for shape here (the simulation validates it).
+    expect(parseClientMsg({ t: 'pick', index: 1, replace: 'colossus', junk: 1 })).toEqual({ t: 'pick', index: 1, replace: 'colossus' });
+    expect(parseClientMsg({ t: 'pick', index: 3, replace: '' })).toEqual({ t: 'pick', index: 3, replace: '' });
     expect(parseClientMsg({ t: 'toLobby' })).toEqual({ t: 'toLobby' });
     expect(parseClientMsg({ t: 'leave' })).toEqual({ t: 'leave' });
     expect(parseClientMsg({ t: 'ping', c: 12.5 })).toEqual({ t: 'ping', c: 12.5 });
@@ -339,6 +342,7 @@ describe('parseClientMsg', () => {
       { t: 'join', v, code: 'ABCD', name: 'A', cls: 'mage' }, { t: 'join', v, code: 'ABCDO', name: 'A', cls: 'mage' }, { t: 'join', v, code: 12345, name: 'A', cls: 'mage' },
       { t: 'rejoin', v, code: 'ABCDE', token: 'short' }, { t: 'rejoin', v, code: 'ABCDE', token: 'x'.repeat(65) }, { t: 'rejoin', v, code: 'ABCDE' },
       { t: 'lobby', cls: 'nope' }, { t: 'lobby', ready: 'yes' }, { t: 'lobby', loadout: {} }, { t: 'lobby', cls: 'paladin', loadout: {} }, { t: 'lobby', oath: RUN.OATH_MAX + 1 }, { t: 'lobby', oath: -1 }, { t: 'lobby', oath: 1.5 },
+      { t: 'pick', index: 0, replace: 5 }, { t: 'pick', index: 0, replace: null }, { t: 'pick', index: 0, replace: ['colossus'] }, { t: 'pick', index: 0, replace: 'x'.repeat(33) },
       { t: 'pick' }, { t: 'pick', index: -1 }, { t: 'pick', index: 8 }, { t: 'pick', index: '1' }, { t: 'pick', index: NaN },
       { t: 'ping' }, { t: 'ping', c: Infinity }, { t: 'ping', c: '1' },
     ];
@@ -424,5 +428,59 @@ describe('update 4 on the wire', () => {
     })))!;
     expect(snap.enemies.map((e) => e.kind)).toEqual(['shaman', 'aegis', 'bomber', 'necromancer', 'reaver']);
     expect(snap.enemies.every((e) => e.flags === EF.ENRAGED && e.anim === 'leap')).toBe(true);
+  });
+});
+
+describe('update 5 on the wire', () => {
+  it('pick.replace and draft.keystone survive JSON; a pick message stays far below the message size limit', () => {
+    const pick = { t: 'pick', index: 2, replace: 'resonance_engine' } as const;
+    const text = JSON.stringify(pick);
+    expect(text.length).toBeLessThan(NET.MAX_MESSAGE_BYTES);
+    expect(parseClientMsg(JSON.parse(text))).toEqual(pick);
+    const draft: ServerMsg = {
+      t: 'draft', rerolls: 1, options: [{ id: 'colossus', level: 1 }, { id: 'ks_knight', level: 1 }, { id: 'familiar', level: 1 }],
+      keystone: { held: ['sanguine', 'ember_wake'], skip: 3 },
+    };
+    expect(JSON.parse(JSON.stringify(draft))).toEqual(draft);
+    const ordinary: ServerMsg = { t: 'draft', rerolls: 0, options: [{ id: 'quick_step', level: 2, fits: ['dash'] }, { id: 'keen_edge', level: 1 }] };
+    const back = JSON.parse(JSON.stringify(ordinary)) as Extract<ServerMsg, { t: 'draft' }>;
+    expect(back).toEqual(ordinary);
+    expect('keystone' in back).toBe(false);
+    expect('fits' in back.options[1]!).toBe(false);
+  });
+
+  it('the keystone events and the new roster / stats fields are plain JSON', () => {
+    const events: GameEvent[] = [
+      { e: 'keystone', slot: 1, id: 'colossus' }, { e: 'keystone', slot: 0, id: 'familiar', replaced: 'colossus' },
+      { e: 'keystoneProc', slot: 2, id: 'ricochet', x: 1.5, z: -2, tx: 3, tz: 4, n: 1 }, { e: 'keystoneProc', slot: 0, id: 'shockstep', x: 0, z: 0, r: 3.6 },
+      { e: 'buff', slot: 0, id: 'phase_walker', dur: 3 },
+    ];
+    expect(JSON.parse(JSON.stringify(events))).toEqual(events);
+    const w = new World();
+    w.addPlayer(0, 'mage', 'A');
+    w.start(0, 4, 3);
+    w.grantKeystone(0, 'ks_mage');
+    const state = JSON.parse(JSON.stringify(w.getRunState())) as RunState;
+    expect(state.stats[0]!.chamberDamage).toEqual([0]);
+    expect(w.getKeystones(0)).toEqual(['ks_mage']);
+    expect(w.getKeystoneAt(0)).toEqual([0]);
+  });
+
+  it('PF.CHANNELING survives the snapshot codec next to the other player flags', () => {
+    const w = new World();
+    w.addPlayer(0, 'mage', 'A');
+    w.startSandbox(1);
+    w.grantKeystone(0, 'ks_mage');
+    w.spawnEnemy('minion', 0, -3);
+    for (let i = 1; i <= 6; i++) { w.applyInput(0, { seq: i, moveX: 0, moveZ: 0, aim: Math.PI, aimDist: 5, buttons: BTN.PRIMARY }); w.step(); }
+    const body = w.getSnapshotBody();
+    expect(body.players[0]!.flags & PF.CHANNELING).toBe(PF.CHANNELING);
+    const snap = decodeSnapshot(encodeSnapshot(w.tick, w.getSelfState(0), encodeSnapshotBody(body)))!;
+    expect(snap.players[0]!.flags).toBe(body.players[0]!.flags);
+    expect(snap.players[0]!.flags & PF.CHANNELING).toBe(PF.CHANNELING);
+    expect(PF.CHANNELING).toBe(32);
+    // The predicted move speed is the slowed one.
+    expect(snap.self.moveSpeed).toBeCloseTo(w.hero(0)!.body.moveSpeed, 2);
+    expect(w.hero(0)!.body.moveSpeed).toBeLessThan(w.hero(0)!.def.moveSpeed);
   });
 });

@@ -57,6 +57,17 @@ export const LIMITS = {
   /** The server sends at most one shard hit per second; the alarm never repeats faster than this. */
   anchor: [1, 0.8],
   timer: [2, 0.2],
+  // update 5
+  /** The own hero's keystone moment; allies' picks may come together after an elite chamber. */
+  keystone: [1, 0.5],
+  ksAlly: [2, 0.3],
+  ksDraft: [1, 0.5],
+  /** Keystone signatures: four heroes with two keystones each must not add up to a wall. */
+  ksProc: [3, 0.1],
+  /** Chained procs (bounces, arcs, corpse blooms, blade cuts, stream pulses). */
+  ksChain: [3, 0.1],
+  ksLayer: [2, 0.07],
+  ksCost: [2, 0.15],
 } as const;
 
 export type Family = keyof typeof LIMITS;

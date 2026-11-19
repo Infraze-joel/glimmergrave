@@ -41,6 +41,8 @@ export interface ServerOptions {
    * chamber), wherever the rolling rules allow it. Never set this in production.
    */
   debugObjective?: ObjectiveKind;
+  /** QA aid: keystone ids that every keystone draft offers first (to heroes who may take them). Never set this in production. */
+  debugKeystones?: string[];
   /** Fixed run seed for every room. */
   seed?: number;
 }
@@ -121,6 +123,7 @@ export function startServer(opts: ServerOptions = {}): Promise<RunningServer> {
     timeScale: Math.max(0.1, opts.timeScale ?? 1),
     debugStartChamber: opts.debugStartChamber ?? 0,
     debugObjective: opts.debugObjective,
+    debugKeystones: opts.debugKeystones,
     seed: opts.seed,
     log,
     now,

@@ -48,3 +48,12 @@ Deferred items. Promote one into a milestone before working on it.
       fresh classes; codex text for the hunt timer still shows the solo value; enemies crowd on one spot in
       four-hero fights (spacing or fewer-but-tougher enemies); fixtures block movement but not shots.
 - [ ] Clarity: ally heroes have no marker of their own; allies' thin rings and the dome ring still cross the fight.
+- [ ] Update 5 playtest: do keystones feel strong and strategic; Resonance Engine roughly doubles ultimates;
+      Glass Cannon's cost barely shows as downs; Blood Price costs about a third of max health per run.
+- [ ] Keystone visuals: Sanguine Pact, Resonance Engine and Ricochet are hard to notice; Maelstrom is 10 m across;
+      emblems say "two keystones, these colours" more than which ones.
+- [ ] Keystone sounds: blade cuts and Titan Grip's blow are matched by timing (no server marker); ask the sim for
+      `keystoneProc` on blade cuts, colossus and glass_cannon if that proves wrong.
+- [ ] Per-keystone balance in parties, deeper depths and higher Oaths is unmeasured.
+- [ ] The damage-growth chart in the summary follows enemy health as much as hero power.
+- [ ] Summary at 1280×720 with a deep run and an Oath notice scrolls; buttons fall below the fold.

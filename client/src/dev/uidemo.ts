@@ -22,6 +22,12 @@
  *                 #tip-objective #boss-doors (dead boss, descend / ascend doors: no boss bar)
  *   Polish 1      #busy #busy-down (burst of a four-hero fight: feed, callouts, tips) #obj-hunt-reload #obj-hunt-escort-reload
  *                 #codex-tips
+ *   Update 5      #ks-draft (free slots, class keystone) #ks-draft-one #ks-draft-full #ks-draft-replace #ks-draft-tip #ks-draft-reroll
+ *                 #ks-draft-wait #draft-fits #draft-fits-2 #draft-fits-tip #draft-tags (tags before any keystone) #hud-ks-0 #hud-ks-1 #hud-ks-2
+ *                 #hud-ks-ind (Bloodrush stacks, Blood Price, Phase Walker window, Resonance Engine) #ks-banner #ks-banner-2
+ *                 #ks-banner-replace #ks-ally #tab-build #tab-build-one #tab-build-none #summary-growth #summary-growth-short
+ *                 #summary-growth-join #summary-growth-deep #summary-growth-none #summary-growth-live (tracked from events)
+ *                 #lobby-after #codex-keystones #party-builds
  *   Query params  profile=new|mid|end (progression stage for every route; default mid)   lang=en|de   bg=noisy (busy backdrop for contrast checks)   panel=0 (hide the dev panel)
  *                 freeze (stop the fake tickers)   tips=1 (leave all tips unseen)
  *   window.__uidemo  { go, fire, patchRun, screen, error, audio, nextStep, intents, missing }  for scripted checks
@@ -51,6 +57,7 @@ import { updateSettings } from '../core/Settings.ts';
 import { initUI } from '../ui/index.ts';
 import { markTipSeen, resetMarks, resetTips, setMark } from '../ui/prefs.ts';
 import { artMark } from '../ui/progress.ts';
+import { resetGrowth, setGrowthForDemo, type ChamberSample, type KeystoneTaken } from '../ui/growth.ts';
 import { HUB_TABS, ui, type CodexTab, type HubTab } from '../ui/store.ts';
 import { missingTexts } from '../ui/text.ts';
 import { NEW_FOES, TIP_IDS, type TipId } from '../ui/tips.ts';
@@ -71,25 +78,25 @@ const look = (color: number, style = 0, head = true, cape = true): Look => ({ co
 function roster(): RosterEntry[] {
   return [
     {
-      slot: 0, name: 'Aldric', cls: 'knight', look: look(2, 1), mastery: 7, art: 1, relics: 1, talents: 1, ready: true, connected: true, host: true,
+      slot: 0, name: 'Aldric', cls: 'knight', look: look(2, 1), mastery: 7, art: 1, relics: 1, talents: 1, ready: true, connected: true, host: true, keystones: [], keystoneAt: [],
       boons: [
         { id: 'infuse_ember_primary', level: 1 }, { id: 'keen_edge', level: 2 }, { id: 'barrier', level: 1 },
         { id: 'amplifier', level: 1 }, { id: 'spare_step', level: 1 }, { id: 'kindred_flame', level: 1 },
       ],
     },
     {
-      slot: 1, name: 'Brunhild', cls: 'templar', look: look(0), mastery: 23, art: 0, relics: 2, talents: 3, ready: true, connected: true, host: false,
+      slot: 1, name: 'Brunhild', cls: 'templar', look: look(0), mastery: 23, art: 0, relics: 2, talents: 3, ready: true, connected: true, host: false, keystones: [], keystoneAt: [],
       boons: [{ id: 'infuse_storm_secondary', level: 1 }, { id: 'heavy_hand', level: 3 }, { id: 'iron_heart', level: 2 }],
     },
     {
-      slot: 2, name: 'Mirelle', cls: 'spellblade', look: look(5, 2, true, false), mastery: 3, art: 0, relics: 0, talents: 0, ready: false, connected: true, host: false,
+      slot: 2, name: 'Mirelle', cls: 'spellblade', look: look(5, 2, true, false), mastery: 3, art: 0, relics: 0, talents: 0, ready: false, connected: true, host: false, keystones: [], keystoneAt: [],
       boons: [
         { id: 'infuse_rime_primary', level: 2 }, { id: 'deep_frost', level: 1 }, { id: 'echo', level: 1 },
         { id: 'quick_wits', level: 2 },
       ],
     },
     {
-      slot: 3, name: 'Schattenklinge99', cls: 'shade', look: look(4, 1, false), mastery: 112, art: 1, relics: 3, talents: 1, ready: true, connected: false, host: false,
+      slot: 3, name: 'Schattenklinge99', cls: 'shade', look: look(4, 1, false), mastery: 112, art: 1, relics: 3, talents: 1, ready: true, connected: false, host: false, keystones: [], keystoneAt: [],
       boons: [{ id: 'deadeye', level: 1 }, { id: 'fleet_foot', level: 2 }],
     },
   ];
@@ -121,10 +128,10 @@ function run(patch: Partial<RunState> = {}): RunState {
     bossKind: null, finalBoss: 'matron', rewards: [], tutorial: null, depth: 0, cleared: 0, chambersCleared: 4, objective: null, objectivesDone: 0, objectiveBonuses: 0,
     doors: [], doorProgress: [], bossId: -1, draftPending: [], draftTime: RUN.DRAFT_TIMEOUT_SECONDS, elapsed: 437,
     stats: [
-      { slot: 0, damage: 12480, kills: 61, resonances: 14, revives: 2, downs: 1, elites: 3, bosses: 1, ultimates: 4 },
-      { slot: 1, damage: 15230, kills: 74, resonances: 9, revives: 1, downs: 0, elites: 5, bosses: 0, ultimates: 6 },
-      { slot: 2, damage: 9870, kills: 38, resonances: 21, revives: 0, downs: 3, elites: 1, bosses: 0, ultimates: 2 },
-      { slot: 3, damage: 4410, kills: 19, resonances: 2, revives: 0, downs: 2, elites: 0, bosses: 0, ultimates: 1 },
+      { slot: 0, damage: 12480, kills: 61, resonances: 14, revives: 2, downs: 1, elites: 3, bosses: 1, ultimates: 4, chamberDamage: [] },
+      { slot: 1, damage: 15230, kills: 74, resonances: 9, revives: 1, downs: 0, elites: 5, bosses: 0, ultimates: 6, chamberDamage: [] },
+      { slot: 2, damage: 9870, kills: 38, resonances: 21, revives: 0, downs: 3, elites: 1, bosses: 0, ultimates: 2, chamberDamage: [] },
+      { slot: 3, damage: 4410, kills: 19, resonances: 2, revives: 0, downs: 2, elites: 0, bosses: 0, ultimates: 1, chamberDamage: [] },
     ],
     secondWinds: 0,
     ...patch,
@@ -318,6 +325,11 @@ function baseline(): void {
   ui.fatal = null;
   ui.assetError = null;
   ui.picked = -1;
+  ui.replacing = -1;
+  ui.pickedKind = 'boon';
+  ui.codexKeystones = 'all';
+  ui.lastBuilds = { code: '', bySlot: new Map() };
+  resetGrowth();
   ui.page = null;
   ui.codexTab = 'elements';
   ui.wardrobeCls = null;
@@ -716,6 +728,176 @@ const OBJECTIVE_ROUTES: Record<string, () => void> = {
   },
 };
 
+// ------------------------------------------------------------------ update 5: keystones, builds, growth
+
+/** Gives the own hero keystones (and optionally other boons); allies get builds too with `party`. */
+function hold(ids: string[], boons?: BoonStack[], party = false): void {
+  state.roster = state.roster.map((p) => {
+    if (p.slot === OWN_SLOT) return { ...p, keystones: ids, boons: boons ?? p.boons };
+    if (!party) return p;
+    return { ...p, keystones: p.slot === 1 ? ['twin_cast', 'ks_templar'] : p.slot === 2 ? ['ks_spellblade'] : [] };
+  });
+}
+
+const DASH_BOONS: BoonStack[] = [
+  { id: 'infuse_storm_dash', level: 1 }, { id: 'infuse_ember_primary', level: 2 }, { id: 'quick_step', level: 2 }, { id: 'afterimage', level: 1 },
+  { id: 'keen_edge', level: 2 }, { id: 'barrier', level: 1 }, { id: 'catalyst', level: 1 }, { id: 'spare_step', level: 1 }, { id: 'overkill', level: 1 },
+  { id: 'iron_heart', level: 2 },
+];
+
+function keystoneDraft(held: string[], offers: string[], patch: Partial<RunState> = {}): void {
+  inGame({ phase: 'draft', chamber: 3, chamberKind: 'elite', entered: 'boon', bossKind: 'champion', draftPending: [0, 1, 2], draftTime: 41, ...patch });
+  state.enemiesAlive = 0;
+  hold(held, DASH_BOONS);
+  state.draft = offers.map((id) => ({ id, level: 1 }));
+  state.draftKeystone = { held, skip: offers.length };
+  emitAll();
+}
+
+function fitsDraft(held: string[], offers: BoonOffer[]): void {
+  inGame({ phase: 'draft', chamber: 4, entered: 'boon', draftPending: [0, 1, 2], draftTime: 33 });
+  state.enemiesAlive = 0;
+  hold(held, DASH_BOONS);
+  state.draft = offers;
+  emitAll();
+}
+
+function hudWith(ids: string[], party = false): void {
+  inGame({ entered: 'boon' });
+  hold(ids, DASH_BOONS, party);
+  state.players[2] = { ...state.players[2], hp: 61, state: 'alive', revive: 0 };
+  emitAll();
+}
+
+const sample = (chamber: number, damage: number, seconds: number | null = 60, depth = 0, partial = false): ChamberSample =>
+  ({ chamber, depth, kind: RUN.CHAMBERS[chamber] ?? 'combat', damage, seconds, partial });
+const took = (slot: number, id: string, chamber: number, at: number, depth = 0): KeystoneTaken => ({ slot, id, chamber, depth, at });
+
+function growthSummary(
+  patch: Partial<RunState>, samples: ChamberSample[], taken: KeystoneTaken[], joinedLate = false, guests = 4,
+): void {
+  summary(patch, [reward(0, 261, 372, ['storm_coil']), reward(1, 237, 340), reward(2, 237, 340), reward(3, 237, 340)].slice(0, guests), { guests, oathBaseline: 3 });
+  hold(taken.filter((k) => k.slot === OWN_SLOT).map((k) => k.id).slice(-2), DASH_BOONS, true);
+  setGrowthForDemo(samples, [...taken, took(1, 'twin_cast', 3, 4), took(1, 'ks_templar', 6, 7), took(2, 'ks_spellblade', 3, 4)], joinedLate);
+  emitAll();
+}
+
+const LONG_RUN: ChamberSample[] = [
+  sample(0, 1180, 48), sample(1, 1420, 51), sample(2, 1690, 55), sample(3, 2950, 71), sample(4, 2480, 44), sample(5, 3310, 47), sample(6, 5240, 66),
+  sample(7, 7430, 92),
+];
+
+const KEYSTONE_ROUTES: Record<string, () => void> = {
+  'ks-draft': () => keystoneDraft([], ['ember_wake', 'heavy_hitter', 'ks_knight']),
+  'ks-draft-one': () => keystoneDraft(['ember_wake'], ['shockstep', 'blood_price', 'corpse_bloom'], { chamber: 6, depth: 0, bossKind: 'matron' }),
+  'ks-draft-full': () => keystoneDraft(['ember_wake', 'shockstep'], ['glass_cannon', 'resonance_engine', 'momentum_engine'], { chamber: 3, depth: 1 }),
+  'ks-draft-replace': () => { KEYSTONE_ROUTES['ks-draft-full'](); ui.replacing = 0; emitAll(); },
+  'ks-draft-tip': () => { resetTips(); for (const id of TIP_IDS) if (id !== 'keystone') markTipSeen(id); KEYSTONE_ROUTES['ks-draft'](); },
+  'ks-draft-reroll': () => {
+    profileState({ glimmer: 400, meta: { insight: 2 } });
+    state.draftRerolls = 2;
+    keystoneDraft(['familiar'], ['orbit_blades', 'sanguine', 'twin_cast']);
+    state.draftRerolls = 2;
+    emitAll();
+  },
+  'ks-draft-wait': () => {
+    inGame({ phase: 'draft', chamber: 3, chamberKind: 'elite', entered: 'boon', draftPending: [1, 2], draftTime: 18 });
+    state.enemiesAlive = 0;
+    hold(['ember_wake'], DASH_BOONS);
+    ui.pickedKind = 'keystone';
+    emitAll();
+    fire({ e: 'keystone', slot: 0, id: 'ember_wake' });
+  },
+  'draft-fits': () => fitsDraft(['ember_wake'], [
+    { id: 'quick_step', level: 3, fits: ['dash'] }, { id: 'infuse_rime_dash', level: 1, fits: ['dash', 'status'] }, { id: 'iron_heart', level: 3 },
+  ]),
+  'draft-fits-2': () => fitsDraft(['ember_wake', 'momentum_engine'], [
+    { id: 'slipstream', level: 1, fits: ['dash', 'speed'] }, { id: 'executioner', level: 1, fits: ['kill'] }, { id: 'barrier', level: 2 },
+    { id: 'wide_resonance', level: 1, fits: ['area'] },
+  ]),
+  'draft-fits-tip': () => { resetTips(); for (const id of TIP_IDS) if (id !== 'fits') markTipSeen(id); KEYSTONE_ROUTES['draft-fits'](); },
+  'hud-ks-0': () => hudWith([]),
+  'hud-ks-1': () => hudWith(['ember_wake']),
+  'hud-ks-2': () => hudWith(['ember_wake', 'shockstep'], true),
+  'party-builds': () => hudWith(['ks_knight', 'colossus'], true),
+  'hud-ks-ind': () => {
+    hudWith(['momentum_engine', 'blood_price']);
+    fire({ e: 'keystoneProc', slot: 0, id: 'momentum_engine', x: 0, z: 0, n: 7 });
+    fire({ e: 'keystoneProc', slot: 0, id: 'blood_price', x: 0, z: 0, n: 10 });
+  },
+  'hud-ks-ind-2': () => {
+    hudWith(['phase_walker', 'resonance_engine']);
+    fire({ e: 'buff', slot: 0, id: 'phase_walker', dur: 2 });
+    fire({ e: 'keystoneProc', slot: 0, id: 'resonance_engine', x: 2, z: 1, n: 14 });
+  },
+  'hud-ks-veil': () => {
+    heroAs('shade', 0, DASH_BOONS, 0.3);
+    hold(['ks_shade', 'glass_cannon']);
+    emitAll();
+    fire({ e: 'buff', slot: 0, id: 'ks_shade', dur: 1.5 });
+  },
+  'ks-banner': () => { hudWith([]); hold(['ember_wake'], DASH_BOONS); emitAll(); fire({ e: 'keystone', slot: 0, id: 'ember_wake' }); },
+  'ks-banner-2': () => { hudWith(['ember_wake']); hold(['ember_wake', 'shockstep'], DASH_BOONS); emitAll(); fire({ e: 'keystone', slot: 0, id: 'shockstep' }); },
+  'ks-banner-replace': () => {
+    hudWith(['ember_wake', 'shockstep']);
+    hold(['shockstep', 'heavy_hitter'], DASH_BOONS);
+    emitAll();
+    fire({ e: 'keystone', slot: 0, id: 'heavy_hitter', replaced: 'ember_wake' });
+  },
+  'ks-ally': () => {
+    hudWith(['ember_wake'], true);
+    fire({ e: 'keystone', slot: 1, id: 'twin_cast' });
+    fire({ e: 'keystone', slot: 2, id: 'ks_spellblade' });
+  },
+  'tab-build': () => { hudWith(['ember_wake', 'shockstep'], true); setGrowthForDemo([], [took(0, 'ember_wake', 3, 4), took(0, 'shockstep', 6, 7)], false); ui.tab = true; emitAll(); },
+  'tab-build-one': () => { hudWith(['corpse_bloom'], true); ui.tab = true; emitAll(); },
+  'tab-build-none': () => { hudWith([]); ui.tab = true; emitAll(); },
+  'summary-growth': () => growthSummary({ phase: 'victory', chamber: 7, chamberKind: 'boss', elapsed: 754, bossKind: 'matron', cleared: 1, chambersCleared: 8 },
+    LONG_RUN, [took(0, 'ember_wake', 3, 4), took(0, 'shockstep', 6, 7)]),
+  'summary-growth-short': () => growthSummary({ phase: 'defeat', chamber: 2, chamberKind: 'combat', elapsed: 201, chambersCleared: 2 },
+    [sample(0, 1040, 52), sample(1, 1210, 49), sample(2, 380, null, 0, true)], [], false, 1),
+  'summary-growth-join': () => growthSummary({ phase: 'defeat', chamber: 6, chamberKind: 'elite', elapsed: 598, chambersCleared: 6 },
+    [sample(4, 1620, null), sample(5, 3980, 58), sample(6, 2110, null, 0, true)], [took(0, 'chain_lightning', 3, 0)], true, 2),
+  'summary-growth-deep': () => growthSummary({ phase: 'defeat', chamber: 4, chamberKind: 'combat', elapsed: 2410, depth: 2, cleared: 2, chambersCleared: 20, oath: 3 },
+    [0, 1, 2].flatMap((depth) => LONG_RUN.slice(0, depth === 2 ? 5 : 8).map((s, i) => sample(s.chamber, Math.round(s.damage * (1 + depth * 1.3) * (i % 3 === 1 ? 0.9 : 1)), s.seconds, depth, depth === 2 && i === 4))),
+    [took(0, 'ember_wake', 3, 4), took(0, 'corpse_bloom', 6, 7), took(0, 'chain_lightning', 3, 12, 1)]),
+  'summary-growth-none': () => growthSummary({ phase: 'defeat', chamber: 0, chamberKind: 'combat', elapsed: 44, chambersCleared: 0 }, [], [], false, 1),
+  // The tracker itself: a run played through events and run states, as the real client would feed it.
+  'summary-growth-live': () => {
+    inGame({ chamber: 0, entered: 'boon', elapsed: 0, chambersCleared: 0 });
+    let total = run().stats.find((row) => row.slot === OWN_SLOT)?.damage ?? 0;
+    const clear = (chamber: number, damage: number, elapsed: number): void => {
+      const kind = RUN.CHAMBERS[chamber];
+      setRun(run({ phase: 'combat', chamber, chamberKind: kind, entered: 'boon', elapsed: elapsed - 50, chambersCleared: chamber }));
+      setRun(run({ phase: 'combat', chamber, chamberKind: kind, entered: 'boon', elapsed, chambersCleared: chamber }));
+      total += damage;
+      const stats = run().stats.map((row) => (row.slot === OWN_SLOT ? { ...row, damage: total } : row));
+      // The clear arrives before the run state that carries the final totals.
+      fire({ e: 'chamberClear' });
+      setRun(run({ phase: 'draft', chamber, chamberKind: kind, entered: 'boon', elapsed, chambersCleared: chamber + 1, stats }));
+      if (kind === 'elite') { hold([chamber === 3 ? 'ember_wake' : 'shockstep', ...(chamber === 3 ? [] : ['ember_wake'])].reverse()); fire({ e: 'keystone', slot: 0, id: chamber === 3 ? 'ember_wake' : 'shockstep' }); }
+    };
+    [900, 1100, 1500, 2600, 2400, 3900, 5200].forEach((damage, chamber) => clear(chamber, damage, (chamber + 1) * 80));
+    const kept = state.roster;
+    summary({ phase: 'defeat', chamber: 7, chamberKind: 'boss', elapsed: 640, chambersCleared: 7,
+      stats: run().stats.map((row) => (row.slot === OWN_SLOT ? { ...row, damage: total + 1300 } : row)) }, [reward(0, 200, 300)]);
+    state.roster = kept;
+    emitAll();
+  },
+  'lobby-after': () => {
+    growthSummary({ phase: 'victory', chamber: 7, chamberKind: 'boss', elapsed: 754, cleared: 1, chambersCleared: 8 }, LONG_RUN, [took(0, 'ember_wake', 3, 4), took(0, 'shockstep', 6, 7)]);
+    bus.emit('state:run', { previousPhase: 'combat' });
+    const kept = ui.lastBuilds;
+    state.roster = roster();
+    state.run = run({ phase: 'lobby' });
+    ui.lastBuilds = kept;
+    setScreen('lobby');
+    emitAll();
+    ui.lastBuilds = kept;
+    bus.emit('state:roster');
+  },
+};
+
 const ROUTES: Record<string, () => void> = {
   loading: () => { setScreen('loading'); bus.emit('assets:progress', { loaded: 23, total: 37 }); },
   'loading-error': () => {
@@ -832,7 +1014,7 @@ const ROUTES: Record<string, () => void> = {
   wardrobe: () => { setScreen('menu'); ui.wardrobeCls = state.profile.cls; ui.page = 'wardrobe'; emitAll(); },
   'wardrobe-mage': () => { setScreen('menu'); ui.wardrobeCls = 'mage'; ui.page = 'wardrobe'; emitAll(); },
   'wardrobe-lobby': () => { ROUTES.lobby(); ui.page = 'wardrobe'; emitAll(); },
-  ...Object.fromEntries((['elements', 'classes', 'combat', 'objectives', 'hazards', 'bestiary', 'doors', 'boons', 'progress'] as CodexTab[]).map((tab): [string, () => void] =>
+  ...Object.fromEntries((['elements', 'classes', 'combat', 'objectives', 'hazards', 'bestiary', 'doors', 'boons', 'keystones', 'progress'] as CodexTab[]).map((tab): [string, () => void] =>
     [`codex-${tab}`, () => { setScreen('menu'); ui.codexTab = tab; ui.page = 'codex'; emitAll(); }])),
   'pause-codex': () => { inGame(); ui.pause = true; ui.page = 'codex'; emitAll(); },
   'strip-0': () => solo([{ id: 'keen_edge', level: 1 }]),
@@ -971,6 +1153,7 @@ const ROUTES: Record<string, () => void> = {
   'hub-lobby': () => { ROUTES.lobby(); ui.hubTab = 'mastery'; ui.page = 'armory'; emitAll(); },
 
   ...OBJECTIVE_ROUTES,
+  ...KEYSTONE_ROUTES,
 
   error: () => { setScreen('menu'); emitAll(); bus.emit('net:error', { error: 'room_not_found', fatal: true }); },
   reconnecting: () => { inGame(); state.conn.status = 'reconnecting'; state.conn.pingMs = 312; emitAll(); },
@@ -1154,9 +1337,26 @@ function wireIntents(): void {
     emitAll();
     fire({ e: 'wave', wave: 1, waveCount: 3 });
   });
-  bus.on('ui:pick', () => {
+  bus.on('ui:pick', ({ index, replace }) => {
     window.setTimeout(() => {
       if (!state.run || state.run.phase !== 'draft') return;
+      // Stand-in for the server's keystone draft: take / replace, or the consolation draft after "keep my build".
+      const ks = state.draftKeystone;
+      const me = state.roster.find((p) => p.slot === state.conn.slot);
+      if (ks && index === ks.skip) {
+        state.draftKeystone = null;
+        state.draft = [{ id: 'afterimage', level: 1, fits: ['dash', 'area'] }, { id: 'deadeye', level: 2 }, { id: 'overkill', level: 1, fits: ['area'] }];
+        bus.emit('state:draft');
+        return;
+      }
+      if (ks && me && state.draft[index]) {
+        const id = state.draft[index].id;
+        me.keystones = [...me.keystones.filter((k) => k !== replace), id];
+        state.draftKeystone = null;
+        bus.emit('state:roster');
+        fire({ e: 'keystone', slot: me.slot, id, ...(replace ? { replaced: replace } : {}) });
+      }
+      state.draftKeystone = null;
       state.draft = [];
       state.run.draftPending = state.run.draftPending.filter((s) => s !== state.conn.slot);
       bus.emit('state:draft');

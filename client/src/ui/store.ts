@@ -5,7 +5,7 @@ import type { ConnError, EventMap } from '../core/EventBus.ts';
 export type ModalKind = 'howto' | 'settings' | 'leave';
 /** Full-screen pages that open on top of the menu, lobby, summary or pause menu. */
 export type PageKind = 'armory' | 'wardrobe' | 'codex';
-export type CodexTab = 'elements' | 'classes' | 'combat' | 'objectives' | 'hazards' | 'bestiary' | 'doors' | 'boons' | 'progress' | 'tips';
+export type CodexTab = 'elements' | 'classes' | 'combat' | 'objectives' | 'hazards' | 'bestiary' | 'doors' | 'boons' | 'keystones' | 'progress' | 'tips';
 /** Tabs of the progression hub (the page that grew out of the Armory; PageKind stays 'armory'). */
 export const HUB_TABS = ['armory', 'ascension', 'mastery', 'reliquary', 'chronicle'] as const;
 export type HubTab = (typeof HUB_TABS)[number];
@@ -28,6 +28,14 @@ export const ui = {
   assetProgress: 0,
   /** Index of the draft card the player clicked (optimistic), or -1. */
   picked: -1,
+  /** Keystone draft with full slots: index of the offered keystone whose replacement is being chosen, or -1. */
+  replacing: -1,
+  /** What the last answered draft was (wording of the "waiting for ..." panel). */
+  pickedKind: 'boon' as 'boon' | 'keystone' | 'skip',
+  /** Class filter of the codex Keystones page ('all', 'generic' or a class id). */
+  codexKeystones: 'all' as 'all' | 'generic' | ClassId,
+  /** Builds the heroes of this room ended their last run with (lobby cards), by slot. */
+  lastBuilds: { code: '', bySlot: new Map<number, { hero: string; build: string; keystones: string[] }>() },
   /** profile.oathUnlocked as it was while the run was still going (for the "new oath" notice). */
   oathBaseline: null as number | null,
   /** Armory / wardrobe / codex page, or null. */
@@ -63,6 +71,16 @@ export const UI_CONFIG = {
   FEED_LOW_MS: 2600,
   FEED_FADE_MS: 200,
   BANNER_MS: 2600,
+  /** "Keystone acquired": long enough to read the name and what it transforms. */
+  KEYSTONE_BANNER_MS: 3800,
+  /** Things a hero holds that a keystone card names under "works with", before "+n more". */
+  WORKS_WITH_MAX: 3,
+  /** The emblem of a fresh keystone glows on the HUD this long. */
+  KEYSTONE_NEW_MS: 2400,
+  /** Run summary: from this many chambers on the growth chart drops its per-bar labels. */
+  GROWTH_LABEL_MAX: 16,
+  /** A multiple below this reads as "held steady", not as growth. */
+  GROWTH_MIN_MULTIPLE: 1.15,
   COPY_FEEDBACK_MS: 1600,
   LOW_HEALTH_FRACTION: 0.4,
   CRITICAL_HEALTH_FRACTION: 0.2,

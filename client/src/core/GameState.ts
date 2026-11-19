@@ -115,6 +115,8 @@ export const state = {
   run: null as RunState | null,
   /** Own pending draft options ([] = nothing to pick). */
   draft: [] as BoonOffer[],
+  /** Set while the own pending draft is a keystone draft (see ServerMsg `draft`). */
+  draftKeystone: null as { held: string[]; skip: number } | null,
   /** Draft rerolls the own hero has left in this run. */
   draftRerolls: 0,
   /** Latest snapshot rows of all heroes (own hero included), for HUD and party frames. */
@@ -393,6 +395,7 @@ export function resetSession(): void {
   state.run = null;
   state.draft = [];
   state.draftRerolls = 0;
+  state.draftKeystone = null;
   state.players = [];
   state.bossHp = null;
   state.enemiesAlive = 0;

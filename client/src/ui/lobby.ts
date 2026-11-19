@@ -9,7 +9,8 @@ import { copyText, h, icon, setAttr, setText, show, toggle } from './dom.ts';
 import { formatInt, formatList, roman, t } from './i18n.ts';
 import { abilityIcon, abilityName, inviteLink, MAX_OATH, oathDescription, oathName, rosterBySlot } from './model.ts';
 import { pendingCount } from './progress.ts';
-import { UI_CONFIG, type ModalKind, type PageKind } from './store.ts';
+import { keystoneEmblem, keystoneName } from './keystones.ts';
+import { ui, UI_CONFIG, type ModalKind, type PageKind } from './store.ts';
 import { lookColor } from './wardrobe.ts';
 import type { View } from './view.ts';
 import { motes } from './menu.ts';
@@ -61,7 +62,7 @@ export function createLobby(openModal: (kind: ModalKind) => void, openPage: (pag
     // Rebuild only when something visible changed (net:status fires on every ping update).
     const key = JSON.stringify([
       state.conn.slot, state.roster.map((p) => [p.slot, p.name, p.cls, p.ready, p.connected, p.host, p.look?.color ?? 0, p.mastery, p.art, p.relics, p.talents]),
-      equippedRelics(), state.profile.talents,
+      equippedRelics(), state.profile.talents, ui.lastBuilds.code, [...ui.lastBuilds.bySlot],
     ]);
     if (key === slotsKey) return;
     slotsKey = key;
@@ -79,6 +80,7 @@ export function createLobby(openModal: (kind: ModalKind) => void, openPage: (pag
         continue;
       }
       const own = p.slot === state.conn.slot;
+      const last = ui.lastBuilds.code === state.conn.code ? ui.lastBuilds.bySlot.get(p.slot) : undefined;
       const status = !p.connected
         ? h('div', { class: 'gg-slot-state is-off' }, icon('unlink'), t('lobby.disconnected'))
         : p.ready
@@ -107,6 +109,11 @@ export function createLobby(openModal: (kind: ModalKind) => void, openPage: (pag
           relics > 0 ? h('span', { class: 'gg-slot-relics' }, icon('relic'), relics === 1 ? t('lobby.slot.relics.one') : t('lobby.slot.relics.many', { n: relics })) : null,
           talents > 0 ? h('span', { class: 'gg-slot-talents' }, icon('talent'), t('lobby.slot.talents', { n: talents, m: TALENT_TIERS })) : null,
         ),
+        // Update 5: what this hero built in the run the party just came back from.
+        last && last.hero === p.name
+          ? h('div', { class: 'gg-slot-build', 'data-testid': `lobby-build-${slot}`, 'data-build': last.build, title: last.keystones.map(keystoneName).join(', ') },
+            ...last.keystones.map((id) => keystoneEmblem(id, 'xs')), h('span', null, t('lobby.lastBuild', { build: last.build })))
+          : null,
         status,
         h('i', { class: 'gg-slot-cloth', 'aria-hidden': 'true' }),
       );

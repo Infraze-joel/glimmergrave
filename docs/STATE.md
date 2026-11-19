@@ -12,6 +12,12 @@
   history (`Contract for update 3`). Client core: `Settings.cursor`, `game:progress`, `game:localAction.slot`.
 - QA aids: server env `DEBUG_START_CHAMBER`, `DEBUG_OBJECTIVE`; `botClient --objectives --descend --meta max`;
   dev client `?autopilot&descend=N`; `tests/e2e/tools/deep-run.mjs`.
+- Update 5 "Keystones" (branch `update-5`, spec `docs/milestones/update-5.md`) is integrated on top of polish 1.
+  Contract: `data/keystones.ts`, `BoonOffer.fits`, `RosterEntry.keystones/keystoneAt`,
+  `PlayerRunStats.chamberDamage`, events `keystone`/`keystoneProc`, `draft.keystone`, `pick.replace`,
+  `PF.CHANNELING`, protocol 4; client: `state.draftKeystone`, `ui:pick.replace`. Two balance passes; tables in
+  `docs/reports/backend-update5.md` (all four update 5 work-stream reports are in `docs/reports/`). QA aid:
+  server env `DEBUG_KEYSTONES`, `botClient --keystone`. Gate: 609 unit/integration tests, 21 browser tests.
 - Polish 1 (branch `polish-1`, spec `docs/milestones/polish-1.md`) is integrated on top of update 4: clarity
   levels (`Settings.effects`, `allyNumbers`, `WorldView.setClarity/setLabels/setAim/setTraits`), contract
   additions `Obstacle.kind` shard/ritualBowl/reliquary, `RunState.traits`, `RosterEntry.relics/talents`,
@@ -191,3 +197,34 @@ not be verified: `/home/claude/reports/backend-polish1.md`).
   outside); bots still do not repair the shard on purpose; defend ends a party's run about 2.6 times as often per
   chamber as slay; a last hero standing against necromancers can take very long (438 s in one of 300 party runs);
   bots never choose talents or relics; depth 2+ and Oaths above 0 were not measured.
+
+## Backend, update 5
+
+Simulation and server for update 5 "Keystones" (spec: `docs/milestones/update-5.md`; client notes, balance tables and
+what could not be verified: `/home/claude/reports/backend-update5.md`). Verified with `tsc -p shared/server/client`,
+`eslint shared server client`, `vitest run`, both server builds and a real-time 4-bot smoke run against the built
+server in which every bot took two keystones.
+
+- Code: `sim/keystones.ts` (taking keystones, drafts, dash / primary / companion / class effects, trails, blooms,
+  procs), `sim/ksState.ts` (flags, `KP` = typed `params`, empty state); effects that change an existing rule live where
+  the rule is (`combat.ts` damage / healing / charge / Veil, `build.ts` reshaped abilities, `abilities.ts` Twin Cast,
+  Blood Price, the stream, `zones.ts` maelstrom zone). `World.grantKeystone`, `getKeystoneDraft`, `getKeystones`,
+  `getKeystoneAt`; `RunOverrides.keystones` pins ids into every keystone draft (server option `debugKeystones` /
+  env `DEBUG_KEYSTONES`).
+- Rules worth knowing: keystone damage is dealt while `World.ksSource` names the keystone and is never "direct"
+  (no Chain Lightning, no Phase Walker / Veil spend, no Colossus knockback); every runaway path has a cap in
+  `KEYSTONE_CAPS` (procs, trails, blade hits, chain bursts, bloom queue / per tick, zones per hero, twins pending,
+  leech steps). `keystoneProc` is rate-limited per hero and keystone except state-carrying ones.
+- Sanguine Pact refuses all healing from outside (blessing, hallowed ground, other heroes incl. their Rally); its
+  own leech is the `heal` that comes with `keystoneProc sanguine`.
+- Message order: a pick broadcasts the roster at once, the `keystone` event follows with the next snapshot tick. The
+  `run` message that leaves `combat` carries the final `stats` / `chamberDamage` of the chamber.
+- Contract data changed in numbers only, plus two new param keys (`blood_price.recharge`,
+  `resonance_engine.burstDamage`); Veil of Knives' trigger was widened (Shadowstep kills, a kill by the hit out of the
+  veil). Full list in the report. German keystone texts (`client/src/ui/strings6.ts`) synced with `params`.
+- Balance tool: `npx tsx --tsconfig server/tsconfig.json shared/test/tools/soak5.ts [seeds] [all|base|generic|class|ids] [classSeeds] [--by-class] [--blind]`
+  (fresh solo, forced keystone vs. the consolation baseline; win rate, chambers 5–8 time, own damage share, procs,
+  ultimates). A keystone that does nothing measures about −7 points (the consolation is a rare-or-better boon).
+- Known limits: Blood Price (−2), Resonance Engine (−3), Veil of Knives (−1), Corpse Bloom and Chain Lightning (+3)
+  sit below the +5 target (within noise of zero); fresh solo free-choice win rate is 46 %, near its 50 % bound;
+  balance per keystone was measured solo at depth 0 / oath 0 only; bots never skip a keystone draft with a free slot.

@@ -19,10 +19,10 @@ from the GitHub repositories below; for each one the licence file in the reposit
 | Kenney RPG Audio | https://github.com/Boyquotes/kenney-rpg-audio-for-godot | `22eb79bb843bbcadcaa6ed119353a33265ffad11` | `LICENSE` → "CC0 1.0 Universal" (full legal code) | blades, cloth, doors, creaks, coins, latches, pots; update 3: `ui.book`; update 4: reliquary lid (`lid`), pouches (`pouch`) |
 | Kenney Impact Sounds | https://github.com/Boyquotes/kenney-impact-sounds-for-godot | `999dd1684873f8b020a3aa5b26e713da21688924` | `LICENSE` → "CC0 1.0 Universal" (full legal code) | all impacts: bone, body, metal, glass, plate, earth, bell; update 4: dull plate (`hit.dull`) |
 | Kenney Music Jingles | https://github.com/Boyquotes/kenney-music-jingles-for-godot | `1312c1a8ab2b5830136a5f53ea8c570389bd0808` | `LICENSE` → "CC0 1.0 Universal" (full legal code) | pizzicato jingles, war-drum hits |
-| Kenney Interface Sounds | https://github.com/Calinou/kenney-interface-sounds | `4596a49eaf5a533948d49a47467f606bcdea70ff` | `LICENSE.txt` → "License: (Creative Commons Zero, CC0)" | interface, glass pings, sparks; update 3: `pluck`, `ui.rise`, `bong` |
+| Kenney Interface Sounds | https://github.com/Calinou/kenney-interface-sounds | `4596a49eaf5a533948d49a47467f606bcdea70ff` | `LICENSE.txt` → "License: (Creative Commons Zero, CC0)" | interface, glass pings, sparks; update 3: `pluck`, `ui.rise`, `bong`; update 5: `question` |
 | Kenney UI Audio | https://github.com/Calinou/kenney-ui-audio | `8c3d81b9159d058c444f89d12d518276b0b09345` | `LICENSE.txt` → "License (Creative Commons Zero, CC0)" | hover, click, tab |
-| Kenney Sci-Fi Sounds | https://github.com/Boyquotes/kenney-sci-fi-sounds-for-godot | `c094967fe930c57ddb376f67c75f8aa0296690b7` | `LICENSE` → "CC0 1.0 Universal" (full legal code) | blasts, fire texture, force field, bolts, beds; update 3: iron impacts (`hit.iron`), umbra grain (`tex.void`); update 4: spinning hum (`tex.spin`) |
-| Kenney Digital Audio | https://github.com/Boyquotes/kenney-digital-audio-for-godot | `185a77e7c675341ad8d0805b3bbe4f20427c2481` | `LICENSE` → "CC0 1.0 Universal" (full legal code) | zaps; update 3: arcane rise (`arcane`), chained zap (`zap.chain`), sub drop (`sub.drop`); update 4: falling tone (`zap.fall`) |
+| Kenney Sci-Fi Sounds | https://github.com/Boyquotes/kenney-sci-fi-sounds-for-godot | `c094967fe930c57ddb376f67c75f8aa0296690b7` | `LICENSE` → "CC0 1.0 Universal" (full legal code) | blasts, fire texture, force field, bolts, beds; update 3: iron impacts (`hit.iron`), umbra grain (`tex.void`); update 4: spinning hum (`tex.spin`); update 5: retro shot (`pew`), steady hum (`tex.hum`) |
+| Kenney Digital Audio | https://github.com/Boyquotes/kenney-digital-audio-for-godot | `185a77e7c675341ad8d0805b3bbe4f20427c2481` | `LICENSE` → "CC0 1.0 Universal" (full legal code) | zaps; update 3: arcane rise (`arcane`), chained zap (`zap.chain`), sub drop (`sub.drop`); update 4: falling tone (`zap.fall`); update 5: rising three-tone (`zap.rise`), two-tone zaps (`zap.two`) |
 
 Notes on provenance: the five `Boyquotes/*` repositories are third-party Godot ports of the Kenney packs; their
 only licence statement is the CC0 legal code at the repository root (they do not carry Kenney's own
@@ -176,6 +176,14 @@ The same record ships with the files as `client/public/assets/audio/credits.json
 | `hit.dull.2.mp3` | Kenney Impact Sounds | `addons/kenney impact sounds/impact_plate_light_002.ogg` | `999dd16848` |
 | `zap.fall.1.mp3` | Kenney Digital Audio | `addons/kenney digital audio/high_down.ogg` | `185a77e7c6` |
 | `tex.spin.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/engine_circular_000.ogg` | `c094967fe9` |
+| `zap.rise.1.mp3` | Kenney Digital Audio | `addons/kenney digital audio/zap_three_tone_up.ogg` | `185a77e7c6` |
+| `zap.two.1.mp3` | Kenney Digital Audio | `addons/kenney digital audio/zap_two_tone.ogg` | `185a77e7c6` |
+| `zap.two.2.mp3` | Kenney Digital Audio | `addons/kenney digital audio/zap_two_tone_2.ogg` | `185a77e7c6` |
+| `pew.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/laser_retro_000.ogg` | `c094967fe9` |
+| `pew.2.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/laser_retro_002.ogg` | `c094967fe9` |
+| `tex.hum.1.mp3` | Kenney Sci-Fi Sounds | `addons/kenney sci-fi sounds/space_engine_small_000.ogg` | `c094967fe9` |
+| `question.1.mp3` | Kenney Interface Sounds | `addons/kenney_interface_sounds/question_001.wav` | `4596a49eaf` |
+| `question.2.mp3` | Kenney Interface Sounds | `addons/kenney_interface_sounds/question_003.wav` | `4596a49eaf` |
 | `door.open.1.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/door_open_1.ogg` | `22eb79bb84` |
 | `door.open.2.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/door_open_2.ogg` | `22eb79bb84` |
 | `door.close.1.mp3` | Kenney RPG Audio | `addons/kenney rpg audio/door_close_4.ogg` | `22eb79bb84` |
@@ -703,4 +711,138 @@ apart, no re-anchoring except where the simulated timer itself jumped; the objec
 - Objective pieces change at once when a brazier is lit (next step), not at a bar line; tempo steps with it.
 - The score's `pressure` for survive / hunt is measured against the longest time the timer has shown in the
   chamber; a client that joins late hears a lower pressure than the others.
+
+## 11. Update 5 — "Keystones"
+
+Goal: power must be audible. A hero with keystones sounds different from chamber 1, and taking a keystone is a
+moment. Code: `sfx-keystones.ts` (sounds), `keystone-map.ts` (families, power level, Bloodrush mapping; unit-tested
+in `tests/unit/audioKeystones.test.ts`), `music.ts` (`keystoneLayer`, the `keydraft` piece), `index.ts` (wiring).
+Nothing here was judged by ear.
+
+### 11.1 Signature per keystone
+
+Triggered by `keystoneProc` unless the last column says otherwise (the sim's events: `/reports/backend-update5.md`).
+The own hero hears the full sound; allies hear it at about −9 dB (0.55 on top of the party trim), without tail and
+at most half as often. Limiter families `ksProc` / `ksChain` (3 per 0.1 s each, stack-ducked) plus a minimum gap per
+keystone (`KEYSTONE_SFX.GAP`).
+
+| Keystone | Sound | Trigger / derivation |
+|---|---|---|
+| `ember_wake` | air catching fire, then 3.5 s of crackle (own only) | proc at dash end |
+| `shockstep` | dull boom, a ring of air rolling out; `r` scales it | proc (the sim's `aoe` sounds as usual) |
+| `phase_walker` | backwards glass swell, two notes up, a trembling high note for the 2 s window (own) | proc; the `buff` `phase_walker` is silent |
+| `ricochet` | struck edge whose note bends upwards; higher per bounce | proc, `n` = bounces left |
+| `chain_lightning` | one zap per arc, 48 ms apart, alternating left / right | one proc per arc (≤ 3 in a tick; allies: 2) |
+| `heavy_hitter` | **cost:** a slow, low sweep and a groan of iron at the swing; then iron on bone and the floor answering | swing: local press / proc; blow: the first `hit` by that hero within 0.9 s |
+| `twin_cast` | the same plucked note twice, the second further away and an octave up | proc (the repeat) |
+| `blood_price` | **cost:** a heart's double beat, something wet, a note sinking a semitone, a short muffle (own) | proc per paid cast |
+| `orbit_blades` | loop: three soft swishes per second wandering left / right, own hero only, −40 dBFS; a thin edge of steel per cut | loop: roster + own hero fighting and alive; cut: an own `hit` more than 0.5 s after the last button press (a guess, see 11.7) |
+| `familiar` | small falling chirp with a bell in it | proc per shot |
+| `colossus` | the lowest sound in the game: a giant setting its weight down | derived: own dash and own secondary, at half level (the sim sends nothing) |
+| `corpse_bloom` | wet pop and a bloom of three notes; each burst of a chain a scale step higher | proc, `n` = chain depth (the client also counts) |
+| `resonance_engine` | a dynamo spinning up into a struck note; the note is higher the fuller the ultimate bar | proc; pitch from the own hero's `ult` |
+| `glass_cannon` | a small cannon's pop with a ring of glass; **cost:** a crack and falling shards on every blow the hero takes | pop: derived from own primary / secondary at half level; brittle: `hit` on a hero holding it |
+| `sanguine` | a breath drawn in, a warm third, a swallow | proc; the holder's `heal` events are silent |
+| `momentum_engine` | drum and snatched breath a whole tone higher per stack; own: a heartbeat 84 → 165 bpm that stops when the stacks run out | proc, `n` = stacks; `n = 0` ends the pulse |
+| `ks_knight` | plate, glass and a bright ringing fifth | proc (+ the sim's `aoe`) |
+| `ks_barbarian` | air dragged inwards in four turns, each lower | proc at Whirlwind start; `zone` of kind `ks_barbarian` |
+| `ks_mage` | loop: a buzzing electric beam for as long as the hero channels; the bolt sound is replaced | `PF.CHANNELING` in the snapshot (polled every 25 ms); own press starts it a frame early |
+| `ks_rogue` | a ratchet and five knives leaving left to right | proc |
+| `ks_templar` | a swelling chime on the fifth; hum a fifth above the hallowed bed swaying at walking pace, a soft step of light twice a second (own) | `zone` `templar_consecrate` by a holder; ends with `zoneEnd` |
+| `ks_spellblade` | a wave of edge and air; three rising for the finisher | proc, `n` = waves |
+| `ks_shade` | the room's air drawn in, a dark breath, a whisper for the 1.5 s veil (own) | proc; the `buff` `ks_shade` is silent |
+
+Measured (own hero, loudest 400 ms dBFS / centroid Hz / rise s / sounding s): ember_wake −16.9 / 3670 / 0.20 / 3.2 ·
+shockstep −16.2 / 450 / 0.03 / 0.9 · phase_walker −16.6 / 6550 / 0.20 / 2.5 · ricochet −24.6 / 4960 / 0.01 / 0.5 ·
+chain_lightning −26.2 / 4040 / 0 / 0.2 (3 onsets) · heavy_hitter −15.0 / 600 / 0.12 / 0.8 · twin_cast −18.7 / 1370 /
+0.05 / 0.8 (2 onsets) · blood_price −17.7 / 700 / 0.01 / 0.4 (2–3 onsets) · orbit_blades −32.4 / 11700 / 0.01 / 0.06 ·
+familiar −27.6 / 4920 / 0 / 0.3 · colossus −14.2 / 210 / 0.04 / 0.8 · corpse_bloom −18.8 / 860 / 0 / 0.8 ·
+resonance_engine −19.3 / 2930 / 0.35 / 1.0 · glass_cannon −21.6 / 1830 / 0.01 / 0.2 · sanguine −24.9 / 1560 / 0.09 /
+0.2 · momentum_engine −23.3 / 720 / 0 / 1.3 (pulse) · ks_knight −16.4 / 4580 / 0 / 1.0 · ks_barbarian −16.4 / 1500 /
+0.25 / 1.3 (3–5 onsets) · ks_mage (pulse tick) −35.1 / 4870 · ks_rogue −23.6 / 6610 / 0.19 / 0.6 · ks_templar −20.0 /
+1200 / 0.14 / 1.1 · ks_spellblade −18.8 / 3700 / 0.08 / 0.7 · ks_shade −15.9 / 1940 / 0.26 / 1.4.
+
+Distinguishability (`closestPairs` in `offline.ts`: octaves between centroids / 0.5, rise difference / 0.1 s, ratio
+of sounding times in octaves, onset difference / 2, combined; below 1 = same register and same gesture). Closest
+pairs of the final set: ricochet ~ familiar 0.86, glass_cannon ~ sanguine 1.05, ricochet ~ ks_knight 1.10,
+ks_knight ~ ks_spellblade 1.12, chain_lightning ~ familiar 1.15, shockstep ~ heavy_hitter 1.24. Onset counts vary by
+±1 between renders (random pops), so pairs near 1 move by about ±0.3. Ricochet and familiar differ in what the
+measure does not see: the ricochet's note bends up, the familiar's falls.
+
+### 11.2 The keystone moment, drafts, picks
+
+- `keystone` for the own hero (`keystoneTaken`): 0.42 s build (reversed shimmer, rising sweep, two drum beats),
+  impact (war drum, sub, bell on D, D major chord), 2.2 s shimmering tail in the family's timbre — movement: a run up
+  the open chord and sweeps crossing left to right; primary: struck steel in fifths; secondary: low bell and a hummed
+  ninth chord; companion: glass notes answering left and right; win: a horn call to the octave and a second drum;
+  class: open voices, horn, bell and glass. Level −12.8 … −13.7 dBFS: just under the level-up fanfare (−12.2 … −12.6),
+  above "objective done with bonus" (−17.1) and the boon pick (−23.1). Ducks the score to 0.35.
+- Replaced: two falling notes, a dull thud and glass sliding away 0.32 s before the build.
+- Allies: a drum tap and the family's two notes (−25.8); with a replacement the two falling notes first.
+- Keystone draft opens (`state.draftKeystone`, own hero): low bell, a "question" sample, D sus4 with the ninth
+  swelling over half a second, one high note left hanging (−14.2). With both slots full, three notes weigh A–B♭–A
+  underneath. While it is open the calm interlude is replaced by the `keydraft` piece: 60 bpm, suspended chords (root,
+  fourth, fifth — never the third), tonic drone, a slow heartbeat, one high note asked again and again (RMS −22.2 vs
+  calm −22.6; centroid 700 vs 590 Hz; 5 vs 9 onsets in 14 s). Hover and select use the ordinary interface set.
+- A picked boon that fits the build (`BoonOffer.fits`): the draft-pick sound plus a warm fifth locking in and a glint,
+  a little more per shared tag: −26.5 plain, −24.8 one tag, −23.5 three.
+
+### 11.3 Growing power in the mix
+
+Every own primary / secondary gets `powerLayer(slot, held)`: one keystone adds **weight** (sub thump, low noise,
+`hit.sub`), two add **sparkle** (glass, 3.5 / 5.3 kHz partials, air). Loudest 400 ms with 0 / 1 / 2 keystones —
+knight primary −26.5 / −23.3 / −22.1 (centroid 4160 / 3940 / 4460 Hz), mage primary −24.9 / −22.5 / −21.7 (4530 /
+3400 / 3560), shade primary −28.7 / −23.9 / −23.7 (7500 / 6530 / 6790), knight secondary −18.8 / −17.5 / −17.6
+(1720 / 1810 / 2360). Loud secondaries (mage nova, −13.4) do not get louder, only heavier.
+
+### 11.4 Score
+
+`Music.setKeystones(scoreVoices(held))`: one voice per held keystone, by family, added to every fighting piece
+(combat, elite, the three bosses, the five objective pieces) at the next bar line, transposed with the depth,
+written against steps per beat so it also sits on the Matron's compound time. Not in menu, calm or the keystone
+draft. A second keystone of the same family plays the dense variant (an octave up, twice as busy).
+movement: plucked arpeggio on the off-beats · primary: anvil on the back-beats, a stab in fifths that rings on ·
+secondary: a bell every other bar, a hummed chord, a glass echo · companion: two glass notes answering at the end
+of the bar · win: a horn call over two bars and the war drum · class: open choir and a long high note.
+
+Level between 700 and 5000 Hz over 16 s of the combat piece (where the voices live; the whole mix is dominated by
+drums and bass): none −35.9 dBFS; one keystone: movement −33.8, companion −31.7, win −33.9, class −32.6, secondary
+−33.6, primary −35.1; two: movement + win −32.5, class + companion −29.8, secondary twice −30.0, primary twice
+−33.7. Whole-mix RMS moves by 0 … +0.7 dB (−22.4 → −21.7 at most), peaks stay at −2.8 … −4 dBFS.
+
+### 11.5 Mix safety
+
+- Keystone worst case (`renderKeystoneStress`): four heroes with two keystones each at the sim's caps (a burst per
+  hero and keystone every 0.15 s; corpse blooms chaining four per tick; chain-lightning bursts of three; ricochets;
+  blade cuts and the whirr; Bloodrush at ten stacks; the own hero attacking with both power layers; a brittle hit)
+  on top of the whole update 4 worst case, over the survive piece at full pressure, depth 5, two keystone voices:
+  peak −2.6 dBFS, loudest 400 ms −9.7. The update 4 worst case alone in the same run: −2.3 / −9.1. Live in headless
+  Chrome: peak −3.2 dBFS.
+- Warnings (`renderKeystoneMasking`, level in the cue's own band while it sounds, mean of 3 renders): bomber fuse
+  (5–12 kHz) alone −21.0; a dense fight without keystones −29.8, with the whole keystone layer −30.3: the fuse stays
+  9 dB above the bed and lifts the band by 6.9 dB when it joins. Reaver leap (2–8 kHz, first 0.8 s) alone −27.2; bed
+  −24.1 without keystones, −24.7 with: the keystone layer does not change the bed in that band, but the leap's whoosh
+  was and is 2.5–3 dB below this very dense bed (60 hits in 3.3 s plus Resonances) and lifts the band by only 1 dB.
+
+### 11.6 Samples
+
+175 files, 731,880 bytes (was 167 / 681,802; budget 900 kB). The 167 old files are unchanged. New (50,078 bytes, all
+from packs already in use, CC0, licence gate unchanged): `zap.rise.1` (Digital Audio `zap_three_tone_up`),
+`zap.two.1/2` (`zap_two_tone`, `_2`), `pew.1/2` (Sci-Fi `laser_retro_000/002`), `tex.hum.1` (`space_engine_small_000`,
+segment), `question.1/2` (Interface Sounds `question_001/003`). All keystone sounds also work without samples
+(93 renders with an empty bank, none silent).
+
+### 11.7 Known gaps of update 5
+
+- A blade cut is guessed: any hit by the own hero more than 0.5 s after its last button press. Burn ticks and
+  Resonance splash are excluded, but a late projectile, a trail tick with a non-ember element or a familiar's bolt
+  landing also count, and cuts while the player attacks are not marked at all.
+- Titan Grip's blow is the first hit by that hero within 0.9 s of the swing; a hit from another source in that time
+  (an orbiting blade, a familiar) takes the blow's sound.
+- Colossus and Glass Cannon have no event: their layers ride on the own hero's actions only; allies holding them are
+  silent apart from Glass Cannon's brittle hits.
+- Walking Sanctum's hum is scheduled for at most 10 s; a longer zone loses it early. It does not move in stereo.
+- Nothing is positioned: `keystoneProc.x / z / tx / tz` are unused.
+- The reaver's leap was already below a dense fight in its band before update 5 (11.5).
+- Corpse blooms also trigger the ordinary friendly `aoe` sound; in a long chain both are limited separately.
 

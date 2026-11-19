@@ -63,7 +63,7 @@ export class NetClient {
     });
     bus.on('ui:reroll', () => this.send({ t: 'reroll' }));
     bus.on('ui:start', () => this.send({ t: 'start' }));
-    bus.on('ui:pick', ({ index }) => this.send({ t: 'pick', index }));
+    bus.on('ui:pick', ({ index, replace }) => this.send(replace === undefined ? { t: 'pick', index } : { t: 'pick', index, replace }));
     bus.on('ui:toLobby', () => this.send({ t: 'toLobby' }));
     bus.on('ui:leave', () => this.leave());
     this.pingTimer = window.setInterval(() => this.heartbeat(), NET.PING_INTERVAL_MS);
@@ -262,6 +262,7 @@ export class NetClient {
       case 'draft':
         state.draft = msg.options;
         state.draftRerolls = msg.rerolls;
+        state.draftKeystone = msg.keystone ?? null;
         bus.emit('state:draft');
         break;
       case 'ev':

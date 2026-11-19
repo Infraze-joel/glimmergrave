@@ -539,7 +539,7 @@ describe('rewards', () => {
   it('a cursed chamber with a met bonus offers the cursed four plus one', () => {
     const w = new World();
     w.addPlayer(0, 'knight', 'A');
-    w.start(0, 9, 0, { objective: 'hunt' });
+    w.start(0, 11, 0, { objective: 'hunt' });
     // Walk until a cursed door with the hunt behind it shows up (the pin is on the first door).
     let found = false;
     for (let guard = 0; guard < 6 && !found; guard++) {

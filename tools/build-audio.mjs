@@ -145,6 +145,13 @@ const GROUPS = [
   ['hit.dull', 'impact', 2, imp('plate_light', [0, 2])],
   ['zap.fall', 'magic', 2, [['dig', 'high_down.ogg']]],
   ['tex.spin', 'bed', 2, [['sci', 'engine_circular_000.ogg', { seg: [0.5, 1.9], rate: 22050 }]]],
+  // update 5 (keystones): a rising three-tone for the keystone moment, two-tone zaps for arcs and echoes, a small
+  // retro shot for the familiar and ricochets, a steady hum for sanctum / stream beds, a question for the keystone draft
+  ['zap.rise', 'magic', 2, [['dig', 'zap_three_tone_up.ogg']]],
+  ['zap.two', 'magic', 2, [['dig', 'zap_two_tone.ogg'], ['dig', 'zap_two_tone_2.ogg']]],
+  ['pew', 'magic', 2, [['sci', 'laser_retro_000.ogg'], ['sci', 'laser_retro_002.ogg']]],
+  ['tex.hum', 'bed', 2, [['sci', 'space_engine_small_000.ogg', { seg: [0.5, 2.0], rate: 22050 }]]],
+  ['question', 'ui', 0, [['ifc', 'question_001.wav'], ['ifc', 'question_003.wav']]],
   // ---------------------------------------------------------------- tier 3: run flow
   ['door.open', 'flow', 3, [['rpg', 'door_open_1.ogg'], ['rpg', 'door_open_2.ogg']]],
   ['door.close', 'flow', 3, [['rpg', 'door_close_4.ogg']]],

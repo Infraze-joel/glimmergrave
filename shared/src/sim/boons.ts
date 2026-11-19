@@ -3,7 +3,9 @@ import { BOONS, BOON_BY_ID, BOON_TUNING, type BoonDef } from '../data/boons.ts';
 import { addMods, emptyMods } from '../data/mods.ts';
 import { REACTIONS } from '../data/reactions.ts';
 import type { AbilitySlot, BoonOffer, BoonStack, ElementId } from '../types.ts';
+import { KEYSTONE_BY_ID, KEYSTONE_TUNING, boonTags, type BuildTag } from '../data/keystones.ts';
 import { classBoonMatters, refreshHero } from './build.ts';
+import { KP } from './ksState.ts';
 import type { Rng } from './rng.ts';
 import type { BoonStats, DraftOptions, Hero } from './state.ts';
 
@@ -100,7 +102,7 @@ export function boonLevel(boons: readonly BoonStack[], id: string): number {
 }
 
 export function maxDashCharges(h: Hero): number {
-  return h.def.dashCharges + h.stats.extraDash + h.mods.dashCharges;
+  return h.def.dashCharges + h.stats.extraDash + h.mods.dashCharges + (h.ks.shockstep ? KP.shock.charges : 0);
 }
 
 /**
@@ -172,13 +174,40 @@ export function isOfferable(h: Hero, def: BoonDef): boolean {
  * `exclude` (rerolls): offers that were just shown. They are only offered again when there are not enough
  * alternatives to fill the draft.
  */
+/** Build tags of the keystones a hero holds. */
+export function heldTags(keystones: readonly string[]): Set<BuildTag> {
+  const held = new Set<BuildTag>();
+  for (const id of keystones) for (const tag of KEYSTONE_BY_ID.get(id)?.tags ?? []) held.add(tag);
+  return held;
+}
+
+/** Tags a boon shares with the held tags, in the boon's own tag order. */
+const fitsOf = (def: BoonDef, held: ReadonlySet<BuildTag>): BuildTag[] => (held.size === 0 ? [] : boonTags(def).filter((tag) => held.has(tag)));
+
+/**
+ * Draft weight of a boon for a hero: the rarity weight, times TAG_WEIGHT for every build tag it shares with a held
+ * keystone (at most TAG_WEIGHT_CAP in all); a common boon that shares none is rolled at OFF_BUILD_COMMON_WEIGHT
+ * once the hero holds a keystone.
+ */
+export function draftWeight(def: BoonDef, held: ReadonlySet<BuildTag>): number {
+  const base = BOON_TUNING.WEIGHTS[def.rarity];
+  if (held.size === 0) return base;
+  const shared = fitsOf(def, held).length;
+  if (shared === 0) return def.rarity === 'common' ? base * KEYSTONE_TUNING.OFF_BUILD_COMMON_WEIGHT : base;
+  return base * Math.min(KEYSTONE_TUNING.TAG_WEIGHT_CAP, KEYSTONE_TUNING.TAG_WEIGHT ** shared);
+}
+
 export function generateDraft(rng: Rng, h: Hero, opts: DraftOptions, exclude?: ReadonlySet<string>): BoonOffer[] {
-  const offerable = BOONS.filter((def) => isOfferable(h, def) && (!opts.infusionsOnly || def.category === 'infusion'));
+  const held = heldTags(h.keystones);
+  const all = BOONS.filter((def) => isOfferable(h, def) && (!opts.infusionsOnly || def.category === 'infusion'));
+  // Consolation of a keystone draft: rare or better only, unless that leaves too few boons to choose from.
+  const rares = opts.rareOnly ? all.filter((def) => def.rarity !== 'common') : all;
+  const offerable = rares.length >= opts.choices ? rares : all;
   const pool = exclude ? offerable.filter((def) => !exclude.has(def.id)) : offerable;
   const picked: BoonDef[] = [];
   const take = (from: BoonDef[], candidates: BoonDef[]): void => {
     if (candidates.length === 0) return;
-    const index = rng.weighted(candidates.map((def) => BOON_TUNING.WEIGHTS[def.rarity]));
+    const index = rng.weighted(candidates.map((def) => draftWeight(def, held)));
     const def = candidates[index];
     if (!def) return;
     picked.push(def);
@@ -198,5 +227,10 @@ export function generateDraft(rng: Rng, h: Hero, opts: DraftOptions, exclude?: R
     picked[i] = picked[j] as BoonDef;
     picked[j] = tmp;
   }
-  return picked.map((def) => ({ id: def.id, level: boonLevel(h.boons, def.id) + 1 }));
+  return picked.map((def) => {
+    const offer: BoonOffer = { id: def.id, level: boonLevel(h.boons, def.id) + 1 };
+    const fits = fitsOf(def, held);
+    if (fits.length >= KEYSTONE_TUNING.FIT_TAGS) offer.fits = fits;
+    return offer;
+  });
 }

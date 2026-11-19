@@ -48,7 +48,7 @@ describe('roster counts', () => {
     await enter(odd, { t: 'join', code: host.code, name: 'Odd', cls: 'rogue', loadout: { ...defaultLoadout(), meta, mastery: MASTERY.TALENT_LEVELS[2], talents: [2, 0, 1], relics: [{ id: 'bell', rank: 1 }, { id: 'bell', rank: 2 }, { id: 'nope', rank: 1 }] } });
     const roster = await host.next('roster', (m) => m.players.length === 4);
     expect(roster.players.map((p) => [p.cls, p.relics, p.talents])).toEqual([['templar', 3, 2], ['shade', 1, 0], ['mage', 0, 0], ['rogue', 1, 2]]);
-    expect(Object.keys(roster.players[0]!).sort()).toEqual(['art', 'boons', 'cls', 'connected', 'host', 'look', 'mastery', 'name', 'ready', 'relics', 'slot', 'talents']);
+    expect(Object.keys(roster.players[0]!).sort()).toEqual(['art', 'boons', 'cls', 'connected', 'host', 'keystoneAt', 'keystones', 'look', 'mastery', 'name', 'ready', 'relics', 'slot', 'talents']);
     // A new loadout in the lobby updates the counts; a class change without one keeps the relics and drops the talents.
     host.send({ t: 'lobby', cls: 'templar', loadout: { ...defaultLoadout(), meta, mastery: MASTERY.TALENT_LEVELS[2], talents: [1, 1, 1], relics: relics.slice(0, 2) } });
     expect((await host.next('roster', (m) => m.players[0]!.talents === 3)).players[0]).toMatchObject({ relics: 2, talents: 3 });

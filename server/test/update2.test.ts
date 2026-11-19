@@ -45,12 +45,12 @@ const enter = async (c: Client, msg: Record<string, unknown>): Promise<void> => 
 const lastMaxHp = (c: Client, slot: number): number => c.snapshots[c.snapshots.length - 1]!.players.find((p) => p.slot === slot)!.maxHp;
 
 describe('protocol version', () => {
-  it('a protocol v1 or v2 client gets bad_version and is disconnected, on create, join and rejoin', async () => {
+  it('a protocol v1, v2 or v3 client gets bad_version and is disconnected, on create, join and rejoin', async () => {
     const s = await up();
     const host = await open(s.url);
     await host.create();
-    expect(NET.PROTOCOL_VERSION).toBe(3);
-    for (const msg of [1, 2].flatMap((v) => [
+    expect(NET.PROTOCOL_VERSION).toBe(4);
+    for (const msg of [1, 2, 3].flatMap((v) => [
       { t: 'create', v, name: 'Old', cls: 'knight' },
       { t: 'join', v, code: host.code, name: 'Old', cls: 'knight' },
       { t: 'rejoin', v, code: host.code, token: host.token },
@@ -250,7 +250,7 @@ describe('tutorial sessions', () => {
     const look = { color: 5, head: true, cape: false, style: 0 };
     await enter(c, { t: 'create', name: 'Rookie', cls: 'rogue', tutorial: true, loadout: { look, meta: maxLoadout().meta } });
     const roster = await c.next('roster');
-    expect(roster.players).toEqual([{ slot: 0, name: 'Rookie', cls: 'rogue', look, mastery: 1, art: 0, relics: 0, talents: 0, ready: false, connected: true, host: true, boons: [] }]);
+    expect(roster.players).toEqual([{ slot: 0, name: 'Rookie', cls: 'rogue', look, mastery: 1, art: 0, relics: 0, talents: 0, ready: false, connected: true, host: true, boons: [], keystones: [], keystoneAt: [] }]);
     const run = (await c.next('run')).state;
     expect(run.phase).toBe('combat');
     expect(run.tutorial).toMatchObject({ step: TUTORIAL_STEPS[0], index: 0, total: TUTORIAL_STEPS.length, progress: 0 });

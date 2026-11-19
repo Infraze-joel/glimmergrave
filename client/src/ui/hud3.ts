@@ -7,7 +7,8 @@ import { BUFFS } from '@shared/data/classes.ts';
 import type { BoonStack, ClassId, PlayerSnap } from '@shared/types.ts';
 import { h, icon, key, retrigger, setAttr, setText, setVar, show, toggle } from './dom.ts';
 import type { IconName } from './icons.ts';
-import { hasKey, roman, t } from './i18n.ts';
+import { hasKey, roman, t, type Params } from './i18n.ts';
+import { KEYSTONE_BY_ID } from '@shared/data/keystones.ts';
 import { ABILITY_ICON } from './model.ts';
 import { UI_CONFIG } from './store.ts';
 import { setName, setTierText } from './text.ts';
@@ -82,7 +83,11 @@ export function createUltimate(): UltimateView {
 
 // ------------------------------------------------------------------ buffs
 
-const BUFF_ICON: Record<string, IconName> = { bloodrage: 'rage', bulwark: 'banner', overload: 'overload' };
+const BUFF_ICON: Record<string, IconName> = { bloodrage: 'rage', bulwark: 'banner', overload: 'overload', phase_walker: 'phase', ks_shade: 'smoke' };
+/** Numbers quoted in the names of the keystone windows (update 5). */
+const BUFF_PARAMS: Record<string, Params> = {
+  ks_shade: { v: Math.round((KEYSTONE_BY_ID.get('ks_shade')?.params.damage ?? 0) * PERCENT) },
+};
 
 interface BuffChip {
   el: HTMLElement;
@@ -116,9 +121,9 @@ export function createBuffs(): BuffsView {
       if (!(seconds > 0)) return;
       drop(id);
       const nameKey = `buff.${id}.name`;
-      const name = hasKey(nameKey) ? t(nameKey) : id;
+      const name = hasKey(nameKey) ? t(nameKey, BUFF_PARAMS[id]) : id;
       const time = h('b', { class: 'gg-num' });
-      const chip = h('div', { class: 'gg-buff', 'data-buff': id, title: name },
+      const chip = h('div', { class: `gg-buff${id in BUFF_PARAMS || id === 'phase_walker' ? ' is-keystone' : ''}`, 'data-buff': id, title: name },
         h('span', { class: 'gg-buff-icon' }, icon(BUFF_ICON[id] ?? (id in BUFFS ? 'ultimate' : 'star'))),
         h('span', { class: 'gg-buff-name' }, name),
         time,

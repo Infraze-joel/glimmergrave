@@ -38,6 +38,14 @@ die Helden dauerhaft stärker. Vollständiges Konzept: [`docs/gameplan.md`](docs
 8. Auswertung mit Glimmer, Klassen-Erfahrung und Relikt-Splittern → Fortschritt ausgeben → nächster Run.
    Ein Sieg schaltet die nächste Oath-Stufe frei (Schwierigkeit 0–20).
 
+**Update 5 – „Keystones":** 23 Schlüsselsteine, die eine Fähigkeit oder den Helden verwandeln statt Prozente
+zu addieren (z. B. brennende Dash-Spur, Kettenblitz, kreisende Klingen, doppelt ausgelöste Sekundärfähigkeit,
+Dauerstrahl für die Mage), einige mit offenem Preis (Glaskanone: doppelter Schaden, weniger Leben). Nach jeder
+Elitekammer (Champion, Herold) wählt jeder Held 1 von 3 statt eines Boons; höchstens zwei gleichzeitig, ein
+dritter ersetzt einen oder wird ausgeschlagen. Boons, die zu den Schlüsselsteinen passen, kommen häufiger und
+sind markiert. Jeder Schlüsselstein ist in Bild und Ton erkennbar; die Auswertung zeigt, wie stark der
+Schaden pro Kammer gewachsen ist, und gibt dem Build einen Namen.
+
 **Aufräum-Update (Polish 1):** ruhigeres Bild in grossen Kämpfen (zusammengefasste und begrenzte
 Schadenszahlen, gedeckelte Helligkeit, Effekte von Mitspielern nur als dünne Ringe, Angriffswarnungen immer
 obenauf, eigener Held mit Ring und Pfeil markiert). Einstellungen „Bildeffekte" (Klar / Voll / Minimal) und
@@ -243,6 +251,12 @@ Bibliotheken: MIT (three, ws, vite, …), Cinzel: SIL Open Font License.
 - **Audio wurde nie angehört**, nur technisch geprüft (alle 167 Dateien dekodierbar, keine Fehler, Pegel per
   Offline-Rendering). Die Sounds sind nach Dateiname und Messwerten ausgewählt, nicht nach Gehör. Zum Anhören:
   `npm run dev`, dann `http://localhost:5173/?audiodemo` (jeder Sound und jede Musikstimmung auf Knöpfen).
+- **Update 5 ist nur von Bots und Tests gespielt.** Ob sich die Schlüsselsteine stark anfühlen, kann nur ein
+  Spieltest zeigen. Balance pro Schlüsselstein ist nur für frische Solo-Helden auf Tiefe 0 / Oath 0 gemessen
+  (420 Runs pro Zeile): keiner senkt die Siegquote, keiner hebt sie um mehr als 25 Punkte; Resonance Engine,
+  Blood Price, Corpse Bloom und Veil of Knives liegen knapp unter dem Ziel von +5. Resonance Engine verdoppelt
+  etwa die Zahl der Ultimates. Schwer zu sehen sind Sanguine Pact, Resonance Engine und Ricochet; der Mahlstrom
+  des Barbaren ist mit 10 m sehr gross.
 - **Update 4 ist nur von Bots und Tests gespielt.** Ziele und neue Gegner sind in der Simulation getestet und
   in Browser-Sitzungen mit Bots gelaufen. Laut Bot-Läufen enden Runs in „Ausharren" und „Feuerschalen" pro
   Kammer etwa dreimal so oft wie im Gemetzel, der Jagd-Bonus ist für Gruppen schwer (34 %), und ein
@@ -279,11 +293,12 @@ Bibliotheken: MIT (three, ws, vite, …), Cinzel: SIL Open Font License.
 | Prüfung | Ergebnis |
 |---|---|
 | Frische Installation (`npm ci` in neuem Klon), Typprüfung, Lint | fehlerfrei |
-| Unit- und Integrationstests (`npm test`) | 529 Tests in 32 Dateien bestanden |
+| Unit- und Integrationstests (`npm test`) | 609 Tests in 38 Dateien bestanden |
 | – Protokoll, Bewegung, Fähigkeiten, Status/Resonance, Boons, Draft, Gegner, Telegraph-Fairness, Director, Determinismus | enthalten |
 | – Server mit echten WebSocket-Clients: Erstellen/Beitreten/Wiederbeitritt, ungültiger Code, voller Raum, falsche Version, kaputte/zu große Nachrichten, Ratenlimit, Host-Wechsel, Abbruch im Run, Ablauf der Frist, Rückkehr zur Lobby | enthalten |
 | – Zwei Bots spielen einen ganzen Run, auch mit 150 ± 50 ms Latenz | bestanden |
-| Browser-Tests gegen den Produktions-Build (`npm run test:e2e`), Seite und WebSocket auf derselben Adresse | 20 Tests bestanden |
+| Browser-Tests gegen den Produktions-Build (`npm run test:e2e`), Seite und WebSocket auf derselben Adresse | 21 Tests bestanden |
+| – Update 5: nach dem Champion erhält jeder Held eine Schlüsselstein-Auswahl; die Wahl erscheint im HUD und bei den anderen Spielern (eigener Server, drei ausgebaute Bots) | enthalten |
 | – Update 4: eine „Ausharren"-Kammer zeigt ihr Ziel, zählt herunter und meldet den verlorenen Bonus (eigener Server mit festgelegtem Ziel) | enthalten |
 | – Update 4 im Server: jedes Ziel mit gewonnenem und verlorenem Bonus, jedes Gegnerverhalten samt Konter, Schutzzeichen, Türregeln, Bots | 66 eigene Tests |
 | – Update 3: Spielstand von vor Update 3 behält Glimmer und Upgrades; Meisterschaft schaltet Alternative und Talent frei, der Server begrenzt sie pro Klasse; ein beendeter Run zahlt Glimmer und Erfahrung und verbucht sie | enthalten |

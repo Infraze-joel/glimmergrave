@@ -19,7 +19,8 @@ import { ART_ICON, MAX_OATH, artName, depthLabel, oathName } from './model.ts';
 import { objectiveTally } from './objective.ts';
 import { RELIC_ICON } from './reliquary.ts';
 import { richEl } from './rich.ts';
-import { statsTable } from './scoreboard.ts';
+import { buildsPanel, statsTable } from './scoreboard.ts';
+import { growth, growthPanel } from './growth.ts';
 import { ui, UI_CONFIG, type HubTab, type ModalKind, type PageKind } from './store.ts';
 import { modText, relicName } from './text.ts';
 import type { View } from './view.ts';
@@ -290,6 +291,7 @@ export function createSummary(openModal: (kind: ModalKind) => void, openPage: (p
     const reward = ownRewardRow();
     const tally = objectiveTally(run);
     const key = JSON.stringify([
+      growth(), state.roster.map((p) => [p.keystones, p.boons.length]),
       tally, run.phase, run.chamber, depth, run.cleared, Math.floor(run.elapsed), run.oath, run.stats, run.rewards, host, unlocked, state.conn.slot,
       isTraining, earned, state.profile.glimmer, run.finalBoss, ui.progress, featsReady(),
       state.roster.map((p) => [p.slot, p.name, p.cls, p.connected, p.mastery]),
@@ -335,6 +337,8 @@ export function createSummary(openModal: (kind: ModalKind) => void, openPage: (p
           icon('bell'),
           h('div', null, h('b', null, t('summary.unlocked', { name: oathName(unlocked) })), h('span', null, t('summary.unlockedHint'))))
         : null,
+      // Update 5 — proof of growth: the own damage chamber by chamber, and what everybody built.
+      h('div', { class: 'gg-summary-proof' }, growthPanel(), buildsPanel()),
       h('section', { class: 'gg-summary-rewards', 'data-testid': 'summary-rewards', 'data-pending': String(reward === null), 'aria-label': t('summary.rewards') },
         h('div', { class: 'gg-label gg-summary-rewards-label' }, t('summary.rewards'), featsButton()),
         h('div', { class: 'gg-summary-rewards-row' },

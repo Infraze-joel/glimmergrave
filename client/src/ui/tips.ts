@@ -40,6 +40,8 @@ export const TIP_IDS = [
   'status.umbra', 'ultimate', 'descend', 'affix', 'set',
   // update 4: the five new foes, warded enemies, objectives on the doors
   'enemy.shaman', 'enemy.aegis', 'enemy.bomber', 'enemy.necromancer', 'enemy.reaver', 'ward', 'objective',
+  // update 5: shown inside the draft overlay (ui/draft.ts), since tip cards never cover a draft
+  'keystone', 'fits',
 ] as const;
 export type TipId = (typeof TIP_IDS)[number];
 
@@ -175,6 +177,10 @@ export function tipContent(id: TipId, detail: TipDetail = {}): TipContent {
     }
     case 'objective':
       return { id, icon: 'hunt', tone: 'res', title: t('tip.objective.title'), body: t('tip.objective.body') };
+    case 'keystone':
+      return { id, icon: 'keystone', tone: 'res', title: t('tip.keystone.title'), body: t('tip.keystone.body') };
+    case 'fits':
+      return { id, icon: 'keystone', tone: 'res', title: t('tip.fits.title'), body: t('tip.fits.body') };
     case 'set': {
       const def = SETS.find((set) => set.id === detail.set) ?? SETS[0];
       const tier = detail.tier ?? 1;

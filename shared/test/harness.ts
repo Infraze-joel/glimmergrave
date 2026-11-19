@@ -1,7 +1,7 @@
 /** Shared helpers for simulation tests and balance soaks. */
 import { RUN, TICK_DT, WORLD } from '@shared/constants.ts';
 import { killEnemy } from '@shared/sim/combat.ts';
-import { BotBrain, viewFromWorld, World, type RunOverrides } from '@shared/sim/index.ts';
+import { applyBoon, BotBrain, viewFromWorld, World, type RunOverrides } from '@shared/sim/index.ts';
 import type { BossKind, ClassId, EnemyKind, GameEvent, InputCmd, RunPhase } from '@shared/types.ts';
 
 export interface RunResult {
@@ -38,7 +38,21 @@ export interface RunResult {
   relics: string[];
   /** Game minutes when the first final boss fell (0 if none did). */
   minutesAtFirstClear: number;
+  /** Update 5: keystones held at the end per hero, damage dealt by each keystone itself (all heroes), keystone events. */
+  keystones: string[][];
+  keystoneDamage: Record<string, number>;
+  keystonePicks: number;
+  procs: number;
+  maxEventsPerTick: number;
+  maxStepMs: number;
+  /** Damage all heroes dealt after their first keystone (the base of a keystone's damage share). */
+  damageWithKeystone: number;
+  /** Steps that took longer than SLOW_STEP_MS (with `timeSteps`). */
+  slowSteps: number;
 }
+
+/** A step slower than this counts as slow: a quarter of the 33 ms tick. */
+export const SLOW_STEP_MS = 8;
 
 export interface RunOptions {
   classes: ClassId[];
@@ -57,6 +71,17 @@ export interface RunOptions {
   preferCursed?: boolean;
   overrides?: RunOverrides;
   startChamber?: number;
+  /** Keystone drafts: ids the bots take whenever offered (they are also pinned into every keystone draft). */
+  keystones?: string[];
+  /** `only`: nothing but `keystones`; `none`: bots always take the consolation. Default: free choice. */
+  keystoneMode?: 'free' | 'only' | 'none';
+  /** Keystones (per hero) and boons (every hero) handed out right after the run starts (safety and balance soaks). */
+  grant?: string[][];
+  boons?: string[];
+  /** The bots are not told which keystones their heroes hold (to compare with how they play when they know). */
+  blind?: boolean;
+  /** Measure the wall time of every step (maxStepMs). */
+  timeSteps?: boolean;
   onTick?: (world: World, events: GameEvent[]) => void;
 }
 
@@ -73,15 +98,25 @@ const hasNaN = (world: World): boolean => {
 export function runBots(opts: RunOptions): RunResult {
   const world = new World();
   opts.classes.forEach((cls, slot) => world.addPlayer(slot, cls, `Bot${slot}`, opts.loadouts ? opts.loadouts[slot] : opts.meta));
-  world.start(opts.oath ?? 0, opts.seed, opts.startChamber ?? 0, opts.overrides);
-  const bots = opts.classes.map((cls, slot) => new BotBrain(slot, cls, opts.seed, { descendTo: opts.descendTo, preferObjectives: opts.preferObjectives, preferCursed: opts.preferCursed }));
+  world.start(opts.oath ?? 0, opts.seed, opts.startChamber ?? 0, { ...opts.overrides, keystones: opts.keystones ?? opts.overrides?.keystones });
+  const bots = opts.classes.map((cls, slot) => new BotBrain(slot, cls, opts.seed, {
+    descendTo: opts.descendTo, preferObjectives: opts.preferObjectives, preferCursed: opts.preferCursed, keystones: opts.keystones, keystoneMode: opts.keystoneMode,
+  }));
+  for (const h of world.heroes) {
+    for (const id of opts.grant?.[h.slot] ?? []) world.grantKeystone(h.slot, id);
+    for (const id of opts.boons ?? []) applyBoon(h, id);
+  }
+  world.drainEvents();
   const maxTicks = opts.maxTicks ?? 30 * 60 * 30;
   const result: RunResult = {
     label: opts.classes.join('+'), phase: 'combat', ticks: 0, minutes: 0, chamber: 0, damageTaken: 0, damageDealt: 0, downs: 0, resonances: 0,
     chamberSeconds: [], bossSeconds: 0, heraldSeconds: 0, finalBoss: world.run.finalBoss, herald: null, glimmer: 0,
     hazardHitsHeroes: 0, hazardHitsEnemies: 0, maxEnemies: 0, maxProjectiles: 0, nan: false, events: 0,
     depth: 0, cleared: 0, chambersCleared: 0, ultimates: 0, xp: 0, relics: [], minutesAtFirstClear: 0,
+    keystones: [], keystoneDamage: {}, keystonePicks: 0, procs: 0, maxEventsPerTick: 0, maxStepMs: 0, slowSteps: 0, damageWithKeystone: 0,
   };
+  const damageAtKeystone = new Map<number, number>();
+  for (const h of world.heroes) if (h.keystones.length > 0) damageAtKeystone.set(h.slot, 0);
   const heraldChamber = 6;
   let chamber = 0;
   let chamberStart = 0;
@@ -93,15 +128,36 @@ export function runBots(opts: RunOptions): RunResult {
     const shared = { ...world.getSnapshotBody(), run: world.getRunState() };
     for (const bot of bots) {
       if (phase === 'draft') {
-        const offers = world.getDraft(bot.slot);
-        if (offers.length > 0) world.pickBoon(bot.slot, bot.chooseBoon(offers, world.getBoons(bot.slot)));
+        // A skipped keystone draft is followed by its consolation draft at once.
+        for (let step = 0; step < 2; step++) {
+          const offers = world.getDraft(bot.slot);
+          if (offers.length === 0) break;
+          const ks = world.getKeystoneDraft(bot.slot);
+          if (!ks) { world.pickBoon(bot.slot, bot.chooseBoon(offers, world.getBoons(bot.slot))); break; }
+          const choice = bot.chooseKeystone(offers, ks.held, ks.skip, world.getBoons(bot.slot));
+          world.pickBoon(bot.slot, choice.index, choice.replace);
+        }
       }
-      world.applyInput(bot.slot, bot.think(viewFromWorld(world, bot.slot, shared)));
+      const view = viewFromWorld(world, bot.slot, shared);
+      if (opts.blind) view.keystones = [];
+      world.applyInput(bot.slot, bot.think(view));
     }
+    const t0 = opts.timeSteps ? performance.now() : 0;
     world.step();
+    if (opts.timeSteps) {
+      const ms = performance.now() - t0;
+      if (ms > result.maxStepMs) result.maxStepMs = ms;
+      if (ms > SLOW_STEP_MS) result.slowSteps++;
+    }
     const events = world.drainEvents();
     result.events += events.length;
+    if (events.length > result.maxEventsPerTick) result.maxEventsPerTick = events.length;
     for (const ev of events) {
+      if (ev.e === 'keystoneProc') result.procs++;
+      else if (ev.e === 'keystone') {
+        result.keystonePicks++;
+        if (!damageAtKeystone.has(ev.slot)) damageAtKeystone.set(ev.slot, world.hero(ev.slot)?.run.damage ?? 0);
+      }
       if (ev.e !== 'hazardHit') continue;
       if (ev.target.t === 'p') result.hazardHitsHeroes++; else result.hazardHitsEnemies++;
     }
@@ -148,6 +204,12 @@ export function runBots(opts: RunOptions): RunResult {
     result.downs += h.run.downs;
     result.resonances += h.run.resonances;
     result.ultimates += h.run.ultimates;
+    result.keystones.push([...h.keystones]);
+    const since = damageAtKeystone.get(h.slot);
+    if (since !== undefined) result.damageWithKeystone += h.run.damage - since;
+    for (const [id, dealt] of Object.entries(h.ks.dealt)) result.keystoneDamage[id] = (result.keystoneDamage[id] ?? 0) + dealt;
+    // Blood Price deals nothing itself: its share is the secondary damage of the casts it made possible.
+    if (h.ks.casts > 0 && h.ks.extraCasts > 0) result.keystoneDamage.blood_price = (result.keystoneDamage.blood_price ?? 0) + (h.ks.secondaryDealt * h.ks.extraCasts) / h.ks.casts;
   }
   result.nan = result.nan || hasNaN(world);
   return result;
@@ -306,6 +368,11 @@ export function takeDoor(w: World, index: number): GameEvent[] {
 
 /** Picks the first option for every hero that still has to draft. */
 export function draftAll(w: World): void {
-  for (const slot of w.getRunState().draftPending) w.pickBoon(slot, 0);
+  for (const slot of w.getRunState().draftPending) {
+    // A keystone draft: these tests are not about keystones, so the hero takes the consolation and its first boon.
+    const ks = w.getKeystoneDraft(slot);
+    if (ks) w.pickBoon(slot, ks.skip);
+    w.pickBoon(slot, 0);
+  }
   w.step();
 }

@@ -9,8 +9,10 @@ import { emptyStats, maxDashCharges } from './boons.ts';
 import { buildAbilities, noSetTiers, permanentOf, refreshHero, sanitizeBuild } from './build.ts';
 import { dotHero, reviveHero } from './combat.ts';
 import { clamp, finite, TAU } from './geom.ts';
+import { dashHaste, onDashEnd, onDashMove, resetKeystoneTimers, stepKeystones } from './keystones.ts';
 import { computeMeta } from './meta.ts';
 import { emptyMods } from '../data/mods.ts';
+import { emptyKeystoneState } from './ksState.ts';
 import { stepMovement } from './movement.ts';
 import { emptyInput, type Hero } from './state.ts';
 import { META, SIM } from './tuning.ts';
@@ -37,7 +39,7 @@ export function createHero(slot: number, cls: ClassId, name: string, loadout?: u
     lockTime: 0, lockMoveMul: 1, comboIndex: 0, comboTime: 0, primaryCd: 0, secondaryCd: 0, secondaryCdMax: def.secondary.cooldown,
     dashCharges: def.dashCharges, dashRecharge: 0, dashHit: new Set(), pending: [], spin: null, lunge: null, flight: false, invuln: 0,
     ult: 0, buffs: { bloodrage: 0, bulwark: 0, overload: 0 }, taunt: 0, overloadEls: [], overloadIndex: 0,
-    boons: [], stats: emptyStats(), lastStandUsed: false, oathbondTime: 0, oathbondArmed: true, aura: 0,
+    boons: [], keystones: [], keystoneAt: [], ks: emptyKeystoneState(), draftKeystone: false, stats: emptyStats(), lastStandUsed: false, oathbondTime: 0, oathbondArmed: true, aura: 0,
     revive: 0, secondWindTimer: 0, draft: [], draftOpts: null,
     rerolls: meta.stats.rerolls + (perm.relic.hourglass > 0 ? 1 : 0), metaLevels: meta.levels, meta: meta.stats,
     build, perm: perm.mods, mods: emptyMods(), abil: buildAbilities(def, build.art, { boons: [] }, 0), talent: perm.talent, relic: perm.relic,
@@ -45,7 +47,7 @@ export function createHero(slot: number, cls: ClassId, name: string, loadout?: u
     momentum: 0, momentumTime: 0, rampage: 0, rampageTime: 0, riposte: false, spellweave: false, echoCount: 0, coilHits: 0,
     phoenixUsed: false, slipstreamTime: 0, sanctuary: 0, shards: [], cursedShards: 0,
     burnTime: 0, burnTimer: 0, chillTime: 0, inDoor: false,
-    run: { slot, damage: 0, kills: 0, resonances: 0, revives: 0, downs: 0, elites: 0, bosses: 0, ultimates: 0 },
+    run: { slot, damage: 0, kills: 0, resonances: 0, revives: 0, downs: 0, elites: 0, bosses: 0, ultimates: 0, chamberDamage: [] },
     damageTaken: 0,
   };
   refreshHero(h);
@@ -81,6 +83,7 @@ export function placeHero(h: Hero, x: number, z: number): void {
   h.revive = 0;
   h.burnTime = 0;
   h.chillTime = 0;
+  resetKeystoneTimers(h);
 }
 
 /** Untrusted input: every field is forced into its legal range before it reaches the simulation. */
@@ -129,12 +132,17 @@ export function stepHero(w: World, h: Hero): void {
     stepMovement(h.body, cmd.moveX, cmd.moveZ, dt, w.room);
     if (dashing) {
       if (h.lunge) lungeSweep(w, h, fromX, fromZ);
-      else if (!h.flight) dashSweep(w, h, fromX, fromZ);
+      else if (!h.flight) {
+        dashSweep(w, h, fromX, fromZ);
+        onDashMove(w, h, fromX, fromZ);
+      }
     }
+    if (h.ks.dashing && h.body.dashTime <= SIM.EPS) onDashEnd(w, h);
     if (h.lunge && h.body.dashTime <= SIM.EPS) h.lunge = null;
     stepAbilities(w, h, dt);
     h.rot = h.body.dashTime > SIM.EPS ? Math.atan2(h.body.dashDirX, h.body.dashDirZ) : cmd.aim;
   } else {
+    if (h.ks.dashing) onDashEnd(w, h, true);
     h.body.moveSpeed = 0;
     h.body.dashTime = 0;
     h.pressPrimary = 0;
@@ -195,7 +203,7 @@ export function stepHero(w: World, h: Hero): void {
   }
   const maxCharges = maxDashCharges(h);
   if (h.dashCharges < maxCharges) {
-    h.dashRecharge -= dt;
+    h.dashRecharge -= dt * dashHaste(h);
     if (h.dashRecharge <= SIM.EPS) {
       h.dashCharges++;
       h.dashRecharge = h.dashCharges < maxCharges ? dashRechargeSeconds(h) : 0;
@@ -203,6 +211,8 @@ export function stepHero(w: World, h: Hero): void {
   } else {
     h.dashRecharge = 0;
   }
+
+  stepKeystones(w, h, dt);
 
   // Passive animation once the action clip has finished.
   if (h.state !== 'alive') {
