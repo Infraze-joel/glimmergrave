@@ -12,7 +12,7 @@ import { KEYSTONES, KEYSTONE_BY_ID, KEYSTONE_CAPS, KEYSTONE_NEEDS_ELEMENTS, KEYS
 import { ELEMENT_IDS, type AbilitySlot, type BoonOffer, type ElementId, type InputCmd } from '../types.ts';
 import { heroElements, maxDashCharges } from './boons.ts';
 import { refreshHero } from './build.ts';
-import { addCharge, allDamage, applyElement, healHero, isBoss, isTargetable, rawDamageEnemy, strikeEnemy } from './combat.ts';
+import { addCharge, allDamage, applyElement, healHero, isBoss, isTargetable, rawDamageEnemy, strikeEnemy, stunEnemy } from './combat.ts';
 import { rayLength } from './enemies.ts';
 import { DEG, segDist, TAU } from './geom.ts';
 import { KP } from './ksState.ts';
@@ -326,9 +326,12 @@ export function onKeystoneKill(w: World, e: Enemy, killer: Hero | undefined, sta
   }
 }
 
-/** Veil of Knives: a backstab killed `e`. */
+/** Veil of Knives: a backstab (or Shadowstep) killed `e`. */
 export function onBackstabKill(w: World, h: Hero, e: Enemy): void {
   const ks = h.ks;
+  // Several victims in one tick (a Shadowstep through a pack) veil once.
+  if (ks.veilAt === w.tick) return;
+  ks.veilAt = w.tick;
   const max = maxDashCharges(h);
   if (h.dashCharges < max) h.dashCharges++;
   if (h.dashCharges >= max) h.dashRecharge = 0;
@@ -476,7 +479,7 @@ export function onBolt(w: World, h: Hero, aim: number): void {
 
 const streamHit: number[] = [];
 
-/** One beam of the Arc Stream along `rot`; returns the enemy struck farthest away (for Ricochet), if any. */
+/** One beam of the Arc Stream along `rot`; Ricochet forks it on from the enemy struck farthest away. */
 function streamBeam(w: World, h: Hero, def: AbilityDef, rot: number): void {
   const x = h.body.x;
   const z = h.body.z;
@@ -536,9 +539,12 @@ export function streamPulse(w: World, h: Hero, cmd: InputCmd, speed: number): vo
   let pulses = 1;
   if (h.talent.arcaneEcho && ++h.echoCount >= TALENT.ARCANE_ECHO_EVERY) { h.echoCount = 0; pulses = 2; }
   const spread = (def.count - 1) * SIM.SPLIT_SPREAD_DEG * DEG;
+  const before = h.run.damage;
   for (let n = 0; n < pulses; n++) {
     for (let i = 0; i < def.count; i++) streamBeam(w, h, def, def.count > 1 ? cmd.aim + (i / (def.count - 1) - 0.5) * spread : cmd.aim);
   }
+  // The stream is the keystone's own damage (soaks); a Ricochet fork in it is counted for Ricochet as well.
+  ks.dealt.ks_mage = (ks.dealt.ks_mage ?? 0) + h.run.damage - before;
 }
 
 // ---------------------------------------------------------------------------------------------- per hero, per tick
@@ -556,6 +562,8 @@ export function maelstromPull(w: World, x: number, z: number, radius: number, se
     const move = Math.min(step, d - KS.PULL_MIN);
     e.kbX += (dx / d) * move;
     e.kbZ += (dz / d) * move;
+    // Dragged off its feet: whatever it was winding up is broken and it cannot act until the pull lets go.
+    stunEnemy(e, seconds + KS.PULL_STAGGER);
   }
 }
 

@@ -214,6 +214,8 @@ export interface KeystoneState extends KeystoneFlags {
   veilZ: number;
   veilHit: boolean;
   veilTick: number;
+  /** Tick of the last Veil trigger (one per tick). */
+  veilAt: number;
   /** Ricochet: melee swings since the last thrown blade. Fan the Hammer: bolts since the last fan. */
   swings: number;
   bolts: number;

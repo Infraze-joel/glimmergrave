@@ -148,7 +148,7 @@ describe('caps', () => {
       const ev = a.pad.hold({ aim: 0, aimDist: 5, buttons: BTN.PRIMARY }, 1);
       most = Math.max(most, a.w.projectiles.length);
       events = Math.max(events, ev.length);
-      for (const p of a.w.projectiles) expect(p.bounces).toBeLessThanOrEqual(2);
+      for (const p of a.w.projectiles) expect(p.bounces).toBeLessThanOrEqual(KEYSTONE_BY_ID.get('ricochet')!.params.bounces!);
     }
     expect(most).toBeLessThanOrEqual(WORLD.MAX_PROJECTILES);
     expect(events).toBeLessThan(60);
@@ -170,7 +170,8 @@ describe('caps', () => {
       expect(a.w.zones.filter((z) => z.def.shape !== 'trap').length).toBeLessThanOrEqual(KEYSTONE_CAPS.ZONES_PER_HERO);
     }
     expect(casts).toBeGreaterThan(20);
-    expect(casts).toBeLessThanOrEqual(Math.ceil(20 / 0.6) + 1);
+    const price = KEYSTONE_BY_ID.get('blood_price')!.params;
+    expect(casts).toBeLessThanOrEqual(Math.ceil(20 / price.minCooldown!) + 1);
     // Every cast is repeated exactly once (the last repeat may still be waiting).
     expect(twins).toBeGreaterThanOrEqual(casts - 1);
     expect(twins).toBeLessThanOrEqual(casts);
@@ -178,8 +179,10 @@ describe('caps', () => {
     const b = arena('mage');
     for (const id of ['twin_cast', 'blood_price']) b.w.grantKeystone(0, id);
     let paid = 0;
-    for (let t = 0; t < seconds(30); t++) paid += of(b.pad.hold({ aim: 0, aimDist: 5, buttons: t % 2 === 0 ? BTN.SECONDARY : 0 }, 1), 'keystoneProc').filter((p) => p.id === 'blood_price').length;
-    expect(paid).toBe(Math.ceil(1 / KEYSTONE_BY_ID.get('blood_price')!.params.hpFraction!));
+    // Long enough for every payable cast (free recharged casts come in between).
+    const need = Math.ceil(1 / price.hpFraction!);
+    for (let t = 0; t < seconds(need * price.minCooldown! * 2 + 5); t++) paid += of(b.pad.hold({ aim: 0, aimDist: 5, buttons: t % 2 === 0 ? BTN.SECONDARY : 0 }, 1), 'keystoneProc').filter((p) => p.id === 'blood_price').length;
+    expect(paid).toBe(need);
     expect(b.h.hp).toBe(1);
   });
 

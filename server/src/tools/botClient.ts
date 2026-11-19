@@ -443,7 +443,7 @@ export class BotClient {
 
 // ---------------------------------------------------------------------------------------------- CLI
 
-interface Args {
+export interface Args {
   url: string;
   code: string;
   create: boolean;
@@ -470,7 +470,7 @@ interface Args {
 /** `--descend` without a number: keep descending for as long as the party lives (soak tests). */
 const DESCEND_FOREVER = 1e9;
 
-function parseArgs(argv: string[]): Args {
+export function parseArgs(argv: string[]): Args {
   const args: Args = { url: 'ws://localhost:8787', code: '', create: false, bots: 1, classes: [], name: 'Bot', latency: 0, jitter: 0, once: false, quiet: false, timeScale: 1, metaMax: false, tutorial: false, descendTo: 0, objectives: false, keystones: [] };
   const num = (v: string | undefined, name: string): number => {
     const n = Number(v);

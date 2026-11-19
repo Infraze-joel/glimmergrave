@@ -96,12 +96,12 @@ const BOT = {
   AVOID_LOOKAHEAD: 1.6, AVOID_PAD: 0.12, AVOID_OUTWARD: 0.3, AVOID_DEAD_ON: 0.02,
   /**
    * Update 5, keystones. Blood Price: the secondary is used early (for health) only above this health fraction (lower
-   * if it heals or shields) and on PRICE_PACK enemies or a boss.
+   * if it heals or shields), on PRICE_PACK enemies or a boss, and at most once per PRICE_EVERY seconds.
    * Phase Walker / Shockstep / Blazing Wake: dash through or into a target within DASH_IN range when no dodge is
    * due, keeping DASH_KEEP charges for dodging unless the bot has only one. Glass Cannon: wider safety margins.
    * Arc Stream: the stream's reach replaces the bolt's.
    */
-  PRICE_HP: 0.75, PRICE_HEAL_HP: 0.55, PRICE_PACK: 3, DASH_IN: 4.2, DASH_IN_MIN: 1.2, DASH_IN_SECONDS: 2.2, DASH_PACK: 2,
+  PRICE_HP: 0.65, PRICE_HEAL_HP: 0.5, PRICE_PACK: 2, PRICE_EVERY: 1.5, DASH_IN: 4.2, DASH_IN_MIN: 1.2, DASH_IN_SECONDS: 2.2, DASH_PACK: 2,
   GLASS_LOW_HP: 0.6, GLASS_RANGE: 1.5, GLASS_MARGIN: 0.25, STREAM_REACH: 12,
   TUTORIAL_DASH_LEAD_SECONDS: 0.2, TUTORIAL_STAND: { x: 0, z: 1.5 }, TUTORIAL_HAZARD_STANDOFF: 1.8, TUTORIAL_STORM_DASH_RANGE: 3.6, TUTORIAL_CLOSE_RANGE: 3,
 } as const;
@@ -188,6 +188,9 @@ export class BotBrain {
   private held: readonly string[] = [];
   /** Tick until which the bot does not dash at an enemy again (keystone dashes). */
   private dashInUntil = 0;
+  /** Blood Price: tick before which the bot does not pay for another early cast; the tick it is thinking about. */
+  private payUntil = 0;
+  private tick = 0;
 
   constructor(slot: number, cls: ClassId, seed = 1, opts: BotOptions = {}) {
     this.slot = slot;
@@ -407,6 +410,7 @@ export class BotBrain {
     const room = view.run.room;
     this.art = view.art ?? 0;
     this.held = view.keystones ?? [];
+    this.tick = view.tick;
     if (!me || !room || me.state !== 'alive') {
       this.lastButtons = 0;
       return cmd;
@@ -654,7 +658,7 @@ export class BotBrain {
           mx = -dirZ * this.strafeDir;
           mz = dirX * this.strafeDir;
         }
-        wantSecondary = (me.cdSecondary <= 0 || this.payBlood(me, sec, target, close)) && this.secondaryFits(sec, me, target, targetD, close, clear);
+        wantSecondary = this.secondaryFits(sec, me, target, targetD, close, clear) && (me.cdSecondary <= 0 || this.payBlood(me, sec, target, close));
         if (close >= 3 && targetD < 2.5 && me.dashCharges >= 1) wantDash = true;
       } else {
         const hitRange = range + er;
@@ -667,7 +671,7 @@ export class BotBrain {
           mx = -dirX;
           mz = -dirZ;
         }
-        wantSecondary = (me.cdSecondary <= 0 || this.payBlood(me, sec, target, close)) && this.secondaryFits(sec, me, target, targetD, close, true);
+        wantSecondary = this.secondaryFits(sec, me, target, targetD, close, true) && (me.cdSecondary <= 0 || this.payBlood(me, sec, target, close));
       }
       if (me.ult >= BOT.ULT_READY) wantUlt = this.ultimateFits(ult, view, me, target, targetD, close);
     } else if (me.ult >= BOT.ULT_READY && ult.special === 'revive') {
@@ -895,9 +899,17 @@ export class BotBrain {
    */
   private payBlood(me: PlayerSnap, sec: AbilityDef, target: EnemySnap, close: number): boolean {
     if (!this.held.includes('blood_price')) return false;
+    // Only a cast that does what a plain attack cannot (an area, a stun, a sure crit) is worth health; a spin or a
+    // plain lunge repeated early only keeps the hero committed in the pack.
+    const pays = sec.shape === 'circle' || sec.shape === 'zone' || sec.shape === 'projectile' || sec.shape === 'trap' || sec.shape === 'beam'
+      || (sec.shape === 'lunge' && (sec.stun > 0 || sec.special === 'crit'));
+    if (!pays) return false;
     const mends = sec.selfShield > 0 || (sec.heal > 0 && !this.held.includes('sanguine'));
-    if (me.hp <= me.maxHp * (mends ? BOT.PRICE_HEAL_HP : BOT.PRICE_HP)) return false;
-    return close >= BOT.PRICE_PACK || ENEMIES[target.kind].cost === 0;
+    if (me.hp <= me.maxHp * (mends ? BOT.PRICE_HEAL_HP : BOT.PRICE_HP) || this.tick < this.payUntil) return false;
+    if (close < BOT.PRICE_PACK && ENEMIES[target.kind].cost !== 0) return false;
+    // Not in a row: every cast roots or commits the hero for a moment.
+    this.payUntil = this.tick + Math.round(BOT.PRICE_EVERY / TICK_DT);
+    return true;
   }
 
   private allyDownWithin(view: BotView, me: PlayerSnap, radius: number): boolean {

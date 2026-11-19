@@ -5,13 +5,13 @@ import { CLASSES, DASH, ULTIMATE } from '@shared/data/classes.ts';
 import { STATUS } from '@shared/data/enemies.ts';
 import { KEYSTONES, KEYSTONE_BY_ID, KEYSTONE_CAPS } from '@shared/data/keystones.ts';
 import { attackSpeed, heroMoveSpeed, secondaryCooldown } from '@shared/sim/abilities.ts';
-import { damageHero, healHero, killEnemy, setStatus } from '@shared/sim/combat.ts';
+import { applyElement, damageHero, healHero, killEnemy, setStatus } from '@shared/sim/combat.ts';
 import { maxDashCharges } from '@shared/sim/boons.ts';
 import { KEYSTONE_FLAG } from '@shared/sim/ksState.ts';
 import type { Enemy } from '@shared/sim/index.ts';
 import { BTN, PF, type GameEvent } from '@shared/types.ts';
-import { dummy, live, place, seconds, stepN } from './harness.ts';
-import { arena, give, mastered, of, use, type Arena } from './u3kit.ts';
+import { dummy, live, Pad, place, seconds, stepN } from './harness.ts';
+import { arena, give, mastered, of, party, use, type Arena } from './u3kit.ts';
 
 const P = (id: string): Record<string, number> => KEYSTONE_BY_ID.get(id)!.params;
 const procs = (events: GameEvent[], id: string) => of(events, 'keystoneProc').filter((p) => p.id === id);
@@ -153,16 +153,14 @@ describe('primary keystones', () => {
   it('ricochet: a primary projectile bounces to `bounces` more enemies within `range`, weaker by `falloff` each time', () => {
     const a = withKs('mage', ['ricochet']);
     const p = P('ricochet');
-    const first = dummy(a.w, 0, 5);
-    const second = dummy(a.w, 3, 7);
-    const third = dummy(a.w, 6, 5);
-    const fourth = dummy(a.w, 9, 7);
-    const ev = use(a, BTN.PRIMARY, 1.2);
+    // A zig-zag of `bounces + 2` dummies 3.6 m apart: the bolt hits the first, bounces `bounces` times, and the
+    // last one stays untouched.
+    const chain: Enemy[] = [];
+    for (let i = 0; i < p.bounces! + 2; i++) chain.push(dummy(a.w, 3 * i, i % 2 === 0 ? 5 : 7));
+    const ev = use(a, BTN.PRIMARY, 0.6 * (p.bounces! + 2));
     const bolt = CLASSES.mage.primary[0]!.damage;
-    expect(lost(first)).toBeCloseTo(bolt, 5);
-    expect(lost(second)).toBeCloseTo(bolt * p.falloff!, 5);
-    expect(lost(third)).toBeCloseTo(bolt * p.falloff! ** 2, 5);
-    expect(lost(fourth)).toBe(0);
+    for (let i = 0; i <= p.bounces!; i++) expect(lost(chain[i]!), `link ${i}`).toBeCloseTo(bolt * p.falloff! ** i, 5);
+    expect(lost(chain[p.bounces! + 1]!)).toBe(0);
     // The first bounce is always announced; a second one within PROC_SECONDS falls to the rate limit.
     const b = procs(ev, 'ricochet');
     expect(b.length).toBeGreaterThanOrEqual(1);
@@ -242,7 +240,7 @@ describe('primary keystones', () => {
     expect(procs(ev, 'chain_lightning').length).toBe(sorted.length);
   });
 
-  it('heavy_hitter: primaries deal +150 %, reach wider and knock back, but are 45 % slower', () => {
+  it('heavy_hitter: primaries deal +`damage`, reach wider and knock back, but are `slow` slower; the proc comes at the release', () => {
     const plain = arena('knight');
     const a = withKs('knight', ['heavy_hitter']);
     const p = P('heavy_hitter');
@@ -261,6 +259,11 @@ describe('primary keystones', () => {
     expect(lost(e)).toBeCloseTo(base.damage * (1 + p.damage!), 5);
     expect(Math.hypot(e.kbX, e.kbZ) + Math.hypot(e.x, e.z - 2)).toBeCloseTo(p.knockback!, 1);
     expect(procs(ev, 'heavy_hitter')).toHaveLength(1);
+    // The proc marks the release: it comes in the same tick as the swing's hits, before them.
+    const at = ev.findIndex((x) => x.e === 'keystoneProc' && x.id === 'heavy_hitter');
+    const firstHit = ev.findIndex((x) => x.e === 'hit' && x.target.t === 'e');
+    expect(at).toBeGreaterThanOrEqual(0);
+    expect(at).toBeLessThan(firstHit);
     // A full circle is the limit for wide arcs.
     const templar = withKs('templar', ['heavy_hitter']);
     expect(templar.h.abil.primary[2]!.arc).toBeLessThanOrEqual(360);
@@ -273,7 +276,7 @@ describe('primary keystones', () => {
 describe('secondary keystones', () => {
   const p = P('twin_cast');
 
-  it('twin_cast: a blast goes off again after `delay` at `fraction` strength, on the same spot', () => {
+  it('twin_cast: a blast goes off again after `delay` at `fraction` strength, on the same spot; the secondary recharges `recharge` faster', () => {
     const a = withKs('mage', ['twin_cast']);
     const e = dummy(a.w, 0, 6);
     const nova = CLASSES.mage.secondary;
@@ -292,6 +295,9 @@ describe('secondary keystones', () => {
     expect(procs(ev, 'twin_cast')).toHaveLength(1);
     expect(of(ev, 'cast').filter((c) => c.ability === nova.id)).toHaveLength(1);
     expect(a.h.ks.dealt.twin_cast).toBeCloseTo(nova.damage * p.fraction!, 5);
+    // The secondary recharges 1 + `recharge` times as fast; with Blood Price as well, both speed-ups multiply.
+    expect(a.h.secondaryCdMax).toBeCloseTo(nova.cooldown / (1 + p.recharge!), 9);
+    expect(secondaryCooldown(withKs('mage', ['twin_cast', 'blood_price']).h)).toBeCloseTo(nova.cooldown / ((1 + p.recharge!) * (1 + P('blood_price').recharge!)), 9);
   });
 
   it('twin_cast: a lunge is repeated by an afterimage along its path — the hero is not moved twice, no second shield', () => {
@@ -341,7 +347,7 @@ describe('secondary keystones', () => {
     expect(procs(ev, 'twin_cast')).toHaveLength(1);
   });
 
-  it('blood_price: the secondary can be used again after `minCooldown` for `hpFraction` of maximum health; a recharged cast is free; never the last point of health', () => {
+  it('blood_price: the secondary recharges `recharge` faster and can be used again after `minCooldown` for `hpFraction` of maximum health; a recharged cast is free; never the last point of health', () => {
     const a = withKs('mage', ['blood_price']);
     const bp = P('blood_price');
     const cast = (): GameEvent[] => {
@@ -353,7 +359,10 @@ describe('secondary keystones', () => {
     expect(procs(cast(), 'blood_price')).toHaveLength(0);
     expect(a.h.hp).toBe(a.h.maxHp);
     expect(a.h.secondaryCdMax).toBe(secondaryCooldown(a.h));
-    expect(secondaryCooldown(a.h)).toBe(CLASSES.mage.secondary.cooldown);
+    // It also recharges 1 + `recharge` times as fast.
+    const recharged = CLASSES.mage.secondary.cooldown / (1 + bp.recharge!);
+    expect(secondaryCooldown(a.h)).toBeCloseTo(recharged, 9);
+    expect(secondaryCooldown(arena('mage').h)).toBe(CLASSES.mage.secondary.cooldown);
     expect(a.w.getSnapshotBody().players[0]!.cdSecondary).toBeGreaterThan(0.9);
     // Too early even for blood.
     stepN(a.w, seconds(bp.minCooldown! - 0.4));
@@ -368,11 +377,11 @@ describe('secondary keystones', () => {
     expect(procs(ev, 'blood_price')[0]!.n).toBe(Math.round(a.h.maxHp * bp.hpFraction!));
     expect(of(ev, 'hit').filter((h) => h.target.t === 'p')).toHaveLength(0);
     // The recharge that was under way went on: the paid cast did not restart it.
-    expect(a.h.secondaryCdMax).toBe(CLASSES.mage.secondary.cooldown);
-    expect(a.h.secondaryCd).toBeLessThan(CLASSES.mage.secondary.cooldown - bp.minCooldown!);
+    expect(a.h.secondaryCdMax).toBeCloseTo(recharged, 9);
+    expect(a.h.secondaryCd).toBeLessThan(recharged - bp.minCooldown!);
     // Cast early until it refuses: the hero ends at exactly 1 health and is still standing.
     let paid = 1;
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < Math.ceil(1 / bp.hpFraction!) + 5; i++) {
       stepN(a.w, seconds(bp.minCooldown! + 0.1));
       a.h.lockTime = 0;
       a.h.secondaryCd = 3;
@@ -438,7 +447,7 @@ describe('companions and auras', () => {
     expect(b.w.projectiles).toHaveLength(0);
   });
 
-  it('colossus: +40 health, 40 % larger areas, knockback on hits, 10 % slower', () => {
+  it('colossus: +`hp` health, `area` larger areas, knockback on hits, `moveSpeed` slower', () => {
     const plain = arena('knight');
     const a = arena('knight');
     a.h.hp = 50;
@@ -507,7 +516,7 @@ describe('how you win fights', () => {
     expect(a.w.blooms).toHaveLength(0);
   });
 
-  it('resonance_engine: only Resonances charge the ultimate (`perResonance` % each) and bursts are larger', () => {
+  it('resonance_engine: only Resonances charge the ultimate (`perResonance` % each); bursts are larger and hit harder', () => {
     const a = withKs('knight', ['resonance_engine']);
     const p = P('resonance_engine');
     give(a.h, 'infuse_ember_primary');
@@ -529,9 +538,20 @@ describe('how you win fights', () => {
     expect(burst[0]!.r).toBeCloseTo(STATUS.RESONANCE.RADIUS * (1 + p.burstArea!), 5);
     expect(a.h.ult).toBeCloseTo((ULTIMATE.MAX * p.perResonance!) / 100, 5);
     expect(procs(ev, 'resonance_engine')[0]).toMatchObject({ n: p.perResonance });
+    // The burst deals 1 + burstDamage times as much as the same burst without the keystone.
+    const burstHit = (ids: string[]): number => {
+      const b = withKs('knight', ids);
+      const target = dummy(b.w, 0, 2);
+      setStatus(b.w, target, 'rime', b.h, 1);
+      const before = target.hp;
+      applyElement(b.w, target, 'ember', b.h, 1);
+      return before - target.hp;
+    };
+    expect(burstHit(['resonance_engine'])).toBeCloseTo(burstHit([]) * (1 + p.burstDamage!), 5);
+    expect(burstHit([])).toBeGreaterThan(0);
   });
 
-  it('glass_cannon: +60 % damage with everything, half the health', () => {
+  it('glass_cannon: +`damage` with everything, `hp` of the health', () => {
     const a = arena('knight');
     a.h.hp = a.h.maxHp;
     a.w.grantKeystone(0, 'glass_cannon');
@@ -580,6 +600,30 @@ describe('how you win fights', () => {
     expect(damageHero(a.w, a.h, 12, -1)).toBe(true);
     expect(a.h.ks.overheal).toBe(p.overheal! - 12);
     expect(a.h.hp).toBe(a.h.maxHp);
+  });
+
+  it('sanguine: another hero\'s rally (on its ultimate) does nothing for the holder; its own rally does', () => {
+    const w = party(['templar', 'knight']);
+    expect(w.grantKeystone(0, 'sanguine')).toBe(true);
+    const [holder, ally] = [w.hero(0)!, w.hero(1)!];
+    place(w, 1, 2, 0);
+    give(ally, 'rally');
+    expect(ally.stats.rally).toBeGreaterThan(0);
+    holder.hp = 50;
+    ally.hp = 50;
+    w.drainEvents();
+    ally.ult = ULTIMATE.MAX;
+    const pad = new Pad(w, 1);
+    const ev = pad.hold({ aim: 0, buttons: BTN.ULTIMATE }, 1);
+    ev.push(...pad.hold({ aim: 0 }, seconds(1)));
+    expect(ally.hp).toBeGreaterThan(50);
+    expect(holder.hp).toBe(50);
+    expect(of(ev, 'heal').filter((x) => x.slot === 0)).toHaveLength(0);
+    // His own rally heals him.
+    give(holder, 'rally');
+    holder.ult = ULTIMATE.MAX;
+    new Pad(w, 0).hold({ aim: 0, buttons: BTN.ULTIMATE }, 1);
+    expect(holder.hp).toBeGreaterThan(50);
   });
 
   it('momentum_engine: each kill is a stack of attack and movement speed up to `max`; all expire `seconds` after the last kill', () => {
@@ -727,7 +771,7 @@ describe('class keystones', () => {
     expect([...a.w.projectiles].every((q) => q.kind !== 'knife' || q.slot === 'secondary')).toBe(true);
   });
 
-  it('ks_templar: hallowed ground follows the templar and lasts 50 % longer; a Judgement leaves one where he lands', () => {
+  it('ks_templar: hallowed ground follows the templar and lasts `duration` longer; a Judgement leaves one where he lands', () => {
     const a = withKs('templar', ['ks_templar']);
     const p = P('ks_templar');
     const base = CLASSES.templar.secondary;
@@ -808,5 +852,39 @@ describe('class keystones', () => {
     expect(hunter.target).toBe(0);
     // A veiled hero can still be hurt (the veil is not invulnerability).
     expect(a.h.damageTaken).toBeGreaterThanOrEqual(0);
+  });
+
+  it('ks_shade: a Shadowstep kill counts as a backstab (victims struck in the same tick veil once); a kill by the hit out of the veil veils again', () => {
+    const a = withKs('shade', ['ks_shade']);
+    const p = P('ks_shade');
+    a.h.dashCharges = 0;
+    a.h.dashRecharge = 2;
+    // Facing the shade: no backstab, but Shadowstep passes through and strikes from behind.
+    const foes = [dummy(a.w, -0.3, 2.5, 'minion', 5), dummy(a.w, 0.3, 2.5, 'minion', 5)];
+    for (const f of foes) f.rot = Math.PI;
+    const ev = use(a, BTN.SECONDARY, 0.4, { aimDist: 5 });
+    expect(foes.every((f) => f.dead)).toBe(true);
+    expect(of(ev, 'buff')).toEqual([{ e: 'buff', slot: 0, id: 'ks_shade', dur: p.stealth }]);
+    expect(a.h.dashCharges).toBe(1);
+    // Without the keystone nothing happens.
+    const plain = arena('shade');
+    const f = dummy(plain.w, 0, 2.5, 'minion', 5);
+    f.rot = Math.PI;
+    expect(of(use(plain, BTN.SECONDARY, 0.4, { aimDist: 5 }), 'buff')).toHaveLength(0);
+    expect(f.dead).toBe(true);
+    // The empowered hit out of the veil kills (from the front): the veil comes again. One that does not kill ends it.
+    a.h.body.x = 0;
+    a.h.body.z = 0;
+    a.w.drainEvents();
+    const weak = dummy(a.w, 0, 1.5, 'minion', 5);
+    weak.rot = Math.PI;
+    const again = use(a, BTN.PRIMARY, 0.2);
+    expect(weak.dead).toBe(true);
+    expect(of(again, 'buff')).toEqual([{ e: 'buff', slot: 0, id: 'ks_shade', dur: p.stealth }]);
+    expect(a.h.ks.veilHit).toBe(true);
+    const tough = dummy(a.w, 0, 1.5);
+    tough.rot = Math.PI;
+    expect(of(use(a, BTN.PRIMARY, 0.2), 'buff')).toHaveLength(0);
+    expect(a.h.ks.veilHit).toBe(false);
   });
 });

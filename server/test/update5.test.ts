@@ -4,7 +4,7 @@ import { RUN } from '@shared/constants.ts';
 import { BOON_BY_ID } from '@shared/data/boons.ts';
 import { KEYSTONE_BY_ID, KEYSTONE_TUNING } from '@shared/data/keystones.ts';
 import type { GameEvent } from '@shared/types.ts';
-import { BotClient, maxLoadout } from '../src/tools/botClient.ts';
+import { BotClient, maxLoadout, parseArgs } from '../src/tools/botClient.ts';
 import { boot, Client } from './helpers.ts';
 
 type Booted = Awaited<ReturnType<typeof boot>>;
@@ -107,4 +107,11 @@ describe('keystone drafts on the wire', () => {
     expect(procs.has('sanguine')).toBe(true);
     expect(host.run!.stats.every((s) => s.chamberDamage.length === RUN.CHAMBERS.length - CHAMPION)).toBe(true);
   }, 240000);
+
+  it('botClient --keystone id[,id]: the ids reach the bots; an unknown id is refused', () => {
+    expect(parseArgs(['--create', '--keystone', 'ember_wake,chain_lightning']).keystones).toEqual(['ember_wake', 'chain_lightning']);
+    expect(parseArgs(['--create', '--keystone', 'ks_mage', '--keystone', 'glass_cannon']).keystones).toEqual(['ks_mage', 'glass_cannon']);
+    expect(parseArgs(['--create']).keystones).toEqual([]);
+    expect(() => parseArgs(['--create', '--keystone', 'colossus,nope'])).toThrow(/unknown keystone "nope"/);
+  });
 });

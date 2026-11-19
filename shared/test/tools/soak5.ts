@@ -7,26 +7,48 @@
  * second. Generic keystones are played by all seven classes, a class keystone by its class (against that class's
  * own `none` row, with `classSeeds` seeds).
  * Columns: win rate and its difference to `none`; seconds for chambers 5-8 in runs that won (and the difference);
- * the keystone's own share of the damage dealt after it was taken; downs per run.
+ * the keystone's own share of the damage dealt after it was taken; downs per run; keystone events and ultimates per run.
+ * `--by-class`: also the win rate of every class in the row. `--blind`: the bots are not told which keystones they
+ * hold (with a keystone that needs the bot to use it, this measures what the pick costs: the consolation boon).
+ * `--from=N`: start at seed index N (a fresh, independent sample: `soak5.ts 10 x --from=10` plays seeds 10..19).
+ * `--set=id.key=value,...`: try other `params` without editing the data table (applied before the simulation loads,
+ * which copies params at import).
  */
-import { KEYSTONES } from '@shared/data/keystones.ts';
+import { KEYSTONE_BY_ID, KEYSTONES } from '@shared/data/keystones.ts';
 import { BOSS_KINDS, CLASS_IDS, type BossKind, type ClassId } from '@shared/types.ts';
-import { runBots, type RunResult } from '../harness.ts';
+import type { RunResult } from '../harness.ts';
 
-const args = process.argv.slice(2);
+const flag = (name: string): string | undefined => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
+for (const set of (flag('set') ?? '').split(',').filter(Boolean)) {
+  const [path, value] = set.split('=');
+  const [id, key] = (path ?? '').split('.');
+  const params = KEYSTONE_BY_ID.get(id ?? '')?.params;
+  if (!params || key === undefined || !(key in params) || !Number.isFinite(Number(value))) throw new Error(`--set: bad ${set}`);
+  params[key] = Number(value);
+  console.info(`set ${id}.${key} = ${value}`);
+}
+const { runBots } = await import('../harness.ts');
+
+const by = process.argv.includes('--by-class');
+const blind = process.argv.includes('--blind');
+const from = Number(flag('from') ?? 0);
+const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const seeds = Number(args[0] ?? 6);
 const what = args[1] ?? 'all';
 const classSeeds = Number(args[2] ?? seeds * 3);
-const seedFor = (i: number, boss: BossKind, n: number): number => (i + 1) * 7919 + BOSS_KINDS.indexOf(boss) * 104729 + n;
+const seedFor = (i: number, boss: BossKind, n: number): number => (from + i + 1) * 7919 + BOSS_KINDS.indexOf(boss) * 104729 + n;
 const avg = (xs: number[]): number => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
 const LATE_FROM = 4;
 
-interface Row { label: string; runs: number; win: number; late: number; share: number; downs: number; took: number; died: Record<string, number> }
+interface Row { label: string; runs: number; win: number; late: number; share: number; downs: number; took: number; procs: number; ults: number; died: Record<string, number>; perClass: Record<string, number> }
 
 function play(classes: readonly ClassId[], n: number, id: string | null, mode: 'none' | 'free' | 'only'): Row {
   const results: RunResult[] = [];
+  const perClass: Record<string, number> = {};
   for (const cls of classes) for (const boss of BOSS_KINDS) for (let i = 0; i < n; i++) {
-    results.push(runBots({ classes: [cls], seed: seedFor(i, boss, 1), overrides: { finalBoss: boss }, keystones: id ? [id] : undefined, keystoneMode: mode }));
+    const r = runBots({ classes: [cls], seed: seedFor(i, boss, 1), overrides: { finalBoss: boss }, keystones: id ? [id] : undefined, keystoneMode: mode, blind });
+    results.push(r);
+    perClass[cls] = (perClass[cls] ?? 0) + (r.cleared > 0 ? 1 / (BOSS_KINDS.length * n) : 0);
   }
   const wins = results.filter((r) => r.cleared > 0);
   const dealt = results.reduce((a, r) => a + r.damageWithKeystone, 0);
@@ -38,6 +60,7 @@ function play(classes: readonly ClassId[], n: number, id: string | null, mode: '
     late: avg(wins.map((r) => r.chamberSeconds.slice(LATE_FROM, LATE_FROM + 4).reduce((a, b) => a + b, 0))),
     share: dealt > 0 ? own / dealt : 0, downs: avg(results.map((r) => r.downs)),
     took: id ? results.filter((r) => r.keystones[0]!.includes(id)).length / results.length : 0, died,
+    procs: avg(results.map((r) => r.procs)), ults: avg(results.map((r) => r.ultimates)), perClass,
   };
 }
 
@@ -46,7 +69,8 @@ const signed = (v: number, digits = 0): string => `${v >= 0 ? '+' : ''}${v.toFix
 function print(row: Row, base: Row | null): void {
   const delta = base ? `${signed((row.win - base.win) * 100)} pts` : '          ';
   const late = base ? `${signed(row.late - base.late)} s (${signed(base.late > 0 ? ((row.late - base.late) / base.late) * 100 : 0)}%)` : '';
-  console.info(`${row.label.padEnd(18)} runs ${String(row.runs).padStart(4)}  win ${pct(row.win)} ${delta}  ch5-8 ${row.late.toFixed(0).padStart(4)} s ${late.padEnd(18)}  own dmg ${pct(row.share)}  downs ${row.downs.toFixed(2)}  taken ${pct(row.took)}  died in ${JSON.stringify(row.died)}`);
+  console.info(`${row.label.padEnd(18)} runs ${String(row.runs).padStart(4)}  win ${pct(row.win)} ${delta}  ch5-8 ${row.late.toFixed(0).padStart(4)} s ${late.padEnd(18)}  own dmg ${pct(row.share)}  downs ${row.downs.toFixed(2)}  taken ${pct(row.took)}  procs ${row.procs.toFixed(0).padStart(4)}  ults ${row.ults.toFixed(1).padStart(4)}  died in ${JSON.stringify(row.died)}`);
+  if (by) console.info(`    by class: ${Object.entries(row.perClass).map(([c, v]) => `${c} ${pct(v).trim()}`).join('  ')}`);
 }
 
 const t0 = Date.now();

@@ -34,8 +34,10 @@ export function heroMoveSpeed(h: Hero): number {
 
 export const dashRechargeSeconds = (h: Hero): number => DASH.COOLDOWN / (h.stats.dashRecharge * (1 + h.mods.dashHaste));
 
-/** Secondary cooldown after boons (quick_wits shortens it) and haste (recharges faster). */
-export const secondaryCooldown = (h: Hero): number => (h.abil.secondary.cooldown * (1 - h.stats.secondaryCdr)) / (1 + h.mods.secondaryHaste);
+/** Secondary cooldown after boons (quick_wits shortens it), haste and the keystones Twin Cast / Blood Price (recharge faster). */
+export const secondaryCooldown = (h: Hero): number =>
+  (h.abil.secondary.cooldown * (1 - h.stats.secondaryCdr))
+  / ((1 + h.mods.secondaryHaste) * (h.ks.twinCast ? 1 + KP.twin.recharge : 1) * (h.ks.bloodPrice ? 1 + KP.price.recharge : 1));
 
 /**
  * Blood Price: the secondary may be used again `minCooldown` seconds after its last use although it has not
@@ -134,7 +136,8 @@ function activate(w: World, h: Hero, def: AbilityDef, slot: AbilitySlot, cmd: In
     h.ult = ULTIMATE.MAX * h.stats.encore;
     h.pressUltimate = 0;
     h.run.ultimates++;
-    if (h.stats.rally > 0) for (const ally of w.heroes) healHero(w, ally, h.stats.rally * (1 + h.stats.crescendo));
+    // Another hero's rally is outside healing (Sanguine Pact refuses it); the caster's own is not.
+    if (h.stats.rally > 0) for (const ally of w.heroes) healHero(w, ally, h.stats.rally * (1 + h.stats.crescendo), ally !== h);
   }
   h.lockTime = lock;
   h.lockMoveMul = def.moveMul;
@@ -329,15 +332,14 @@ function releaseCore(w: World, h: Hero, p: PendingHit): void {
   switch (def.shape) {
     case 'arc': {
       const arc = def.arc * DEG;
+      // Titan Grip: the proc marks the release, so it comes before the hits of the swing (same tick).
+      if (p.slot === 'primary' && h.ks.heavyHitter) proc(w, h, 'heavy_hitter', x, z, { r: def.range });
       for (const e of w.enemies) {
         if (!isTargetable(e) || !inArc(x, z, p.aim, def.range, arc, e.x, e.z, e.radius)) continue;
         strikeEnemy(w, h, e, def.damage, p.slot, { fromX: x, fromZ: z, stun: def.stun, knockback: def.knockback, special: def.special });
       }
       popFragileArc(w, h.slot, x, z, p.aim, def.range, arc);
-      if (p.slot === 'primary') {
-        if (h.ks.heavyHitter) proc(w, h, 'heavy_hitter', x, z, { r: def.range });
-        if (h.ks.ricochet || h.ks.spellblade) onMeleeSwing(w, h, def, p.aim);
-      }
+      if (p.slot === 'primary' && (h.ks.ricochet || h.ks.spellblade)) onMeleeSwing(w, h, def, p.aim);
       break;
     }
     case 'projectile': {

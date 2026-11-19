@@ -73,10 +73,13 @@ function pulse(w: World, zone: Zone, owner: Hero): void {
   const def = zone.def;
   if (def.special === 'maelstrom') maelstromPull(w, zone.x, zone.z, zone.r, Math.max(def.tick, TICK_DT));
   if (def.damage > 0) {
+    const before = owner.run.damage;
     for (const e of w.enemies) {
       if (!isTargetable(e) || !inside(zone, e.x, e.z, e.radius)) continue;
       strikeEnemy(w, owner, e, def.damage, zone.slot, { fromX: zone.x, fromZ: zone.z, stun: def.stun, knockback: def.knockback });
     }
+    // The maelstrom a Skullsplitter leaves is Maelstrom's own damage (counted for the soaks; its hits stay direct).
+    if (def.special === 'maelstrom') owner.ks.dealt.ks_barbarian = (owner.ks.dealt.ks_barbarian ?? 0) + owner.run.damage - before;
   }
   if (def.heal > 0) {
     const amount = def.heal * (zone.slot === 'ultimate' ? 1 + owner.stats.crescendo : 1);

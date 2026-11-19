@@ -325,7 +325,7 @@ export const KS = {
   /** Familiar bolt. */
   FAMILIAR_SPEED: 26, FAMILIAR_RADIUS: 0.35, FAMILIAR_RANGE_PAD: 3,
   /** Maelstrom: enemies within this many whirlwind radii are dragged; never closer to the centre than MIN. */
-  PULL_REACH: 2, PULL_MIN: 1.1,
+  PULL_REACH: 2, PULL_MIN: 1.1, PULL_STAGGER: 0.1,
   /** Arc Stream: grace after the last pulse during which the hero still counts as channelling; knockback share per pulse. */
   CHANNEL_GRACE: 0.1, STREAM_KNOCKBACK: 0.25,
   /** Blade Tempest: the two extra waves of the finisher fly this many degrees to either side. */

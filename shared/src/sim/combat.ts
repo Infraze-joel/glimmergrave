@@ -312,8 +312,11 @@ function burst(w: World, x: number, z: number, a: ElementId, b: ElementId, h: He
   const twice = duo > 0 ? 2 : 1;
   const radius = STATUS.RESONANCE.RADIUS * (1 + h.stats.wideResonance) * (reaction ? reaction.radiusMul : 1)
     * (h.ks.resonanceEngine ? 1 + KP.engine.burstArea : 1);
+  const engine = h.ks.resonanceEngine ? 1 + KP.engine.burstDamage : 1;
   const damage = STATUS.RESONANCE.DAMAGE * (1 + h.stats.amplifier + h.mods.resonanceDamage) * allDamage(h)
-    * (reaction ? reaction.damageMul : 1) * (1 + duo);
+    * (reaction ? reaction.damageMul : 1) * (1 + duo) * engine;
+  // Resonance Engine telemetry (soaks): the extra damage of this burst itself.
+  let own = 0;
   w.emit({ e: 'resonance', x, z, r: radius, a, b, by: h.slot });
   w.emit({ e: 'aoe', x, z, r: radius, el: b, hostile: false });
   burstHit.length = 0;
@@ -331,7 +334,9 @@ function burst(w: World, x: number, z: number, a: ElementId, b: ElementId, h: He
       o.armored = false;
       w.emit({ e: 'shieldBreak', id: o.id });
     }
+    const hpBefore = Math.max(0, o.hp);
     rawDamageEnemy(w, o, id === 'shatter' && isBoss(o) ? damage * (1 + REACTION_TUNING.SHATTER_BOSS_BONUS) : damage, h.slot, b);
+    own += hpBefore - Math.max(0, o.hp);
     if (o.dead) {
       // chain_reaction: what the burst kills hands the new status to the nearest enemy outside.
       if (h.stats.chainReaction) {
@@ -361,6 +366,7 @@ function burst(w: World, x: number, z: number, a: ElementId, b: ElementId, h: He
       o.slowTime = RELIC_TUNING.BELL_SECONDS;
     }
   }
+  if (engine > 1) h.ks.dealt.resonance_engine = (h.ks.dealt.resonance_engine ?? 0) + own * (1 - 1 / engine);
   if (id === 'soulfire') {
     const r2 = REACTION_TUNING.SOULFIRE_HEAL_RADIUS * REACTION_TUNING.SOULFIRE_HEAL_RADIUS;
     for (const ally of w.heroes) {
@@ -503,10 +509,17 @@ export function strikeEnemy(w: World, h: Hero, e: Enemy, base: number, slot: Abi
     if (backstab) dmg *= 1 + BACKSTAB.BONUS;
   }
   // Veil of Knives: the next hit out of the veil (everything struck in that tick) deals more.
-  if (direct && ks.veilTime > 0 && (ks.veilHit || ks.veilTick === w.tick)) {
-    ks.veilHit = false;
-    ks.veilTick = w.tick;
+  // The bonus is armed by a veil from an earlier tick (victims of the blow that veiled do not spend it); everything
+  // struck in the tick it is spent in shares it.
+  let veiled = false;
+  const shared = ks.veilTick === w.tick;
+  if (direct && ks.veilTime > 0 && (shared || (ks.veilHit && ks.veilAt !== w.tick))) {
+    if (!shared) {
+      ks.veilHit = false;
+      ks.veilTick = w.tick;
+    }
     dmg *= 1 + KP.shade.damage;
+    veiled = true;
   }
   if (slot === 'primary' && h.riposte) {
     h.riposte = false;
@@ -558,6 +571,7 @@ export function strikeEnemy(w: World, h: Hero, e: Enemy, base: number, slot: Abi
     credit(w, h, dealt);
     if (slot === 'secondary') ks.secondaryDealt += dealt;
     else if (slot === 'primary' && ks.heavyHitter && direct) ks.dealt.heavy_hitter = (ks.dealt.heavy_hitter ?? 0) + dealt * (1 - 1 / (1 + KP.heavy.damage));
+    if (veiled) ks.dealt.ks_shade = (ks.dealt.ks_shade ?? 0) + dealt * (1 - 1 / (1 + KP.shade.damage));
     // The ultimate does not charge itself.
     if (slot !== 'ultimate') earnCharge(w, h, dealt * ULTIMATE.PER_DAMAGE_DEALT);
     if (e.status === 'umbra') healHero(w, h, STATUS.WITHER.LEECH * e.statusPower * (h.stats.creepingDark > 0 ? 2 : 1));
@@ -604,7 +618,9 @@ export function strikeEnemy(w: World, h: Hero, e: Enemy, base: number, slot: Abi
   }
   if (e.hp <= 0 && !e.dead) {
     killEnemy(w, e, h.slot);
-    if (backstab && ks.shade) onBackstabKill(w, h, e);
+    // Veil of Knives: a backstab kill, a kill by Shadowstep (it passes through and strikes from behind) or a kill by
+    // the empowered hit out of the veil.
+    if (ks.shade && (backstab || veiled || (slot === 'secondary' && opts.special === 'crit'))) onBackstabKill(w, h, e);
   }
   return true;
 }
