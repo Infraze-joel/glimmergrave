@@ -23,4 +23,6 @@ evidence that exists. Feel and audio items that only a human can judge are marke
 
 | 13 | Polish 1: clarity levels, merged damage numbers, reaction names, aim marker, fixtures as obstacles, enemy traits for late joiners, balance ([spec](polish-1.md)) | a four-hero fight in a special-objective chamber can be followed | 529 unit/integration tests, 20 browser tests, before/after stress captures, live bot session | done; human playtest open |
 
-`npm test` runs 529 tests in total. Regression suite before any change is called done: `npm run typecheck && npm run lint && npm test && npm run test:e2e`.
+| 14 | Update 5: 23 keystones, keystone drafts after each elite chamber, build tags and fit marks, build names and damage growth ([spec](update-5.md)) | a run ends with a nameable build and visibly different late chambers | 609 unit/integration tests, 21 browser tests (one keystone draft over the wire), bot smoke run with two keystones each, per-keystone balance soak | done; human playtest open |
+
+`npm test` runs 609 tests in total. Regression suite before any change is called done: `npm run typecheck && npm run lint && npm test && npm run test:e2e`.

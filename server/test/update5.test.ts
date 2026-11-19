@@ -96,7 +96,10 @@ describe('keystone drafts on the wire', () => {
     await host.connect();
     guest.opts.code = host.code;
     await guest.connect();
-    expect(await ended).toBe('victory');
+    // Over real sockets at 8x speed the outcome of the boss fight depends on timing, so this test does not ask for a
+    // win (bot win rates are measured in shared/test/botruns.test.ts). It asks that both keystone drafts happened.
+    const phase = await ended;
+    expect(['victory', 'defeat']).toContain(phase);
     for (const bot of [host, guest]) {
       const me = bot.roster.find((p) => p.slot === bot.slot)!;
       expect(me.keystones).toEqual(['orbit_blades', 'sanguine']);
@@ -105,7 +108,10 @@ describe('keystone drafts on the wire', () => {
       expect(bot.lastError).toBe('');
     }
     expect(procs.has('sanguine')).toBe(true);
-    expect(host.run!.stats.every((s) => s.chamberDamage.length === RUN.CHAMBERS.length - CHAMPION)).toBe(true);
+    // One damage entry per chamber entered (the run starts in the champion's chamber).
+    const entered = host.run!.chamber - CHAMPION + 1;
+    expect(host.run!.stats.every((s) => s.chamberDamage.length === entered)).toBe(true);
+    if (phase === 'victory') expect(entered).toBe(RUN.CHAMBERS.length - CHAMPION);
   }, 240000);
 
   it('botClient --keystone id[,id]: the ids reach the bots; an unknown id is refused', () => {

@@ -12,6 +12,12 @@
   history (`Contract for update 3`). Client core: `Settings.cursor`, `game:progress`, `game:localAction.slot`.
 - QA aids: server env `DEBUG_START_CHAMBER`, `DEBUG_OBJECTIVE`; `botClient --objectives --descend --meta max`;
   dev client `?autopilot&descend=N`; `tests/e2e/tools/deep-run.mjs`.
+- Update 5 "Keystones" (branch `update-5`, spec `docs/milestones/update-5.md`) is integrated on top of polish 1.
+  Contract: `data/keystones.ts`, `BoonOffer.fits`, `RosterEntry.keystones/keystoneAt`,
+  `PlayerRunStats.chamberDamage`, events `keystone`/`keystoneProc`, `draft.keystone`, `pick.replace`,
+  `PF.CHANNELING`, protocol 4; client: `state.draftKeystone`, `ui:pick.replace`. Two balance passes; tables in
+  `docs/reports/backend-update5.md` (all four update 5 work-stream reports are in `docs/reports/`). QA aid:
+  server env `DEBUG_KEYSTONES`, `botClient --keystone`. Gate: 609 unit/integration tests, 21 browser tests.
 - Polish 1 (branch `polish-1`, spec `docs/milestones/polish-1.md`) is integrated on top of update 4: clarity
   levels (`Settings.effects`, `allyNumbers`, `WorldView.setClarity/setLabels/setAim/setTraits`), contract
   additions `Obstacle.kind` shard/ritualBowl/reliquary, `RunState.traits`, `RosterEntry.relics/talents`,
