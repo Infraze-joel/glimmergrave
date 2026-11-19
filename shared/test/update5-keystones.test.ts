@@ -341,31 +341,53 @@ describe('secondary keystones', () => {
     expect(procs(ev, 'twin_cast')).toHaveLength(1);
   });
 
-  it('blood_price: the secondary recharges in `minCooldown`, costs `hpFraction` of maximum health, never kills and does not fire at 1 health', () => {
+  it('blood_price: the secondary can be used again after `minCooldown` for `hpFraction` of maximum health; a recharged cast is free; never the last point of health', () => {
     const a = withKs('mage', ['blood_price']);
     const bp = P('blood_price');
-    expect(secondaryCooldown(a.h)).toBe(bp.minCooldown);
-    const ev = a.pad.hold({ aim: 0, aimDist: 5, buttons: BTN.SECONDARY }, 1);
+    const cast = (): GameEvent[] => {
+      const ev = a.pad.hold({ aim: 0, aimDist: 5, buttons: BTN.SECONDARY }, 1);
+      ev.push(...a.pad.hold({ aim: 0 }, 1));
+      return ev;
+    };
+    // The first cast finds the ability recharged: free, and the ordinary cooldown starts.
+    expect(procs(cast(), 'blood_price')).toHaveLength(0);
+    expect(a.h.hp).toBe(a.h.maxHp);
+    expect(a.h.secondaryCdMax).toBe(secondaryCooldown(a.h));
+    expect(secondaryCooldown(a.h)).toBe(CLASSES.mage.secondary.cooldown);
+    expect(a.w.getSnapshotBody().players[0]!.cdSecondary).toBeGreaterThan(0.9);
+    // Too early even for blood.
+    stepN(a.w, seconds(bp.minCooldown! - 0.4));
+    a.h.lockTime = 0;
+    expect(of(cast(), 'cast')).toHaveLength(0);
+    // After minCooldown: it fires for health, without a `hit` on the hero.
+    expect(of(stepN(a.w, seconds(0.5)), 'cast')).toHaveLength(0);
+    a.h.lockTime = 0;
+    const ev = cast();
+    expect(of(ev, 'cast').map((c) => c.ability)).toEqual([CLASSES.mage.secondary.id]);
     expect(a.h.hp).toBeCloseTo(a.h.maxHp * (1 - bp.hpFraction!), 5);
-    expect(a.h.secondaryCd).toBeCloseTo(bp.minCooldown! - TICK_DT, 5);
     expect(procs(ev, 'blood_price')[0]!.n).toBe(Math.round(a.h.maxHp * bp.hpFraction!));
     expect(of(ev, 'hit').filter((h) => h.target.t === 'p')).toHaveLength(0);
-    // Cast until it refuses: the hero ends at exactly 1 health and is still standing.
-    let casts = 1;
+    // The recharge that was under way went on: the paid cast did not restart it.
+    expect(a.h.secondaryCdMax).toBe(CLASSES.mage.secondary.cooldown);
+    expect(a.h.secondaryCd).toBeLessThan(CLASSES.mage.secondary.cooldown - bp.minCooldown!);
+    // Cast early until it refuses: the hero ends at exactly 1 health and is still standing.
+    let paid = 1;
     for (let i = 0; i < 40; i++) {
-      stepN(a.w, seconds(1));
+      stepN(a.w, seconds(bp.minCooldown! + 0.1));
+      a.h.lockTime = 0;
+      a.h.secondaryCd = 3;
       const before = a.h.hp;
-      const step = a.pad.hold({ aim: 0, aimDist: 5, buttons: BTN.SECONDARY }, 1);
-      a.pad.hold({ aim: 0 }, 1);
-      if (procs(step, 'blood_price').length > 0) casts++;
+      if (procs(cast(), 'blood_price').length > 0) paid++;
       else expect(a.h.hp).toBe(before);
     }
     expect(a.h.hp).toBe(1);
     expect(a.h.state).toBe('alive');
-    expect(casts).toBe(Math.ceil(1 / bp.hpFraction!));
-    // Cooldown boons cannot push it below the floor, and a short cooldown is not made longer.
-    give(a.h, 'quick_wits');
-    expect(secondaryCooldown(a.h)).toBe(bp.minCooldown);
+    expect(paid).toBe(Math.ceil(1 / bp.hpFraction!));
+    // At 1 health it waits for the recharge, and then fires for free.
+    a.h.secondaryCd = 0.2;
+    stepN(a.w, seconds(0.4));
+    expect(of(cast(), 'cast')).toHaveLength(1);
+    expect(a.h.hp).toBe(1);
   });
 });
 
@@ -770,15 +792,17 @@ describe('class keystones', () => {
     expect(procs(ev, 'ks_shade')).toHaveLength(1);
     expect(a.h.dashCharges).toBe(1);
     expect(hunter.target).toBe(-1);
-    const from = { x: hunter.x, z: hunter.z };
-    stepN(a.w, seconds(0.6));
-    expect(Math.hypot(hunter.x - from.x, hunter.z - from.z)).toBeLessThan(0.5);
+    // It walks to where the shade vanished, but starts no attack while the veil lasts.
+    let attacked = false;
+    for (let t = 0; t < seconds(p.stealth! - 0.6); t++) { stepN(a.w, 1); attacked = attacked || hunter.attack !== null || hunter.target === 0; }
+    expect(attacked).toBe(false);
+    expect(Math.hypot(hunter.x - a.h.ks.veilX, hunter.z - a.h.ks.veilZ)).toBeLessThan(5);
     // The next hit out of the veil: +damage (from the front, so no backstab bonus on top).
     const next = dummy(a.w, 0, 1.5);
     next.rot = Math.PI;
     use(a, BTN.PRIMARY, 0.2);
     expect(lost(next)).toBeCloseTo(stab.damage * (1 + p.damage!), 5);
-    stepN(a.w, seconds(p.stealth!));
+    stepN(a.w, seconds(0.2));
     expect(a.h.ks.veilTime).toBe(0);
     stepN(a.w, seconds(1.5));
     expect(hunter.target).toBe(0);

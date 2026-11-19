@@ -131,8 +131,9 @@ export class BotClient {
   inputsSent = 0;
   maxAck = 0;
   runsEnded = 0;
-  /** Keystone drafts this bot was offered. */
+  /** Keystone drafts this bot was offered, and the last one as it arrived. */
   keystoneDrafts = 0;
+  lastKeystoneDraft: Extract<ServerMsg, { t: 'draft' }> | null = null;
   lastError = '';
   rttMs = 0;
   closed = false;
@@ -317,6 +318,7 @@ export class BotClient {
         break;
       case 'draft':
         this.rerolls = msg.rerolls;
+        if (msg.keystone) this.lastKeystoneDraft = msg;
         this.onDraft(msg.options, msg.keystone);
         break;
       case 'ev':

@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { TICK_DT, WORLD } from '@shared/constants.ts';
-import { KEYSTONES, KEYSTONE_CAPS } from '@shared/data/keystones.ts';
+import { KEYSTONES, KEYSTONE_BY_ID, KEYSTONE_CAPS } from '@shared/data/keystones.ts';
 import { killEnemy, setStatus } from '@shared/sim/combat.ts';
 import { maxBuild, maxMetaLevels } from '@shared/sim/index.ts';
 import { BTN, CLASS_IDS, type ClassId, type GameEvent } from '@shared/types.ts';
@@ -164,7 +164,7 @@ describe('caps', () => {
     for (let t = 0; t < seconds(20); t++) {
       a.h.hp = a.h.maxHp;
       const ev: GameEvent[] = a.pad.hold({ aim: 0, buttons: t % 2 === 0 ? BTN.SECONDARY : 0 }, 1);
-      casts += of(ev, 'keystoneProc').filter((p) => p.id === 'blood_price').length;
+      casts += of(ev, 'cast').filter((c) => c.ability === 'templar_consecrate').length;
       twins += of(ev, 'keystoneProc').filter((p) => p.id === 'twin_cast').length;
       expect(a.h.pending.filter((p) => p.twin).length).toBeLessThanOrEqual(KEYSTONE_CAPS.TWINS_PENDING);
       expect(a.w.zones.filter((z) => z.def.shape !== 'trap').length).toBeLessThanOrEqual(KEYSTONE_CAPS.ZONES_PER_HERO);
@@ -179,7 +179,7 @@ describe('caps', () => {
     for (const id of ['twin_cast', 'blood_price']) b.w.grantKeystone(0, id);
     let paid = 0;
     for (let t = 0; t < seconds(30); t++) paid += of(b.pad.hold({ aim: 0, aimDist: 5, buttons: t % 2 === 0 ? BTN.SECONDARY : 0 }, 1), 'keystoneProc').filter((p) => p.id === 'blood_price').length;
-    expect(paid).toBe(13);
+    expect(paid).toBe(Math.ceil(1 / KEYSTONE_BY_ID.get('blood_price')!.params.hpFraction!));
     expect(b.h.hp).toBe(1);
   });
 

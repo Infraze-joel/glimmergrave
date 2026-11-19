@@ -209,6 +209,9 @@ export interface KeystoneState extends KeystoneFlags {
   phaseDone: boolean;
   /** Veil of Knives: seconds left, the bonus hit is still armed, the tick it was spent in. */
   veilTime: number;
+  /** Where the shade vanished (enemies without another target walk there). */
+  veilX: number;
+  veilZ: number;
   veilHit: boolean;
   veilTick: number;
   /** Ricochet: melee swings since the last thrown blade. Fan the Hammer: bolts since the last fan. */
@@ -230,6 +233,8 @@ export interface KeystoneState extends KeystoneFlags {
   barrierPeak: number;
   /** Arc Stream: seconds the hero still counts as channelling. */
   channel: number;
+  /** Blood Price: seconds until the secondary may be used early again. */
+  priceWait: number;
   /** Twin Cast of a spin (whirlwind, rune ward). */
   spinTwin: SpinState | null;
   /** keystoneProc rate limit: tick of the last burst and events in it, per keystone id. */
@@ -322,6 +327,8 @@ export interface Hero {
   boons: BoonStack[];
   /** Keystones held, in the order taken (data/keystones.ts), and their state. */
   keystones: string[];
+  /** RunState.chambersCleared when each keystone in `keystones` was taken (same order). */
+  keystoneAt: number[];
   ks: KeystoneState;
   /** The current draft offers keystones (ids in `draft`); with full slots a pick must name the one to give up. */
   draftKeystone: boolean;

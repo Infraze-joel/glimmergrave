@@ -128,6 +128,7 @@ export class Room {
         host: s.slot === this.hostSlot,
         boons: this.world.getBoons(s.slot),
         keystones: this.world.getKeystones(s.slot),
+        keystoneAt: this.world.getKeystoneAt(s.slot),
       });
     }
     return out;

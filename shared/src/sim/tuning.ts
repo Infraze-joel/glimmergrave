@@ -89,6 +89,10 @@ export const META = {
 } as const;
 
 export const AI = {
+  /** Veil of Knives: enemies that lost a shade walk to where it vanished and stop this far from the spot. */
+  VEIL_SEARCH_STOP: 1,
+  /** ...and when they find a hero again they need this long (drawn per enemy) before their next attack, so a pack does not strike as one. */
+  VEIL_REACQUIRE_MIN: 0.5, VEIL_REACQUIRE_MAX: 1.4,
   // ---- update 4: the five new kinds (numbers both sides must know live in ENEMY_TUNING).
   // SHAMAN.MAX_MENDS: an enemy can be mended this often in its life, so healing never outlasts a weak party.
   SHAMAN: { BAND: 1.5, BOLT_TELEGRAPH_WIDTH: 0.8, BOLT_RANGE: 16, FIRST_MEND: 2.5, MEND_APPROACH: 0.8, MEND_SOON: 1.5, MAX_MENDS: 2 },
@@ -329,5 +333,5 @@ export const KS = {
   /** Twin Cast: a twinned trap arms after this long. */
   TWIN_TRAP_ARM: 0.2,
   /** Enemy growth that pays for keystones: health / damage multipliers per elite chamber cleared at this depth. */
-  ELITE_HP_GROWTH: 0, ELITE_DAMAGE_GROWTH: 0,
+  ELITE_HP_GROWTH: 0.16, ELITE_DAMAGE_GROWTH: 0.08,
 } as const;

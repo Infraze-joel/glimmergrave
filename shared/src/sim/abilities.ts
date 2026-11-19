@@ -41,8 +41,7 @@ export const secondaryCooldown = (h: Hero): number => (h.abil.secondary.cooldown
  * Blood Price: the secondary may be used again `minCooldown` seconds after its last use although it has not
  * recharged — for a price in health (see activate). Never the last point of health: at 1 health it waits.
  */
-export const canCastEarly = (h: Hero): boolean =>
-  h.ks.bloodPrice && h.hp > 1 && h.secondaryCd > SIM.EPS && h.secondaryCdMax - h.secondaryCd >= KP.price.minCooldown - SIM.EPS;
+export const canCastEarly = (h: Hero): boolean => h.ks.bloodPrice && h.hp > 1 && h.secondaryCd > SIM.EPS && h.ks.priceWait <= SIM.EPS;
 
 /** Primary attacks are this many times faster (cooldown, windup and lock are divided by it). */
 export function attackSpeed(h: Hero): number {
@@ -111,20 +110,23 @@ function activate(w: World, h: Hero, def: AbilityDef, slot: AbilitySlot, cmd: In
     h.comboTime = lock + COMBO_WINDOW;
     h.pressPrimary = 0;
   } else if (slot === 'secondary') {
+    h.pressSecondary = 0;
     if (h.ks.bloodPrice) {
       h.ks.casts++;
-      if (h.secondaryCd > SIM.EPS) {
-        // Blood Price: cast before it had recharged, paid in health (never the last point).
-        const cost = Math.min(h.hp - 1, h.maxHp * KP.price.hpFraction);
-        h.hp -= cost;
-        h.ks.extraCasts++;
-        proc(w, h, 'blood_price', h.body.x, h.body.z, { n: Math.round(cost) }, true);
-      }
+      h.ks.priceWait = KP.price.minCooldown;
     }
-    const cd = secondaryCooldown(h);
-    h.secondaryCd = cd;
-    h.secondaryCdMax = cd;
-    h.pressSecondary = 0;
+    if (h.ks.bloodPrice && h.secondaryCd > SIM.EPS) {
+      // Blood Price: cast before it had recharged, paid in health (never the last point). The recharge that is
+      // under way simply goes on, so the next free cast comes no later than it would have.
+      const cost = Math.min(h.hp - 1, h.maxHp * KP.price.hpFraction);
+      h.hp -= cost;
+      h.ks.extraCasts++;
+      proc(w, h, 'blood_price', h.body.x, h.body.z, { n: Math.round(cost) }, true);
+    } else {
+      const cd = secondaryCooldown(h);
+      h.secondaryCd = cd;
+      h.secondaryCdMax = cd;
+    }
     shield += h.mods.shieldOnSecondary;
     if (h.talent.spellweave) h.spellweave = true;
   } else {

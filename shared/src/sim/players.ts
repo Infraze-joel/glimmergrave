@@ -39,7 +39,7 @@ export function createHero(slot: number, cls: ClassId, name: string, loadout?: u
     lockTime: 0, lockMoveMul: 1, comboIndex: 0, comboTime: 0, primaryCd: 0, secondaryCd: 0, secondaryCdMax: def.secondary.cooldown,
     dashCharges: def.dashCharges, dashRecharge: 0, dashHit: new Set(), pending: [], spin: null, lunge: null, flight: false, invuln: 0,
     ult: 0, buffs: { bloodrage: 0, bulwark: 0, overload: 0 }, taunt: 0, overloadEls: [], overloadIndex: 0,
-    boons: [], keystones: [], ks: emptyKeystoneState(), draftKeystone: false, stats: emptyStats(), lastStandUsed: false, oathbondTime: 0, oathbondArmed: true, aura: 0,
+    boons: [], keystones: [], keystoneAt: [], ks: emptyKeystoneState(), draftKeystone: false, stats: emptyStats(), lastStandUsed: false, oathbondTime: 0, oathbondArmed: true, aura: 0,
     revive: 0, secondWindTimer: 0, draft: [], draftOpts: null,
     rerolls: meta.stats.rerolls + (perm.relic.hourglass > 0 ? 1 : 0), metaLevels: meta.levels, meta: meta.stats,
     build, perm: perm.mods, mods: emptyMods(), abil: buildAbilities(def, build.art, { boons: [] }, 0), talent: perm.talent, relic: perm.relic,
@@ -47,7 +47,7 @@ export function createHero(slot: number, cls: ClassId, name: string, loadout?: u
     momentum: 0, momentumTime: 0, rampage: 0, rampageTime: 0, riposte: false, spellweave: false, echoCount: 0, coilHits: 0,
     phoenixUsed: false, slipstreamTime: 0, sanctuary: 0, shards: [], cursedShards: 0,
     burnTime: 0, burnTimer: 0, chillTime: 0, inDoor: false,
-    run: { slot, damage: 0, kills: 0, resonances: 0, revives: 0, downs: 0, elites: 0, bosses: 0, ultimates: 0 },
+    run: { slot, damage: 0, kills: 0, resonances: 0, revives: 0, downs: 0, elites: 0, bosses: 0, ultimates: 0, chamberDamage: [] },
     damageTaken: 0,
   };
   refreshHero(h);

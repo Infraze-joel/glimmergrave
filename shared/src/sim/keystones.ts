@@ -8,9 +8,9 @@
  */
 import { TICK_DT, WORLD } from '../constants.ts';
 import { ULTIMATE } from '../data/classes.ts';
-import { KEYSTONES, KEYSTONE_BY_ID, KEYSTONE_CAPS, KEYSTONE_TUNING } from '../data/keystones.ts';
+import { KEYSTONES, KEYSTONE_BY_ID, KEYSTONE_CAPS, KEYSTONE_NEEDS_ELEMENTS, KEYSTONE_TUNING } from '../data/keystones.ts';
 import { ELEMENT_IDS, type AbilitySlot, type BoonOffer, type ElementId, type InputCmd } from '../types.ts';
-import { maxDashCharges } from './boons.ts';
+import { heroElements, maxDashCharges } from './boons.ts';
 import { refreshHero } from './build.ts';
 import { addCharge, allDamage, applyElement, healHero, isBoss, isTargetable, rawDamageEnemy, strikeEnemy } from './combat.ts';
 import { rayLength } from './enemies.ts';
@@ -80,10 +80,13 @@ export function takeKeystone(w: World, h: Hero, id: string, replace?: string): b
   const beforeMaxHp = h.maxHp;
   const beforeCharges = maxDashCharges(h);
   if (replaced) {
-    h.keystones.splice(h.keystones.indexOf(replaced), 1);
+    const at = h.keystones.indexOf(replaced);
+    h.keystones.splice(at, 1);
+    h.keystoneAt.splice(at, 1);
     dropKeystoneState(h, replaced);
   }
   h.keystones.push(id);
+  h.keystoneAt.push(w.run.chambersCleared);
   refreshHero(h);
   const gain = h.maxHp - beforeMaxHp;
   if (gain > 0 && h.state === 'alive') h.hp = Math.min(h.maxHp, h.hp + gain);
@@ -134,7 +137,8 @@ export function resetKeystoneTimers(h: Hero): void {
  * `exclude` (rerolls): what was just shown, offered again only when nothing else is left.
  */
 export function generateKeystoneDraft(rng: Rng, h: Hero, pins: readonly string[] = [], exclude?: ReadonlySet<string>): BoonOffer[] {
-  const eligible = KEYSTONES.filter((k) => !h.keystones.includes(k.id) && (k.cls === undefined || k.cls === h.cls));
+  const elements = heroElements(h).size;
+  const eligible = KEYSTONES.filter((k) => !h.keystones.includes(k.id) && (k.cls === undefined || k.cls === h.cls) && elements >= (KEYSTONE_NEEDS_ELEMENTS[k.id] ?? 0));
   const pool = exclude ? eligible.filter((k) => !exclude.has(k.id)) : [...eligible];
   const picked: string[] = [];
   for (const id of pins) {
@@ -330,6 +334,8 @@ export function onBackstabKill(w: World, h: Hero, e: Enemy): void {
   if (h.dashCharges >= max) h.dashRecharge = 0;
   ks.veilTime = KP.shade.stealth;
   ks.veilHit = true;
+  ks.veilX = h.body.x;
+  ks.veilZ = h.body.z;
   w.emit({ e: 'buff', slot: h.slot, id: 'ks_shade', dur: KP.shade.stealth });
   proc(w, h, 'ks_shade', e.x, e.z);
   // Whoever was after the shade loses track of it.
@@ -594,6 +600,7 @@ export function stepKeystones(w: World, h: Hero, dt: number): void {
   if (h.keystones.length === 0) return;
   if (ks.chainCd > 0) ks.chainCd -= dt;
   if (ks.channel > 0) ks.channel = Math.max(0, ks.channel - dt);
+  if (ks.priceWait > 0) ks.priceWait -= dt;
   if (ks.phaseTime > 0) {
     ks.phaseTime -= dt;
     if (ks.phaseTime <= SIM.EPS) { ks.phaseTime = 0; ks.phaseCrit = false; }

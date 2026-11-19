@@ -74,7 +74,7 @@ describe('create / join', () => {
     expect(w.token.length).toBeGreaterThanOrEqual(16);
     const roster = await c.next('roster');
     expect(roster.oath).toBe(0);
-    expect(roster.players).toEqual([{ slot: 0, name: 'Ada b', cls: 'rogue', look: DEFAULT_LOOK, mastery: 1, art: 0, relics: 0, talents: 0, ready: false, connected: true, host: true, boons: [], keystones: [] }]);
+    expect(roster.players).toEqual([{ slot: 0, name: 'Ada b', cls: 'rogue', look: DEFAULT_LOOK, mastery: 1, art: 0, relics: 0, talents: 0, ready: false, connected: true, host: true, boons: [], keystones: [], keystoneAt: [] }]);
     const run = await c.next('run');
     expect(run.state.phase).toBe('lobby');
     expect(run.state.room).toBeNull();

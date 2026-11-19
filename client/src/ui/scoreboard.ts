@@ -39,7 +39,7 @@ const COLUMNS: readonly Column[] = [
   { key: 'downs', icon: 'down', inverse: true },
 ];
 
-const EMPTY_STATS: Omit<PlayerRunStats, 'slot'> = { damage: 0, kills: 0, resonances: 0, revives: 0, downs: 0, elites: 0, bosses: 0, ultimates: 0 };
+const EMPTY_STATS: Omit<PlayerRunStats, 'slot'> = { damage: 0, kills: 0, resonances: 0, revives: 0, downs: 0, elites: 0, bosses: 0, ultimates: 0, chamberDamage: [] };
 
 /** Reward columns of the run summary (RunState.rewards). */
 const REWARD_COLUMNS: readonly { key: 'glimmer' | 'xp' | 'shards'; icon: IconName }[] = [

@@ -78,25 +78,25 @@ const look = (color: number, style = 0, head = true, cape = true): Look => ({ co
 function roster(): RosterEntry[] {
   return [
     {
-      slot: 0, name: 'Aldric', cls: 'knight', look: look(2, 1), mastery: 7, art: 1, relics: 1, talents: 1, ready: true, connected: true, host: true, keystones: [],
+      slot: 0, name: 'Aldric', cls: 'knight', look: look(2, 1), mastery: 7, art: 1, relics: 1, talents: 1, ready: true, connected: true, host: true, keystones: [], keystoneAt: [],
       boons: [
         { id: 'infuse_ember_primary', level: 1 }, { id: 'keen_edge', level: 2 }, { id: 'barrier', level: 1 },
         { id: 'amplifier', level: 1 }, { id: 'spare_step', level: 1 }, { id: 'kindred_flame', level: 1 },
       ],
     },
     {
-      slot: 1, name: 'Brunhild', cls: 'templar', look: look(0), mastery: 23, art: 0, relics: 2, talents: 3, ready: true, connected: true, host: false, keystones: [],
+      slot: 1, name: 'Brunhild', cls: 'templar', look: look(0), mastery: 23, art: 0, relics: 2, talents: 3, ready: true, connected: true, host: false, keystones: [], keystoneAt: [],
       boons: [{ id: 'infuse_storm_secondary', level: 1 }, { id: 'heavy_hand', level: 3 }, { id: 'iron_heart', level: 2 }],
     },
     {
-      slot: 2, name: 'Mirelle', cls: 'spellblade', look: look(5, 2, true, false), mastery: 3, art: 0, relics: 0, talents: 0, ready: false, connected: true, host: false, keystones: [],
+      slot: 2, name: 'Mirelle', cls: 'spellblade', look: look(5, 2, true, false), mastery: 3, art: 0, relics: 0, talents: 0, ready: false, connected: true, host: false, keystones: [], keystoneAt: [],
       boons: [
         { id: 'infuse_rime_primary', level: 2 }, { id: 'deep_frost', level: 1 }, { id: 'echo', level: 1 },
         { id: 'quick_wits', level: 2 },
       ],
     },
     {
-      slot: 3, name: 'Schattenklinge99', cls: 'shade', look: look(4, 1, false), mastery: 112, art: 1, relics: 3, talents: 1, ready: true, connected: false, host: false, keystones: [],
+      slot: 3, name: 'Schattenklinge99', cls: 'shade', look: look(4, 1, false), mastery: 112, art: 1, relics: 3, talents: 1, ready: true, connected: false, host: false, keystones: [], keystoneAt: [],
       boons: [{ id: 'deadeye', level: 1 }, { id: 'fleet_foot', level: 2 }],
     },
   ];
@@ -128,10 +128,10 @@ function run(patch: Partial<RunState> = {}): RunState {
     bossKind: null, finalBoss: 'matron', rewards: [], tutorial: null, depth: 0, cleared: 0, chambersCleared: 4, objective: null, objectivesDone: 0, objectiveBonuses: 0,
     doors: [], doorProgress: [], bossId: -1, draftPending: [], draftTime: RUN.DRAFT_TIMEOUT_SECONDS, elapsed: 437,
     stats: [
-      { slot: 0, damage: 12480, kills: 61, resonances: 14, revives: 2, downs: 1, elites: 3, bosses: 1, ultimates: 4 },
-      { slot: 1, damage: 15230, kills: 74, resonances: 9, revives: 1, downs: 0, elites: 5, bosses: 0, ultimates: 6 },
-      { slot: 2, damage: 9870, kills: 38, resonances: 21, revives: 0, downs: 3, elites: 1, bosses: 0, ultimates: 2 },
-      { slot: 3, damage: 4410, kills: 19, resonances: 2, revives: 0, downs: 2, elites: 0, bosses: 0, ultimates: 1 },
+      { slot: 0, damage: 12480, kills: 61, resonances: 14, revives: 2, downs: 1, elites: 3, bosses: 1, ultimates: 4, chamberDamage: [] },
+      { slot: 1, damage: 15230, kills: 74, resonances: 9, revives: 1, downs: 0, elites: 5, bosses: 0, ultimates: 6, chamberDamage: [] },
+      { slot: 2, damage: 9870, kills: 38, resonances: 21, revives: 0, downs: 3, elites: 1, bosses: 0, ultimates: 2, chamberDamage: [] },
+      { slot: 3, damage: 4410, kills: 19, resonances: 2, revives: 0, downs: 2, elites: 0, bosses: 0, ultimates: 1, chamberDamage: [] },
     ],
     secondWinds: 0,
     ...patch,

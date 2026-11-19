@@ -4,6 +4,7 @@ import { RUN } from '@shared/constants.ts';
 import { BOONS, BOON_BY_ID, BOON_TUNING } from '@shared/data/boons.ts';
 import { boonTags, BUILD_TAGS, KEYSTONES, KEYSTONE_BY_ID, KEYSTONE_TUNING, sharedTags } from '@shared/data/keystones.ts';
 import { draftWeight, heldTags } from '@shared/sim/boons.ts';
+import { strikeEnemy } from '@shared/sim/combat.ts';
 import { generateKeystoneDraft } from '@shared/sim/keystones.ts';
 import { applyBoon, generateDraft, Rng, World, type Hero } from '@shared/sim/index.ts';
 import { CLASS_IDS, type ClassId, type GameEvent } from '@shared/types.ts';
@@ -306,5 +307,63 @@ describe('build tags', () => {
     expect(marked + w.getDraft(0).length).toBeGreaterThan(0);
     // Picking a boon still works exactly as before.
     expect(applyBoon(plain, 'keen_edge')).toBe(1);
+  });
+});
+
+describe('growth data for the summary (contract additions of update 5)', () => {
+  it('PlayerRunStats.chamberDamage: one entry per chamber entered, in order across depths; the last one is the current chamber', () => {
+    const w = new World();
+    w.addPlayer(0, 'knight', 'A');
+    w.addPlayer(1, 'mage', 'B');
+    w.start(0, 31);
+    expect(w.getRunState().stats.map((s) => s.chamberDamage)).toEqual([[0], [0]]);
+    let total = 0;
+    for (let chamber = 0; chamber < RUN.CHAMBERS.length + 2; chamber++) {
+      // Slot 0 lands every killing blow of finishChamber; kills by killEnemy deal no damage, so strike something first.
+      const h = w.hero(0)!;
+      for (let t = 0; t < seconds(4) && w.enemies.every((e) => e.dead || e.spawnTime > 0); t++) { for (const x of w.heroes) x.invuln = 1; w.step(); }
+      const foe = w.enemies.find((e) => !e.dead && e.spawnTime <= 0)!;
+      const before = h.run.damage;
+      strikeEnemy(w, h, foe, 7 + chamber, 'primary', { fromX: 0, fromZ: 0, stun: 0, knockback: 0 });
+      const dealt = h.run.damage - before;
+      expect(dealt).toBeGreaterThan(0);
+      total += dealt;
+      const stats = w.getRunState().stats[0]!;
+      expect(stats.chamberDamage).toHaveLength(chamber + 1);
+      expect(stats.chamberDamage[chamber]).toBe(Math.round(dealt));
+      finishChamber(w);
+      // The run state that leaves `combat` carries the final tally of the chamber.
+      expect(w.run.phase).toBe('draft');
+      expect(w.getRunState().stats[0]!.chamberDamage[chamber]).toBe(Math.round(dealt));
+      expect(w.getRunState().stats[1]!.chamberDamage).toHaveLength(chamber + 1);
+      draftAll(w);
+      takeDoor(w, 0);
+    }
+    expect(w.run.depth).toBe(1);
+    const stats = w.getRunState().stats[0]!;
+    expect(stats.chamberDamage).toHaveLength(RUN.CHAMBERS.length + 3);
+    expect(stats.chamberDamage.at(-1)).toBe(0);
+    expect(Math.abs(stats.chamberDamage.reduce((a, b) => a + b, 0) - stats.damage)).toBeLessThanOrEqual(stats.chamberDamage.length);
+    expect(stats.damage).toBe(Math.round(total));
+    w.reset();
+    expect(w.hero(0)!.run.chamberDamage).toEqual([]);
+  });
+
+  it('keystoneAt: chambers cleared when each held keystone was taken, in the order of `keystones`, also after a replace', () => {
+    const w = new World();
+    w.addPlayer(0, 'knight', 'A');
+    w.start(0, 8, 0, { keystones: ['colossus', 'sanguine', 'familiar'] });
+    for (let chamber = 0; chamber <= HERALD; chamber++) {
+      finishChamber(w);
+      const ks = w.getKeystoneDraft(0);
+      if (ks) expect(w.pickBoon(0, 0)).toBe(true);
+      draftAll(w);
+      takeDoor(w, 0);
+    }
+    expect(w.getKeystones(0)).toEqual(['colossus', 'sanguine']);
+    expect(w.getKeystoneAt(0)).toEqual([CHAMPION + 1, HERALD + 1]);
+    expect(w.grantKeystone(0, 'familiar', 'colossus')).toBe(true);
+    expect(w.getKeystones(0)).toEqual(['sanguine', 'familiar']);
+    expect(w.getKeystoneAt(0)).toEqual([HERALD + 1, w.run.chambersCleared]);
   });
 });

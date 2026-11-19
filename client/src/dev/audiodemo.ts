@@ -107,7 +107,7 @@ function roster(): RosterEntry[] {
   return CLASS_IDS.map((cls, i) => ({
     slot: i, name: i === DEMO.OWN_SLOT ? 'You' : `Ally ${i}`, cls: i === DEMO.OWN_SLOT ? ownClass : cls, look,
     mastery: 1, art: i === DEMO.OWN_SLOT ? ownArt : 0, relics: 0, talents: 0, ready: true, connected: true, host: i === DEMO.OWN_SLOT, boons: [],
-    keystones: keystonesOf.get(i) ?? [],
+    keystones: keystonesOf.get(i) ?? [], keystoneAt: (keystonesOf.get(i) ?? []).map(() => 0),
   }));
 }
 

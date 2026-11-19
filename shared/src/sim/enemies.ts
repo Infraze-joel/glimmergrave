@@ -158,6 +158,18 @@ export function taunting(w: World, e: Enemy): Hero | null {
   return null;
 }
 
+/** The nearest veiled hero (Veil of Knives), whose last seen position enemies search. */
+function lastSeenVeiled(w: World, e: Enemy): Hero | null {
+  let best: Hero | null = null;
+  let bestD = Infinity;
+  for (const h of w.heroes) {
+    if (h.ks.veilTime <= 0 || !isTargetHero(h)) continue;
+    const d = Math.hypot(h.ks.veilX - e.x, h.ks.veilZ - e.z);
+    if (d < bestD) { bestD = d; best = h; }
+  }
+  return best;
+}
+
 /** Nearest living hero with stickiness: the current target is kept unless another hero is clearly closer. */
 export function pickTarget(w: World, e: Enemy, dt: number): Hero | null {
   const taunter = taunting(w, e);
@@ -591,7 +603,16 @@ export function stepEnemy(w: World, e: Enemy): void {
     pad = shard.r;
   }
   if (!target) {
-    setAnim(e, 'idle');
+    // Nobody in sight. If a shade just vanished (Veil of Knives), the enemy walks to where it was last seen.
+    const lost = lastSeenVeiled(w, e);
+    if (lost && e.attackCd < AI.VEIL_REACQUIRE_MIN) e.attackCd = w.rng.range(AI.VEIL_REACQUIRE_MIN, AI.VEIL_REACQUIRE_MAX);
+    if (lost && Math.hypot(lost.ks.veilX - e.x, lost.ks.veilZ - e.z) > e.radius + AI.VEIL_SEARCH_STOP) {
+      steer(w, e, lost.ks.veilX, lost.ks.veilZ, enemySpeed(e), 1);
+      setAnim(e, 'move');
+      resolveCollisions(e, e.radius, w.room);
+    } else {
+      setAnim(e, 'idle');
+    }
     return;
   }
   if (e.kind === 'archer') stepArcher(w, e, target, dt);

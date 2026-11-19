@@ -409,6 +409,12 @@ export class World {
     return h ? [...h.keystones] : [];
   }
 
+  /** RunState.chambersCleared when each held keystone was taken (RosterEntry.keystoneAt). */
+  getKeystoneAt(slot: number): number[] {
+    const h = this.hero(slot);
+    return h ? [...h.keystoneAt] : [];
+  }
+
   /** Tools / tests: hands a hero a keystone outside a draft (same rules as a pick). */
   grantKeystone(slot: number, id: string, replace?: string): boolean {
     const h = this.hero(slot);
@@ -467,7 +473,7 @@ export class World {
       tutorial: run.tutorial ? { ...run.tutorial, marker: run.tutorial.marker ? { ...run.tutorial.marker } : null } : null,
       room: run.phase === 'lobby' ? null : this.room,
       traits: this.getTraits(),
-      stats: this.heroes.map((h) => ({ ...h.run, damage: Math.round(h.run.damage) })),
+      stats: this.heroes.map((h) => ({ ...h.run, damage: Math.round(h.run.damage), chamberDamage: h.run.chamberDamage.map((d) => Math.round(d)) })),
     };
   }
 

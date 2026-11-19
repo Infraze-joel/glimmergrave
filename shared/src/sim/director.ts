@@ -526,6 +526,8 @@ export function enterChamber(w: World, index: number, entered: DoorType, objecti
   for (const h of w.heroes) {
     const spawn = w.room.spawns[h.slot % w.room.spawns.length] as { x: number; z: number };
     placeHero(h, spawn.x, spawn.z);
+    // A new entry in the damage-per-chamber tally (PlayerRunStats.chamberDamage).
+    h.run.chamberDamage.push(0);
     h.lastStandUsed = false;
     h.cursedShards = 0;
     h.draft = [];

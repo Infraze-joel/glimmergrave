@@ -270,6 +270,14 @@ export function killEnemy(w: World, e: Enemy, by: number, quiet = false): void {
 /** Fraction added to everything a hero deals: the `damage` mod times Glass Cannon. */
 export const allDamage = (h: Hero): number => (1 + h.mods.damage) * h.ks.damageMul;
 
+/** Adds to the hero's damage total and to the tally of the chamber it is in (PlayerRunStats.chamberDamage). */
+function countDamage(h: Hero, dealt: number): void {
+  h.run.damage += dealt;
+  const chambers = h.run.chamberDamage;
+  if (chambers.length === 0) chambers.push(dealt);
+  else chambers[chambers.length - 1] = (chambers[chambers.length - 1] as number) + dealt;
+}
+
 /** Bookkeeping for damage a hero dealt: the Sanguine Pact's leech and the per-keystone telemetry. */
 function credit(w: World, h: Hero, dealt: number): void {
   const ks = h.ks;
@@ -286,7 +294,7 @@ export function rawDamageEnemy(w: World, e: Enemy, amount: number, by: number, e
   e.hp -= dmg;
   const src = w.hero(by);
   if (src) {
-    src.run.damage += dealt;
+    countDamage(src, dealt);
     credit(w, src, dealt);
   }
   w.emit({ e: 'hit', target: { t: 'e', id: e.id }, x: e.x, z: e.z, dmg: Math.max(1, Math.round(dmg)), crit: false, el, by });
@@ -546,7 +554,7 @@ export function strikeEnemy(w: World, h: Hero, e: Enemy, base: number, slot: Abi
   if (!blocked) {
     const dealt = Math.min(e.hp, dmg);
     e.hp -= dmg;
-    h.run.damage += dealt;
+    countDamage(h, dealt);
     credit(w, h, dealt);
     if (slot === 'secondary') ks.secondaryDealt += dealt;
     else if (slot === 'primary' && ks.heavyHitter && direct) ks.dealt.heavy_hitter = (ks.dealt.heavy_hitter ?? 0) + dealt * (1 - 1 / (1 + KP.heavy.damage));

@@ -101,7 +101,7 @@ const BOT = {
    * due, keeping DASH_KEEP charges for dodging unless the bot has only one. Glass Cannon: wider safety margins.
    * Arc Stream: the stream's reach replaces the bolt's.
    */
-  PRICE_HP: 0.7, PRICE_HEAL_HP: 0.5, PRICE_PACK: 2, DASH_IN: 4.2, DASH_IN_MIN: 1.2, DASH_IN_SECONDS: 2.2, DASH_PACK: 2,
+  PRICE_HP: 0.75, PRICE_HEAL_HP: 0.55, PRICE_PACK: 3, DASH_IN: 4.2, DASH_IN_MIN: 1.2, DASH_IN_SECONDS: 2.2, DASH_PACK: 2,
   GLASS_LOW_HP: 0.6, GLASS_RANGE: 1.5, GLASS_MARGIN: 0.25, STREAM_REACH: 12,
   TUTORIAL_DASH_LEAD_SECONDS: 0.2, TUTORIAL_STAND: { x: 0, z: 1.5 }, TUTORIAL_HAZARD_STANDOFF: 1.8, TUTORIAL_STORM_DASH_RANGE: 3.6, TUTORIAL_CLOSE_RANGE: 3,
 } as const;

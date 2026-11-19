@@ -10,6 +10,8 @@
  *  - `tags` describe what a keystone feeds on. Ordinary boons carry tags too (boonTags below); a boon that
  *    shares a tag with a held keystone is marked "fits your build" in drafts and weighted up when rolled.
  *  - Class keystones (`cls`) are only offered to that class; at most one class keystone is in an offer.
+ *  - Two keystones need infusions to do anything and are only offered to a hero who has them: Corpse Bloom needs
+ *    one infusion, Resonance Engine infusions of two different elements (KEYSTONE_NEEDS_ELEMENTS).
  * The simulation implements each `id`; the numbers it needs are in `params` (English `summary` uses them).
  */
 import type { AbilitySlot, ClassId } from '../types.ts';
@@ -39,43 +41,43 @@ export const KEYSTONES: KeystoneDef[] = [
   // ---- how you move
   { id: 'ember_wake', slot: 'dash', tags: ['dash', 'status', 'area'], params: { seconds: 3.5, damage: 9, tick: 0.5, width: 1.6 },
     name: 'Blazing Wake', summary: 'Your dash leaves a burning trail for 3.5 s that damages enemies and applies your dash element (Ember without one).', cost: '' },
-  { id: 'shockstep', slot: 'dash', tags: ['dash', 'area', 'speed'], params: { damage: 26, radius: 3.2, knockback: 3, charges: 1 },
+  { id: 'shockstep', slot: 'dash', tags: ['dash', 'area', 'speed'], params: { damage: 38, radius: 3.6, knockback: 3, charges: 1 },
     name: 'Shockstep', summary: 'Every dash ends in a shockwave that hurls enemies back and applies your dash element. +1 dash charge.', cost: '' },
-  { id: 'phase_walker', slot: 'dash', tags: ['dash', 'crit', 'speed'], params: { seconds: 2, crit: 1, haste: 0.5 },
-    name: 'Phase Walker', summary: 'Dashing THROUGH an enemy empowers you for 2 s: your next hit is a guaranteed critical hit and your dash recharges 50% faster.', cost: 'Dashing without passing an enemy grants nothing.' },
+  { id: 'phase_walker', slot: 'dash', tags: ['dash', 'crit', 'speed'], params: { seconds: 3, crit: 1, haste: 1 },
+    name: 'Phase Walker', summary: 'Dashing THROUGH an enemy empowers you for 3 s: your next hit is a guaranteed critical hit and your dash recharges twice as fast.', cost: 'Dashing without passing an enemy grants nothing.' },
   // ---- how your primary works
-  { id: 'ricochet', slot: 'primary', tags: ['primary', 'projectile', 'melee'], params: { bounces: 2, falloff: 0.7, range: 7, every: 3 },
+  { id: 'ricochet', slot: 'primary', tags: ['primary', 'projectile', 'melee'], params: { bounces: 2, falloff: 0.8, range: 7, every: 3 },
     name: 'Ricochet', summary: 'Primary projectiles bounce to 2 more enemies. Melee: every 3rd swing throws a blade that bounces.', cost: '' },
-  { id: 'chain_lightning', slot: 'primary', tags: ['primary', 'status', 'area'], params: { targets: 3, fraction: 0.5, range: 6 },
-    name: 'Chain Lightning', summary: 'Primary hits arc to 3 nearby enemies for 50% damage and apply your primary element to them.', cost: '' },
-  { id: 'heavy_hitter', slot: 'primary', tags: ['primary', 'melee', 'crit', 'area'], params: { damage: 1.5, slow: 0.45, area: 0.4, knockback: 2 },
-    name: 'Titan Grip', summary: 'Primary attacks deal +150% damage, hit 40% wider and knock enemies back.', cost: 'They are 45% slower.' },
+  { id: 'chain_lightning', slot: 'primary', tags: ['primary', 'status', 'area'], params: { targets: 3, fraction: 0.8, range: 6 },
+    name: 'Chain Lightning', summary: 'Primary hits arc to 3 nearby enemies for 80% damage and apply your primary element to them.', cost: '' },
+  { id: 'heavy_hitter', slot: 'primary', tags: ['primary', 'melee', 'crit', 'area'], params: { damage: 1.5, slow: 0.35, area: 0.4, knockback: 2 },
+    name: 'Titan Grip', summary: 'Primary attacks deal +150% damage, hit 40% wider and knock enemies back.', cost: 'They are 35% slower.' },
   // ---- how your secondary works
-  { id: 'twin_cast', slot: 'secondary', tags: ['secondary', 'area'], params: { delay: 0.45, fraction: 0.65 },
-    name: 'Twin Cast', summary: 'Your secondary goes off a second time after 0.45 s at 65% strength.', cost: '' },
-  { id: 'blood_price', slot: 'secondary', tags: ['secondary', 'health'], params: { hpFraction: 0.08, minCooldown: 0.6 },
-    name: 'Blood Price', summary: 'Your secondary can be used again after 0.6 s, long before it has recharged.', cost: 'Using it before it has recharged costs 8% of your maximum health (it cannot kill you; at 1 health it will not fire early).' },
+  { id: 'twin_cast', slot: 'secondary', tags: ['secondary', 'area'], params: { delay: 0.45, fraction: 1 },
+    name: 'Twin Cast', summary: 'Your secondary goes off a second time after 0.45 s at full strength.', cost: '' },
+  { id: 'blood_price', slot: 'secondary', tags: ['secondary', 'health'], params: { hpFraction: 0.05, minCooldown: 0.6 },
+    name: 'Blood Price', summary: 'Your secondary can be used again after 0.6 s, long before it has recharged (the recharge runs on regardless).', cost: 'Using it before it has recharged costs 5% of your maximum health (it cannot kill you; at 1 health it will not fire early).' },
   // ---- companions and auras
   { id: 'orbit_blades', tags: ['primary', 'melee', 'area', 'summon'], params: { blades: 3, radius: 2.6, damageFraction: 0.45, rpm: 60 },
     name: 'Orbiting Blades', summary: 'Three blades circle you for good, cutting everything they touch for 45% of your primary damage and applying your primary element.', cost: '' },
-  { id: 'familiar', tags: ['projectile', 'summon', 'status'], params: { interval: 0.9, damageFraction: 0.6, range: 12 },
-    name: 'Glimmer Familiar', summary: 'A wisp follows you and shoots the nearest enemy every 0.9 s for 60% of your primary damage, with your primary element.', cost: '' },
+  { id: 'familiar', tags: ['projectile', 'summon', 'status'], params: { interval: 0.75, damageFraction: 0.8, range: 12 },
+    name: 'Glimmer Familiar', summary: 'A wisp follows you and shoots the nearest enemy every 0.75 s for 80% of your primary damage, with your primary element.', cost: '' },
   { id: 'colossus', tags: ['area', 'melee', 'health'], params: { size: 1.25, area: 0.4, knockback: 1.5, hp: 40, moveSpeed: -0.1 },
     name: 'Colossus', summary: 'You grow by a quarter: all your areas are 40% larger, your hits knock back, +40 maximum health.', cost: 'You move 10% slower.' },
   // ---- how you win fights
-  { id: 'corpse_bloom', tags: ['status', 'kill', 'area', 'resonance'], params: { radius: 3, damage: 20 },
+  { id: 'corpse_bloom', tags: ['status', 'kill', 'area', 'resonance'], params: { radius: 3.5, damage: 45 },
     name: 'Corpse Bloom', summary: 'An enemy that dies while carrying a status bursts, damaging enemies around it and passing that status on — chains can clear a room.', cost: '' },
-  { id: 'resonance_engine', slot: 'ultimate', tags: ['ultimate', 'resonance'], params: { perResonance: 14, burstArea: 0.3 },
-    name: 'Resonance Engine', summary: 'Each Resonance you trigger charges 14% of your ultimate, and your bursts are 30% larger.', cost: 'Your ultimate no longer charges from damage dealt or taken.' },
-  { id: 'glass_cannon', tags: ['crit', 'primary', 'secondary'], params: { damage: 0.6, hp: 0.5 },
-    name: 'Glass Cannon', summary: '+60% damage with everything.', cost: 'Your maximum health is halved.' },
-  { id: 'sanguine', tags: ['health', 'kill', 'melee'], params: { leech: 0.03, overheal: 30 },
-    name: 'Sanguine Pact', summary: 'Heal for 3% of all damage you deal; healing beyond full health becomes a shield (up to 30).', cost: 'Blessing doors, hallowed ground and other heroes no longer heal you.' },
-  { id: 'momentum_engine', tags: ['speed', 'kill', 'primary'], params: { perKill: 0.04, max: 10, seconds: 5 },
-    name: 'Bloodrush', summary: 'Each kill grants +4% attack and movement speed for 5 s, up to 10 stacks; kills refresh all stacks.', cost: '' },
+  { id: 'resonance_engine', slot: 'ultimate', tags: ['ultimate', 'resonance'], params: { perResonance: 25, burstArea: 0.5 },
+    name: 'Resonance Engine', summary: 'Each Resonance you trigger charges 25% of your ultimate, and your bursts are 50% larger.', cost: 'Your ultimate no longer charges from damage dealt or taken.' },
+  { id: 'glass_cannon', tags: ['crit', 'primary', 'secondary'], params: { damage: 1, hp: 0.6 },
+    name: 'Glass Cannon', summary: 'You deal double damage with everything.', cost: 'Your maximum health is reduced by 40%.' },
+  { id: 'sanguine', tags: ['health', 'kill', 'melee'], params: { leech: 0.02, overheal: 20 },
+    name: 'Sanguine Pact', summary: 'Heal for 2% of all damage you deal; healing beyond full health becomes a shield (up to 20).', cost: 'Blessing doors, hallowed ground and other heroes no longer heal you.' },
+  { id: 'momentum_engine', tags: ['speed', 'kill', 'primary'], params: { perKill: 0.06, max: 10, seconds: 6 },
+    name: 'Bloodrush', summary: 'Each kill grants +6% attack and movement speed for 6 s, up to 10 stacks; kills refresh all stacks.', cost: '' },
   // ---- class keystones
-  { id: 'ks_knight', cls: 'knight', slot: 'secondary', tags: ['shield', 'area', 'secondary'], params: { fraction: 1.5, radius: 3.2 },
-    name: 'Shieldburst', summary: 'Knight: whenever a shield of yours breaks or runs out, it bursts for 150% of what it held.', cost: '' },
+  { id: 'ks_knight', cls: 'knight', slot: 'secondary', tags: ['shield', 'area', 'secondary'], params: { fraction: 3, radius: 3.5 },
+    name: 'Shieldburst', summary: 'Knight: whenever a shield of yours breaks or runs out, it bursts for 300% of what it held.', cost: '' },
   { id: 'ks_barbarian', cls: 'barbarian', slot: 'secondary', tags: ['secondary', 'area', 'melee'], params: { pull: 5, moveMul: 1, duration: 0.5 },
     name: 'Maelstrom', summary: 'Barbarian: Whirlwind drags enemies towards you, lasts 50% longer and no longer slows you; Skullsplitter leaves a whirlwind where you land.', cost: '' },
   { id: 'ks_mage', cls: 'mage', slot: 'primary', tags: ['primary', 'projectile', 'status'], params: { tick: 0.12, damageFraction: 0.42, range: 13, width: 0.6, slow: 0.3 },
@@ -89,6 +91,9 @@ export const KEYSTONES: KeystoneDef[] = [
   { id: 'ks_shade', cls: 'shade', slot: 'dash', tags: ['dash', 'crit', 'kill'], params: { stealth: 1.5, damage: 0.5 },
     name: 'Veil of Knives', summary: 'Shade: a backstab kill resets a dash charge and veils you for 1.5 s — enemies lose track of you and your next hit deals +50% damage.', cost: '' },
 ];
+
+/** Keystones that are only offered to a hero with infusions of at least this many different elements. */
+export const KEYSTONE_NEEDS_ELEMENTS: Readonly<Record<string, number>> = { corpse_bloom: 1, resonance_engine: 2 };
 
 export const KEYSTONE_BY_ID: ReadonlyMap<string, KeystoneDef> = new Map(KEYSTONES.map((k) => [k.id, k]));
 
@@ -122,7 +127,7 @@ export const KEYSTONE_CAPS = {
   /** Orbiting Blades: one enemy is cut by one hero's blades at most once per this many seconds; blade hit radius. */
   BLADE_HIT_SECONDS: 0.33, BLADE_HIT_RADIUS: 0.7,
   /** Chain Lightning: seconds between two bursts of arcs of one hero (arcs never arc again). */
-  CHAIN_SECONDS: 0.3,
+  CHAIN_SECONDS: 0.25,
   /** Corpse Bloom: bursts resolved per tick, delay of a burst after the death, bursts that can wait at once. */
   BLOOMS_PER_TICK: 4, BLOOM_DELAY: 0.15, BLOOM_QUEUE: 48,
   /** Lasting zones (hallowed ground, smoke, maelstroms; not traps) one hero can have at once: the oldest ends. */
